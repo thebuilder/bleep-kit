@@ -33,14 +33,14 @@ export const presetTable = (name: string): number[] =>
 export interface WaveGrid {
   el: HTMLElement;
   /** draw a moving marker while a note plays (0..1) */
-  mark(phase: number): void;
-  set(table: readonly number[]): void;
+  mark: (phase: number) => void;
+  set: (table: readonly number[]) => void;
 }
 
 export function waveGrid(opts: {
   table: readonly number[];
   color: string;
-  onChange(table: number[]): void;
+  onChange: (table: number[]) => void;
   presets?: boolean;
 }): WaveGrid {
   let table = [...opts.table];
@@ -61,10 +61,10 @@ export function waveGrid(opts: {
     }
     ctx.fillStyle = "#0e0d14";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    for (let x = 0; x < TABLE_LEN; x++) {
+    for (let x = 0; x < TABLE_LEN; x += 1) {
       const v = clamp(table[x] ?? 0, 0, TABLE_MAX);
       ctx.fillStyle =
-        (x & 1) === 0 ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.0)";
+        x % 2 === 0 ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.0)";
       ctx.fillRect(x * 10, 0, 10, canvas.height);
       const top = (TABLE_MAX - v) * 10;
       ctx.fillStyle = rgba(opts.color, 0.38);
@@ -102,7 +102,7 @@ export function waveGrid(opts: {
     if (last >= 0 && last !== x) {
       const a = Math.min(last, x);
       const b = Math.max(last, x);
-      for (let i = a; i <= b; i++) {
+      for (let i = a; i <= b; i += 1) {
         const t = b === a ? 1 : (i - last) / (x - last);
         table[i] = Math.round(lastV + (v - lastV) * clamp(t, 0, 1));
       }

@@ -3,6 +3,8 @@
 import type { Doc } from "./state/docs.ts";
 import { project } from "./state/docs.ts";
 
+const HASH_PREFIX = /^#\/?/;
+
 export type Route =
   | { view: "pads" }
   | { view: "sfx"; id: string }
@@ -14,7 +16,7 @@ export type Route =
 export function parseRoute(hash: string): Route {
   const [path = "", query = ""] = hash.split("?");
   const parts = path
-    .replace(/^#\/?/, "")
+    .replace(HASH_PREFIX, "")
     .split("/")
     .filter(Boolean)
     .map(decodeURIComponent);
@@ -55,27 +57,27 @@ export function routeHash(r: Route): string {
 }
 
 export interface Command {
-  enabled?(): boolean;
+  enabled?: () => boolean;
   group: string;
   icon?: string;
   id: string;
   keys?: string;
-  run(): void;
+  run: () => void;
   title: string;
 }
 
 /** What the open view offers the shell: transport actions, key handling, its own palette commands. */
 export interface ViewHooks {
   /** The chip whose look the badge and backdrop follow. */
-  chip?(): import("./lib/contract.ts").ChipId | null;
-  commands?(): Command[];
+  chip?: () => import("./lib/contract.ts").ChipId | null;
+  commands?: () => Command[];
   /** The document the view edits, for undo, save, analysis and the conflict bar. */
-  doc?(): Doc | null;
+  doc?: () => Doc | null;
   /** Return true when the key was handled. */
-  onKey?(e: KeyboardEvent): boolean;
+  onKey?: (e: KeyboardEvent) => boolean;
   /** Space */
-  play?(): void;
-  stop?(): void;
+  play?: () => void;
+  stop?: () => void;
 }
 
 class App {

@@ -1,4 +1,3 @@
-// biome-ignore-all lint/suspicious/noBitwiseOperators: checksums, LCG noise and byte level parsing need bitwise operators
 import type { RenderResult } from "../../src/types.ts";
 
 /** Synthetic signals for the tools tests. */

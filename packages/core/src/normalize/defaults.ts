@@ -1,4 +1,3 @@
-// biome-ignore-all assist/source/useSortedKeys: the key order of a document is part of its file format (version first, then name and the rest as written in the architecture)
 /* Default documents and shared default pieces. Every default is a complete, valid, normalized value. */
 
 import { CHIPS, chipSfxWaves } from "../chips/index.ts";

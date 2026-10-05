@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_DUTIES } from "../src/engine/inst.ts";
 import { SynthImpl } from "../src/engine/synth.ts";
 import type { Effect, Instrument, Row, Song } from "../src/index.ts";
 import {
@@ -8,7 +9,7 @@ import {
   normalizeSong,
   noteToHz,
 } from "../src/index.ts";
-import { hashChannels, runSynth } from "./helpers.ts";
+import { hashChannels, rms, runSynth } from "./helpers.ts";
 
 const SR = 48_000;
 
@@ -336,5 +337,110 @@ describe("tracker effects per tick", () => {
     expect(events.filter((e) => e.type === "noteOn")).toHaveLength(1);
     // 0.5 semitone per tick: after 12000 frames (15 ticks) the target of 4 semitones is reached
     expect(voiceHz(synth)).toBeCloseTo(noteToHz(64), 2);
+  });
+
+  /** The voice of the first channel, for the values an effect sets on it. */
+  function voiceOf(synth: SynthImpl): {
+    duty: number;
+    generation: number;
+    sendEcho: number;
+  } {
+    const channels = (
+      synth as unknown as {
+        channelList: {
+          voice: { duty: number; generation: number; sendEcho: number };
+        }[];
+      }
+    ).channelList;
+    return channels[0]?.voice ?? { duty: 0, generation: 0, sendEcho: 0 };
+  }
+
+  it("slide down lowers the pitch every tick", () => {
+    const hz = hzAtTicks(setup([{ type: "slideDown", x: 1, y: 0 }]), 4);
+    expect(hz[1]).toBeCloseTo(noteToHz(59), 3);
+    expect(hz[3]).toBeCloseTo(noteToHz(57), 3);
+  });
+
+  it("vibrato swings the pitch around the note", () => {
+    const hz = hzAtTicks(setup([{ type: "vibrato", x: 8, y: 4 }]), 64);
+    const base = noteToHz(60);
+    expect(Math.max(...hz)).toBeGreaterThan(base * 1.001);
+    expect(Math.min(...hz)).toBeLessThan(base * 0.999);
+  });
+
+  it.each([
+    ["noteSlideUp", 4],
+    ["noteSlideDown", -4],
+  ] as const)("%s glides by y semitones and stops there", (type, semis) => {
+    const hz = hzAtTicks(setup([{ type, x: 4, y: 4 }]), 20);
+    expect(hz.at(-1)).toBeCloseTo(noteToHz(60 + semis), 3);
+    expect(hz[0]).toBeCloseTo(noteToHz(60), 3);
+  });
+
+  it("a note slide with a zero speed or distance does nothing", () => {
+    const hz = hzAtTicks(setup([{ type: "noteSlideUp", x: 0, y: 4 }]), 4);
+    expect(hz.at(-1)).toBeCloseTo(noteToHz(60), 3);
+  });
+
+  /** RMS of the left channel in each 800 frame tick window. */
+  function tickLevels(synth: SynthImpl, ticks: number): number[] {
+    const { left } = runSynth(synth, 800 * ticks);
+    const out: number[] = [];
+    for (let t = 0; t < ticks; t += 1) {
+      out.push(rms(left, 800 * t, 800 * (t + 1)));
+    }
+    return out;
+  }
+
+  it("tremolo makes the level swing", () => {
+    const steady = tickLevels(setup([]), 40);
+    const tremolo = tickLevels(setup([{ type: "tremolo", x: 8, y: 15 }]), 40);
+    const spread = (xs: number[]) => Math.max(...xs) - Math.min(...xs);
+    expect(spread(tremolo)).toBeGreaterThan(spread(steady) * 5 + 0.01);
+  });
+
+  it("volume slide fades the note out", () => {
+    // A04: 4/16 of the volume per tick, silent after four ticks
+    const levels = tickLevels(setup([{ type: "volSlide", x: 0, y: 4 }]), 8);
+    expect(levels[0]).toBeGreaterThan(0.01);
+    expect(levels[6]).toBeLessThan((levels[0] ?? 1) * 0.05);
+  });
+
+  it("duty effect picks the pulse width from the duty list", () => {
+    const synth = setup([{ type: "duty", x: 0, y: 1 }]);
+    runSynth(synth, 800 * 2);
+    expect(voiceOf(synth).duty).toBe(DEFAULT_DUTIES[1]);
+  });
+
+  it("pan effect moves the sound to one side", () => {
+    const hard = (xx: number) => {
+      const { left, right } = runSynth(
+        setup([{ type: "pan", x: xx >> 4, y: xx & 15 }]),
+        800 * 4
+      );
+      return [rms(left), rms(right)] as const;
+    };
+    const [leftOnly, silentRight] = hard(0x00);
+    expect(leftOnly).toBeGreaterThan(0.01);
+    expect(silentRight).toBeLessThan(leftOnly * 0.05);
+    const [silentLeft, rightOnly] = hard(0xff);
+    expect(rightOnly).toBeGreaterThan(0.01);
+    expect(silentLeft).toBeLessThan(rightOnly * 0.05);
+  });
+
+  it("send effect sets the echo send of the voice", () => {
+    const synth = setup([{ type: "send", x: 8, y: 0 }]);
+    runSynth(synth, 800 * 2);
+    expect(voiceOf(synth).sendEcho).toBeCloseTo(0x80 / 255, 6);
+  });
+
+  it("retrigger restarts the note every xx ticks", () => {
+    const synth = setup([{ type: "retrigger", x: 0, y: 2 }]);
+    runSynth(synth, 800 * 7);
+    // one start from the row, then a restart at ticks 2, 4 and 6
+    expect(voiceOf(synth).generation).toBeGreaterThanOrEqual(4);
+    const plain = setup([]);
+    runSynth(plain, 800 * 7);
+    expect(voiceOf(plain).generation).toBe(1);
   });
 });

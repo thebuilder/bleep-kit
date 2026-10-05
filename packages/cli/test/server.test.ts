@@ -14,7 +14,6 @@ let project: string;
 let dist: string;
 
 interface Json {
-  // biome-ignore lint/suspicious/noExplicitAny: test helper over arbitrary JSON
   [key: string]: any;
 }
 
@@ -127,7 +126,7 @@ function rawGet(
 
 beforeAll(async () => {
   const made = await makeProject();
-  project = made.project;
+  ({ project } = made);
   await run(made.repo, [
     "new",
     "song",
@@ -338,6 +337,7 @@ describe("/api/file", () => {
       "%2Fetc%2Fpasswd",
       "package.json",
     ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, the assertion names the path that failed
       const r = await api("GET", `/api/file?path=${p}`);
       expect(r.status, p).toBe(403);
     }

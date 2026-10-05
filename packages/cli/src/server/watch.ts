@@ -5,14 +5,14 @@ import type { ApiState } from "./api.ts";
 import { fileMessage } from "./api.ts";
 import { classify } from "./paths.ts";
 
-export const DEBOUNCE_MS = 50;
+const DEBOUNCE_MS = 50;
 
 export interface Watcher {
   close: () => void;
 }
 
 /** Looks at one path after its debounce and broadcasts `file` or `deleted` unless clients already know that state. */
-export function settle(state: ApiState, rel: string): void {
+function settle(state: ApiState, rel: string): void {
   const abs = path.join(state.root, rel);
   let stat: fs.Stats | null = null;
   try {
@@ -131,6 +131,33 @@ export function startWatcher(
     }
   };
 
+  /** Remembers the etag of a file that was already on disk when the watcher started, so only real changes are announced. */
+  const remember = (child: string) => {
+    const msg = fileMessage(state.root, child);
+    if (msg) {
+      state.known.set(child, msg.etag);
+    }
+  };
+
+  const scanEntry = (rel: string, e: fs.Dirent) => {
+    const child = rel ? `${rel}/${e.name}` : e.name;
+    if (e.name.startsWith(".")) {
+      return;
+    }
+    if (e.isDirectory()) {
+      if (wanted(child)) {
+        watchDir(child);
+      }
+    } else if (
+      e.isFile() &&
+      rel !== "" &&
+      classify(child) &&
+      !state.known.has(child)
+    ) {
+      remember(child);
+    }
+  };
+
   /** Starts watching sub folders that exist and reports files that appeared before the watch began. */
   const scan = (rel: string) => {
     let entries: fs.Dirent[];
@@ -142,22 +169,7 @@ export function startWatcher(
       return;
     }
     for (const e of entries) {
-      const child = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isDirectory() && wanted(child) && !e.name.startsWith(".")) {
-        watchDir(child);
-      } else if (
-        e.isFile() &&
-        rel !== "" &&
-        !e.name.startsWith(".") &&
-        classify(child) &&
-        !state.known.has(child)
-      ) {
-        // already on disk when the watcher started: remember its etag so only real changes are announced
-        const msg = fileMessage(state.root, child);
-        if (msg) {
-          state.known.set(child, msg.etag);
-        }
-      }
+      scanEntry(rel, e);
     }
   };
 

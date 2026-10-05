@@ -80,27 +80,22 @@ export function runRequest(req: RenderRequest): RenderResult | AnalysisBundle {
   const result = renderSource(req.source, req.rate, req.source.type === "song");
   const analysis = analyze(result, { file: req.file });
   const opts = { width: req.width };
-  const safe = <T>(fn: (() => T) | undefined): T | null => {
+  const safe = <T>(fn: () => T): T | null => {
     try {
-      return fn ? fn() : null;
+      return fn();
     } catch {
       return null;
     }
   };
-  const wf = waveformImage;
-  const sg = spectrogramImage;
-  const sc = scopesImage;
   const images = {
     scopes:
       req.source.type === "song"
-        ? safe(sc ? () => sc(result, { ...opts, title: req.file }) : undefined)
+        ? safe(() => scopesImage(result, { ...opts, title: req.file }))
         : null,
-    spectrogram: safe(
-      sg ? () => sg(result, { ...opts, title: req.file }) : undefined
+    spectrogram: safe(() =>
+      spectrogramImage(result, { ...opts, title: req.file })
     ),
-    waveform: safe(
-      wf ? () => wf(result, { ...opts, title: req.file }) : undefined
-    ),
+    waveform: safe(() => waveformImage(result, { ...opts, title: req.file })),
   };
   return {
     analysis,
@@ -111,7 +106,7 @@ export function runRequest(req: RenderRequest): RenderResult | AnalysisBundle {
 
 const scope = globalThis as unknown as {
   onmessage: ((e: MessageEvent<RenderRequest>) => void) | null;
-  postMessage(m: unknown, t?: Transferable[]): void;
+  postMessage: (m: unknown, t?: Transferable[]) => void;
   document?: unknown;
 };
 if (

@@ -74,7 +74,8 @@ function run(req: Req, key: string): Promise<Out> {
   if (open) {
     return open;
   }
-  const id = nextId++;
+  nextId += 1;
+  const id = nextId;
   const w = getWorker();
   const p = new Promise<Out>((resolve, reject) => {
     if (w) {
@@ -155,17 +156,17 @@ export function analyzeAsync(
 /** min and max per bucket, interleaved, from the left channel. */
 export function peaks(r: RenderResult, buckets: number): Float32Array {
   const out = new Float32Array(buckets * 2);
-  const ch = r.channels[0];
+  const [ch] = r.channels;
   if (!ch || r.frames === 0) {
     return out;
   }
   const per = r.frames / buckets;
-  for (let b = 0; b < buckets; b++) {
+  for (let b = 0; b < buckets; b += 1) {
     let lo = 0;
     let hi = 0;
     const from = Math.floor(b * per);
     const to = Math.max(from + 1, Math.floor((b + 1) * per));
-    for (let i = from; i < to && i < r.frames; i++) {
+    for (let i = from; i < to && i < r.frames; i += 1) {
       const v = ch[i] ?? 0;
       if (v < lo) {
         lo = v;

@@ -1,5 +1,3 @@
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/style/useForOf: indexed loops over typed arrays in the audio path need the index
 /* Offline rendering (section 4.2) and the per-chip sound checks: signal present, no clipping, no DC, no clicks at
    note boundaries. */
 
@@ -292,7 +290,7 @@ describe("no clicks at note boundaries", () => {
       }
       s.setMaster({ limiter: false });
       s.play({ loop: false });
-      const latency = (s as unknown as { latency: number }).latency;
+      const { latency } = s as unknown as { latency: number };
       const r = runSynth(s, 48_000 * 5);
       const m = r.left;
       const pk = peak([m]);

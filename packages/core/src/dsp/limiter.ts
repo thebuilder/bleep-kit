@@ -1,12 +1,8 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/suspicious/noBitwiseOperators: DSP code: LFSR shifts, power-of-two ring masks, integer hashing and flag masks need bit operations
-// biome-ignore-all lint/suspicious/noUnnecessaryConditions: Biome types fields initialised with false or 0 as literals and flags mutable state as constant
 /* Lookahead peak limiter (section 3.8): ceiling -0.3 dBFS, about 1 ms lookahead, 50 ms release. The gain at each
    output sample is the box average (over the lookahead) of a release-smoothed running minimum, delayed so the
    average never exceeds the gain a peak needs. Always the last stage, in realtime and offline alike. */
 
-export const LIMITER_CEILING_DB = -0.3;
+const LIMITER_CEILING_DB = -0.3;
 export const LIMITER_CEILING = 10 ** (LIMITER_CEILING_DB / 20);
 const RELEASE_SECONDS = 0.05;
 const MAX_LOOKAHEAD = 64;
@@ -35,17 +31,6 @@ export class Limiter {
     this.latency = this.look - 1;
     this.relCoef = Math.exp(-1 / (RELEASE_SECONDS * sampleRate));
     this.sum = this.look;
-  }
-
-  reset(): void {
-    this.xl.fill(0);
-    this.xr.fill(0);
-    this.gin.fill(1);
-    this.renv.fill(1);
-    this.pos = 0;
-    this.env = 1;
-    this.sum = this.look;
-    this.minGain = 1;
   }
 
   /** In place on n frames of stereo. */

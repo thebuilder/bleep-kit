@@ -63,7 +63,7 @@ export function issuesToText(issues: readonly Issue[]): string {
     .join("\n");
 }
 
-export function hasErrors(issues: readonly Issue[]): boolean {
+function hasErrors(issues: readonly Issue[]): boolean {
   return issues.some((i) => i.severity === "error");
 }
 
@@ -251,10 +251,6 @@ export function enumField<T extends string | number>(
 
 /** Document ids: lowercase letters, digits and dashes. */
 export const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
-
-export function isValidId(s: string): boolean {
-  return ID_RE.test(s);
-}
 
 /** Read the optional `id` field: kept as given when well formed, error and dropped otherwise. */
 export function readId(ctx: Ctx, obj: Rec): string | undefined {

@@ -14,6 +14,7 @@ import {
   type FmOperator,
   type Instrument,
   type Macro,
+  type SampleGeneratorSpec,
 } from "../lib/contract.ts";
 import {
   chipProfile,
@@ -22,7 +23,7 @@ import {
   noteName,
   SAMPLE_GENERATORS,
 } from "../lib/core.ts";
-import { clamp, debounce, h, prefs } from "../lib/dom.ts";
+import { choose, clamp, debounce, fire, h, prefs } from "../lib/dom.ts";
 import { playInstrumentDoc, releaseNote, stopEverything } from "../playback.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
@@ -51,8 +52,22 @@ import {
   UPPER_KEYS,
 } from "../ui/piano.ts";
 import { presetTable, waveGrid } from "../ui/wavegrid.ts";
-import { rgba } from "../visuals/canvas.ts";
 import { addVisual } from "../visuals/loop.ts";
+
+/** The sample generator spec for an id that may not be a known generator (a hand edited document). */
+function generatorSpec(id: string): SampleGeneratorSpec | undefined {
+  return (SAMPLE_GENERATORS as Readonly<Record<string, SampleGeneratorSpec>>)[
+    id
+  ];
+}
+
+/** How a macro's values are printed by scale (the others show the plain number). */
+const MACRO_FORMAT: Partial<Record<string, { format: (v: number) => string }>> =
+  {
+    cents: { format: (v) => `${v} cents` },
+    semi: { format: (v) => `${v > 0 ? "+" : ""}${v} st` },
+    unit: { format: (v) => `${Math.round(v * 15)}/15` },
+  };
 
 const DUTY_DEFAULT = [0.125, 0.25, 0.5, 0.75];
 const SID_WAVES = ["tri", "saw", "pulse", "noise"] as const;
@@ -115,7 +130,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
   const octEl = q("#iOct");
   const kindPanel = q("#iKindPanel");
   const macroStack = q("#iMacroStack");
-  for (let n = 36; n <= 96; n++) {
+  for (let n = 36; n <= 96; n += 1) {
     noteSel.append(h("option", { value: n }, noteName(n)));
   }
   noteSel.value = String(testNote);
@@ -173,7 +188,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     wasHeld.since = performance.now();
     wasHeld.released = null;
     wasHeld.until = 0;
-    void engine.unlock();
+    fire(engine.unlock());
   }
   function noteUp(n: number): void {
     const ch = engine.previewChannelFor(inst().kind);
@@ -331,7 +346,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
           el.classList.toggle("on", on);
           el.setAttribute("aria-checked", String(on));
         }
-        fine?.set(d);
+        fine.set(d);
       });
       row.append(b);
     });
@@ -400,7 +415,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
   }
 
   function buildSid(body: HTMLElement): void {
-    const sid = inst().sid;
+    const { sid } = inst();
     if (!sid) {
       return;
     }
@@ -409,7 +424,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       class: "chip-row",
       role: "group",
     });
-    const handles: Record<string, FieldHandle> = {};
+    const handles: Record<string, FieldHandle | undefined> = {};
     const refresh = () => {
       const s = inst().sid;
       for (const b of row.querySelectorAll<HTMLElement>("button")) {
@@ -592,7 +607,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
   }
 
   function buildFm(body: HTMLElement): void {
-    const fm = inst().fm;
+    const { fm } = inst();
     if (!fm) {
       return;
     }
@@ -604,7 +619,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       role: "radiogroup",
     });
     const count = nOps === 2 ? 2 : 8;
-    for (let a = 0; a < count; a++) {
+    for (let a = 0; a < count; a += 1) {
       const b = h("button", {
         "aria-checked": String(a === fm.algorithm),
         class: `alg${a === fm.algorithm ? " on" : ""}`,
@@ -644,7 +659,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       title: "How much operator 1 feeds back into itself",
       value: fm.feedback,
     });
-    const lfoOn = toggleField(top, {
+    toggleField(top, {
       label: "LFO",
       onInput: (on) => {
         edit((x) => {
@@ -660,7 +675,6 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       },
       value: fm.lfo !== null,
     });
-    void lfoOn;
     const lfoHandles: FieldHandle[] = [];
     for (const [k, label, min, max, step] of [
       ["rate", "LFO rate (Hz)", 0, 20, 0.1],
@@ -788,10 +802,14 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       const n = cv.width;
       const per = out.data.length / n;
       const mid = cv.height / 2;
-      for (let x = 0; x < n; x++) {
+      for (let x = 0; x < n; x += 1) {
         let lo = 0;
         let hi = 0;
-        for (let i = Math.floor(x * per); i < Math.floor((x + 1) * per); i++) {
+        for (
+          let i = Math.floor(x * per);
+          i < Math.floor((x + 1) * per);
+          i += 1
+        ) {
           const v = out.data[i] ?? 0;
           lo = Math.min(lo, v);
           hi = Math.max(hi, v);
@@ -840,7 +858,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     const paramBox = h("div", { class: "fields two span" });
     const buildParams = () => {
       paramBox.replaceChildren();
-      const spec = SAMPLE_GENERATORS[inst().sample?.generator ?? ""];
+      const spec = generatorSpec(inst().sample?.generator ?? "");
       for (const [k, p] of Object.entries(spec?.params ?? {})) {
         rangeField(paramBox, {
           label: p.label,
@@ -863,7 +881,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     selectField<string>(fb, {
       label: "Generator",
       onInput: (v) => {
-        const spec = SAMPLE_GENERATORS[v];
+        const spec = generatorSpec(v);
         edit((x) => {
           if (x.sample) {
             x.sample.generator = v as NonNullable<
@@ -978,24 +996,34 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     ];
     if (i.kind === "pulse" || i.kind === "wave" || i.kind === "sid") {
       defs.push({
-        hint:
-          i.kind === "pulse"
-            ? "Index into the chip's duty list"
-            : i.kind === "wave"
-              ? "Wave table index"
-              : "Waveform mask",
+        hint: choose(
+          [
+            [i.kind === "pulse", "Index into the chip's duty list"],
+            [i.kind === "wave", "Wave table index"],
+          ],
+          "Waveform mask"
+        ),
         key: "duty",
         spec: {
-          max:
-            i.kind === "pulse"
-              ? Math.max(3, (prof.constraints.dutyCycles.length || 4) - 1)
-              : i.kind === "wave"
-                ? 7
-                : 15,
+          max: choose(
+            [
+              [
+                i.kind === "pulse",
+                Math.max(3, (prof.constraints.dutyCycles.length || 4) - 1),
+              ],
+              [i.kind === "wave", 7],
+            ],
+            15
+          ),
           scale: "index",
         },
-        title:
-          i.kind === "pulse" ? "Duty" : i.kind === "wave" ? "Wave" : "Waveform",
+        title: choose(
+          [
+            [i.kind === "pulse", "Duty"],
+            [i.kind === "wave", "Wave"],
+          ],
+          "Waveform"
+        ),
       });
     }
     defs.push({
@@ -1020,13 +1048,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
               delete x.macros[d.key];
             }
           }, `m-${d.key}`),
-        ...(d.spec.scale === "unit"
-          ? { format: (v: number) => `${Math.round(v * 15)}/15` }
-          : d.spec.scale === "cents"
-            ? { format: (v: number) => `${v} cents` }
-            : d.spec.scale === "semi"
-              ? { format: (v: number) => `${v > 0 ? "+" : ""}${v} st` }
-              : {}),
+        ...MACRO_FORMAT[d.spec.scale],
       });
       if (d.key === "arpeggio") {
         const modeSel = h("select", {
@@ -1475,4 +1497,3 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     stop: stopEverything,
   };
 }
-void rgba;

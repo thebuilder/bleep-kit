@@ -1,4 +1,3 @@
-// biome-ignore-all lint/style/useForOf: indexed loops over typed arrays in the audio path need the index
 /* Sample generators (section 3.7): deterministic synthesis of drums and one-cycle instruments. */
 
 import { describe, expect, it } from "vitest";

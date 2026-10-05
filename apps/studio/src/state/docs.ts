@@ -16,7 +16,7 @@ import {
   normalizeSfx,
   normalizeSong,
 } from "../lib/core.ts";
-import { prefs } from "../lib/dom.ts";
+import { fire, prefs } from "../lib/dom.ts";
 import { createHistory, type History } from "../lib/history.ts";
 import {
   ID_RE,
@@ -58,6 +58,14 @@ export type ProjectEvent =
   | { type: "project" };
 
 const SAVE_DELAY = 800;
+
+const KIND_ALIASES: Partial<Record<string, DocKind[]>> = {
+  instrument: ["instrument"],
+  instruments: ["instrument"],
+  sfx: ["sfx"],
+  song: ["song"],
+  songs: ["song"],
+};
 
 export class ProjectState {
   store!: ProjectStore;
@@ -157,14 +165,11 @@ export class ProjectState {
   /** Resolve "sfx/coin", "song/title", "instrument/lead" or a bare id (sfx first). */
   find(ref: string): Doc | undefined {
     const [a, b] = ref.includes("/") ? ref.split("/") : [null, ref];
-    const kinds: DocKind[] =
-      a === "song" || a === "songs"
-        ? ["song"]
-        : a === "instrument" || a === "instruments"
-          ? ["instrument"]
-          : a === "sfx"
-            ? ["sfx"]
-            : ["sfx", "song", "instrument"];
+    const kinds: DocKind[] = KIND_ALIASES[a ?? ""] ?? [
+      "sfx",
+      "song",
+      "instrument",
+    ];
     for (const k of kinds) {
       const d = this.get(k, b ?? "");
       if (d) {
@@ -228,15 +233,15 @@ export class ProjectState {
 
   /* ----- editing ----- */
 
-  /** Change a document. `fn` may mutate the draft it gets, or return a replacement. */
+  /** Change a document. `fn` may mutate the draft it gets, or return an object to replace it. */
   edit<T extends AnyDoc>(
     doc: Doc,
-    fn: (draft: T) => T | undefined | void,
+    fn: (draft: T) => unknown,
     coalesce = ""
   ): void {
     const draft = JSON.parse(JSON.stringify(doc.value)) as T;
     const out = fn(draft);
-    const next = (out ?? draft) as T;
+    const next = (typeof out === "object" && out !== null ? out : draft) as T;
     const n = this.normalize(doc.kind, next);
     const text = JSON.stringify(n.value);
     if (text === JSON.stringify(doc.value)) {
@@ -252,13 +257,12 @@ export class ProjectState {
     this.scheduleSave(doc);
   }
 
-  editProject(
-    fn: (p: Project) => Project | undefined | void,
-    coalesce = ""
-  ): void {
+  editProject(fn: (p: Project) => unknown, coalesce = ""): void {
     const draft = JSON.parse(JSON.stringify(this.project)) as Project;
     const out = fn(draft);
-    const n = normalizeProject(out ?? draft);
+    const n = normalizeProject(
+      typeof out === "object" && out !== null ? out : draft
+    );
     const text = JSON.stringify(n.value);
     if (text === JSON.stringify(this.project)) {
       return;
@@ -301,7 +305,7 @@ export class ProjectState {
     }
     this.timers.set(
       doc.path,
-      setTimeout(() => void this.save(doc), SAVE_DELAY)
+      setTimeout(() => fire(this.save(doc)), SAVE_DELAY)
     );
   }
 
@@ -309,7 +313,7 @@ export class ProjectState {
     clearTimeout(this.timers.get("project.json"));
     this.timers.set(
       "project.json",
-      setTimeout(() => void this.saveProject(), SAVE_DELAY)
+      setTimeout(() => fire(this.saveProject()), SAVE_DELAY)
     );
   }
 
@@ -434,7 +438,7 @@ export class ProjectState {
         .replace(/^-+|-+$/g, "")
         .slice(0, 56) || kind;
     let id = ID_RE.test(slug) ? slug : `${kind}-1`;
-    for (let n = 2; this.get(kind, id); n++) {
+    for (let n = 2; this.get(kind, id); n += 1) {
       id = `${slug}-${n}`;
     }
     return id;
@@ -457,7 +461,7 @@ export class ProjectState {
     this.emit({ type: "list" });
   }
 
-  async duplicate(doc: Doc): Promise<Doc> {
+  duplicate(doc: Doc): Promise<Doc> {
     const id = this.uniqueId(doc.kind, `${doc.id}-copy`);
     const copy = JSON.parse(JSON.stringify(doc.value)) as AnyDoc & {
       name: string;
@@ -487,7 +491,7 @@ export class ProjectState {
       return;
     }
     if (m.type === "file") {
-      void this.onFile(m);
+      fire(this.onFile(m));
     }
   }
 
@@ -517,10 +521,10 @@ export class ProjectState {
     if (doc?.etag === m.etag) {
       return;
     }
-    let json = m.json;
+    let { json } = m;
     if (json === undefined) {
       try {
-        json = (await this.store.readJson(m.path)).json;
+        ({ json } = await this.store.readJson(m.path));
       } catch {
         return;
       }

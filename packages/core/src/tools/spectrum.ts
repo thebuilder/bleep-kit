@@ -1,5 +1,3 @@
-// biome-ignore-all lint/suspicious/noBitwiseOperators: the FFT needs bit reversal and power-of-two tests
-
 import { DB_FLOOR } from "./format.ts";
 
 export interface Spectrogram {
@@ -35,7 +33,7 @@ const plans = new Map<number, FftPlan>();
 const DEFAULT_SIZE = 1024;
 const DEFAULT_HOP = 256;
 
-export function isPowerOfTwo(n: number): boolean {
+function isPowerOfTwo(n: number): boolean {
   return Number.isInteger(n) && n >= 2 && (n & (n - 1)) === 0;
 }
 

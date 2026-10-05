@@ -5,7 +5,14 @@ import { app } from "../app.ts";
 import { categoryColor, chipTheme, KIND_HEX } from "../lib/chips.ts";
 import type { Instrument, Sfx, Song } from "../lib/contract.ts";
 import type { Analysis, PixelImage } from "../lib/core.ts";
-import { debounce, fmtNum, formatTime, h, reducedMotion } from "../lib/dom.ts";
+import {
+  choose,
+  debounce,
+  fire,
+  formatTime,
+  h,
+  reducedMotion,
+} from "../lib/dom.ts";
 import { playDoc, stopEverything } from "../playback.ts";
 import { analyzeAsync } from "../render-service.ts";
 import type { ViewCtx } from "../shell.ts";
@@ -55,12 +62,13 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
     return {};
   }
   const file = `${doc.kind}/${doc.id}`;
-  const color =
-    doc.kind === "sfx"
-      ? categoryColor((doc.value as Sfx).category)
-      : doc.kind === "instrument"
-        ? KIND_HEX[(doc.value as Instrument).kind]
-        : "#7d97dc";
+  const color = choose(
+    [
+      [doc.kind === "sfx", categoryColor((doc.value as Sfx).category)],
+      [doc.kind === "instrument", KIND_HEX[(doc.value as Instrument).kind]],
+    ],
+    "#7d97dc"
+  );
   let bundle: AnalysisBundle | null = null;
   let token = 0;
   let playStart = -1;
@@ -85,11 +93,13 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
     host.querySelector(sel) as T;
   const icoEl = q("#aIcon");
   icoEl.innerHTML = icon(
-    doc.kind === "sfx"
-      ? (doc.value as Sfx).category
-      : doc.kind === "instrument"
-        ? (doc.value as Instrument).kind
-        : "song",
+    choose(
+      [
+        [doc.kind === "sfx", (doc.value as Sfx).category],
+        [doc.kind === "instrument", (doc.value as Instrument).kind],
+      ],
+      "song"
+    ),
     22
   );
   icoEl.style.color = color;
@@ -107,7 +117,7 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
     playDoc(doc);
   };
   q("#aPlay").addEventListener("click", play);
-  q("#aRerun").addEventListener("click", () => void measure());
+  q("#aRerun").addEventListener("click", () => fire(measure()));
 
   /* ----- cards ----- */
   function cardsOf(a: Analysis): Card[] {
@@ -117,8 +127,13 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
         bar: Math.min(1, Math.max(0, (a.peakDb + 60) / 60)),
         label: "Peak",
         text: db,
-        tone:
-          clipped || a.peakDb >= -0.1 ? "bad" : a.peakDb > -1 ? "warn" : "ok",
+        tone: choose(
+          [
+            [clipped || a.peakDb >= -0.1, "bad" as const],
+            [a.peakDb > -1, "warn" as const],
+          ],
+          "ok" as const
+        ),
         value: a.peakDb,
       },
       {
@@ -171,7 +186,13 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
         label: "Loop seam",
         sub: `${a.loop.start.toFixed(2)} s to ${a.loop.end.toFixed(2)} s`,
         text: db,
-        tone: good ? "ok" : a.loop.seamDiffDb < -15 ? "warn" : "bad",
+        tone: choose(
+          [
+            [good, "ok" as const],
+            [a.loop.seamDiffDb < -15, "warn" as const],
+          ],
+          "bad" as const
+        ),
         value: a.loop.seamDiffDb,
       });
     }
@@ -236,7 +257,7 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
         });
       }
     }
-    const bands = a.spectrum.bands;
+    const { bands } = a.spectrum;
     const sp = h("div", { class: "stat wide" });
     sp.innerHTML = `<small class="pxh">Spectrum balance</small><div class="bands"></div>`;
     const box = sp.querySelector(".bands") as HTMLElement;
@@ -367,7 +388,8 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
 
   /* ----- measure ----- */
   async function measure(): Promise<void> {
-    const mine = ++token;
+    token += 1;
+    const mine = token;
     q("#aLoad").hidden = false;
     try {
       const res = await analyzeAsync(
@@ -397,7 +419,7 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
       }
     }
   }
-  const remeasure = debounce(() => void measure(), 500);
+  const remeasure = debounce(() => fire(measure()), 500);
 
   /* ----- inspector ----- */
   async function copyJson(): Promise<void> {
@@ -421,7 +443,7 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
       app.toast("Copied the analysis as JSON");
     }
   }
-  q("#aCopy").addEventListener("click", () => void copyJson());
+  q("#aCopy").addEventListener("click", () => fire(copyJson()));
 
   function buildInspector(): void {
     insp.replaceChildren();
@@ -443,7 +465,7 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
         { class: "hint btn-row" },
         h(
           "button",
-          { class: "btn small primary", onclick: () => void copyJson() },
+          { class: "btn small primary", onclick: () => fire(copyJson()) },
           "Copy as JSON"
         )
       )
@@ -468,7 +490,7 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
   }
 
   /* ----- playhead over the images ----- */
-  const off = addVisual((f) => {
+  const off = addVisual(() => {
     if (playStart < 0) {
       return;
     }
@@ -503,7 +525,6 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
         fr.ph.getContext("2d")?.clearRect(0, 0, fr.ph.width, fr.ph.height);
       }
     }
-    void f;
   });
 
   const unsub = project.subscribe((e) => {
@@ -512,18 +533,17 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
     }
   });
   buildInspector();
-  void measure();
+  fire(measure());
   ctx.cleanup(() => {
     off();
     unsub();
     remeasure.cancel();
-    token++;
+    token += 1;
     for (const f of frames) {
       f.surf?.dispose();
     }
   });
 
-  void fmtNum;
   return {
     chip: () =>
       doc.kind === "instrument"

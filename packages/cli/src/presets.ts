@@ -7,7 +7,7 @@ import {
   defaultSong,
   type Instrument,
   type Song,
-} from "./stubs.ts";
+} from "@bleepkit/core";
 
 export const PRESETS = ["lead", "bass", "drums", "pad", "bell"] as const;
 export type Preset = (typeof PRESETS)[number];
@@ -96,7 +96,7 @@ export function makeInstrument(
 export type Template = "empty" | "loop8";
 
 /** First project instrument whose kind matches the channel, so a new song plays something out of the box. */
-export function pickInstrument(
+function pickInstrument(
   kind: ChannelKind,
   instruments: Record<string, Instrument>
 ): string | null {

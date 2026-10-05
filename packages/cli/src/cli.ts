@@ -10,8 +10,7 @@ import {
   closest,
   createCtx,
 } from "./output.ts";
-
-export const VERSION = "0.1.0";
+import { VERSION } from "./version.ts";
 
 const ERRNO = /^E[A-Z]+$/;
 

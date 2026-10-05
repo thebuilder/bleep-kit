@@ -1,4 +1,3 @@
-// biome-ignore-all lint/suspicious/noBitwiseOperators: clip flags are OR-ed into a byte per column
 import type { RenderResult } from "../types.ts";
 import { mixToMono } from "./buffers.ts";
 import {
@@ -17,6 +16,7 @@ import {
   type Frame,
   type ImageOptions,
   newFrame,
+  niceStep,
   type Rect,
   timeTicks,
 } from "./chart.ts";
@@ -1085,12 +1085,5 @@ export function scopesImage(
 }
 
 function niceStepMs(windowMs: number): number {
-  const raw = windowMs / 8;
-  const base = 10 ** Math.floor(Math.log10(raw));
-  for (const m of [1, 2, 5, 10]) {
-    if (base * m >= raw) {
-      return base * m;
-    }
-  }
-  return base * 10;
+  return niceStep(windowMs, 8);
 }

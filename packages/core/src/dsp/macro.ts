@@ -76,13 +76,3 @@ export function macroTick(m: MacroRt): void {
   }
   m.value = m.values[m.idx] ?? 0;
 }
-
-/** Live edit: keep the position when the new macro is at least as long, else clamp it. */
-export function macroCarryOver(next: MacroRt, prev: MacroRt): void {
-  next.released = prev.released;
-  next.idx =
-    prev.idx < next.values.length
-      ? prev.idx
-      : Math.max(0, next.values.length - 1);
-  next.value = next.values[next.idx] ?? 0;
-}

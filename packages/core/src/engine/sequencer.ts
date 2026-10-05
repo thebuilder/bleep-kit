@@ -1,7 +1,3 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/suspicious/noBitwiseOperators: DSP code: LFSR shifts, power-of-two ring masks, integer hashing and flag masks need bit operations
-// biome-ignore-all lint/suspicious/noUnnecessaryConditions: Biome types fields initialised with false or 0 as literals and flags mutable state as constant
 /* SongPlayer: walks a compiled SongTimeline on the sample clock. Event frames are a pure function of the schedule
    (a base pulse, the frame it started at and the samples per pulse of the current tempo), never of how the host
    splits blocks, so playback is identical for any block size. */
@@ -10,7 +6,7 @@ import { PPQ } from "../types.ts";
 import type { RowMark, SongTimeline, TimelineEvent } from "./timeline.ts";
 
 const EPS = 1e-6;
-export const MAX_SEQ_CHANNELS = 10;
+const MAX_SEQ_CHANNELS = 10;
 
 export interface SeqHandler {
   onEnd: (frame: number) => void;
@@ -24,6 +20,23 @@ const KIND_TEMPO = 0;
 const KIND_ROW = 1;
 const KIND_CHANNEL = 2;
 const KIND_END = 3;
+
+/** The instrument and volume set by the events in `list` before index `end`: what a channel holds after them. */
+function persistentState(
+  list: readonly TimelineEvent[],
+  end: number
+): [string | null, number | null] {
+  let inst: string | null = null;
+  let vol: number | null = null;
+  for (let i = 0; i < end; i += 1) {
+    const e = list[i];
+    if (e && (e.type === "note" || e.type === "fx")) {
+      inst = e.inst ?? inst;
+      vol = e.vol ?? vol;
+    }
+  }
+  return [inst, vol];
+}
 
 export class SongPlayer {
   tl: SongTimeline | null = null;
@@ -128,29 +141,23 @@ export class SongPlayer {
     this.baseFrame = frame;
     this.pausedPulse = pulse;
     this.setTempo(this.tempoAt(pulse));
-    this.rowPtr = SongPlayer.lower(tl.rows, pulse);
-    for (let c = 0; c < tl.tracks.length && c < MAX_SEQ_CHANNELS; c += 1) {
-      const list = tl.tracks[c] ?? [];
-      const ptr = SongPlayer.lower(list, pulse);
-      this.chPtr[c] = ptr;
-      if (state) {
-        let inst: string | null = null;
-        let vol: number | null = null;
-        for (let i = 0; i < ptr; i += 1) {
-          const e = list[i];
-          if (e && (e.type === "note" || e.type === "fx")) {
-            if (e.inst !== null) {
-              inst = e.inst;
-            }
-            if (e.vol !== null) {
-              vol = e.vol;
-            }
-          }
-        }
+    this.placePointers(tl, pulse);
+    if (state) {
+      for (let c = 0; c < tl.tracks.length && c < MAX_SEQ_CHANNELS; c += 1) {
+        const list = tl.tracks[c] ?? [];
+        const [inst, vol] = persistentState(list, this.chPtr[c] ?? 0);
         state(c, inst, vol);
       }
     }
     this.ended = false;
+  }
+
+  /** Point the row and channel cursors at the first row and events at or after `pulse`. */
+  private placePointers(tl: SongTimeline, pulse: number): void {
+    this.rowPtr = SongPlayer.lower(tl.rows, pulse);
+    for (let c = 0; c < tl.tracks.length && c < MAX_SEQ_CHANNELS; c += 1) {
+      this.chPtr[c] = SongPlayer.lower(tl.tracks[c] ?? [], pulse);
+    }
   }
 
   /** Pulse of an (order, row) position: the first played row at or after it. */
@@ -289,66 +296,63 @@ export class SongPlayer {
         return;
       }
       const at = Math.min(ef, frame);
-      switch (this.kind) {
-        case KIND_TEMPO: {
-          const t = tl.tempos[this.tempoPtr];
-          if (t) {
-            const exact = this.baseFrame + (t[0] - this.basePulse) * this.spp;
-            this.basePulse = t[0];
-            this.baseFrame = exact;
-            this.setTempo(t[1]);
-          }
-          this.tempoPtr += 1;
-          break;
-        }
-        case KIND_ROW: {
-          const m = tl.rows[this.rowPtr];
-          this.rowPtr += 1;
-          if (m) {
-            h.onRow(at, m);
-          }
-          break;
-        }
-        case KIND_CHANNEL: {
-          const c = this.kindCh;
-          const e = tl.tracks[c]?.[this.chPtr[c] ?? 0];
-          this.chPtr[c] = (this.chPtr[c] ?? 0) + 1;
-          if (e) {
-            h.onEvent(at, c, e);
-          }
-          break;
-        }
-        default: {
-          const exact =
-            this.baseFrame + (tl.totalPulses - this.basePulse) * this.spp;
-          if (tl.loopPulse !== null && this.loopsRemaining > 1) {
-            this.loopsRemaining -= 1;
-            this.basePulse = tl.loopPulse;
-            this.baseFrame = exact;
-            this.setTempo(this.tempoAt(tl.loopPulse));
-            this.rowPtr = SongPlayer.lower(tl.rows, tl.loopPulse);
-            for (
-              let c = 0;
-              c < tl.tracks.length && c < MAX_SEQ_CHANNELS;
-              c += 1
-            ) {
-              this.chPtr[c] = SongPlayer.lower(
-                tl.tracks[c] ?? [],
-                tl.loopPulse
-              );
-            }
-            h.onLoop(at);
-          } else {
-            this.running = false;
-            this.ended = true;
-            this.pausedPulse = tl.totalPulses;
-            h.onEnd(at);
-            return;
-          }
-          break;
-        }
+      if (this.kind === KIND_TEMPO) {
+        this.fireTempo(tl);
+      } else if (this.kind === KIND_ROW) {
+        this.fireRow(tl, h, at);
+      } else if (this.kind === KIND_CHANNEL) {
+        this.fireChannel(tl, h, at);
+      } else if (this.reachEnd(tl, h, at)) {
+        return;
       }
     }
+  }
+
+  private fireTempo(tl: SongTimeline): void {
+    const t = tl.tempos[this.tempoPtr];
+    if (t) {
+      const exact = this.baseFrame + (t[0] - this.basePulse) * this.spp;
+      this.basePulse = t[0];
+      this.baseFrame = exact;
+      this.setTempo(t[1]);
+    }
+    this.tempoPtr += 1;
+  }
+
+  private fireRow(tl: SongTimeline, h: SeqHandler, at: number): void {
+    const m = tl.rows[this.rowPtr];
+    this.rowPtr += 1;
+    if (m) {
+      h.onRow(at, m);
+    }
+  }
+
+  private fireChannel(tl: SongTimeline, h: SeqHandler, at: number): void {
+    const c = this.kindCh;
+    const e = tl.tracks[c]?.[this.chPtr[c] ?? 0];
+    this.chPtr[c] = (this.chPtr[c] ?? 0) + 1;
+    if (e) {
+      h.onEvent(at, c, e);
+    }
+  }
+
+  /** The end of the song: jump back to the loop point while loops remain, else stop. True when it stopped. */
+  private reachEnd(tl: SongTimeline, h: SeqHandler, at: number): boolean {
+    const exact = this.baseFrame + (tl.totalPulses - this.basePulse) * this.spp;
+    if (tl.loopPulse !== null && this.loopsRemaining > 1) {
+      this.loopsRemaining -= 1;
+      this.basePulse = tl.loopPulse;
+      this.baseFrame = exact;
+      this.setTempo(this.tempoAt(tl.loopPulse));
+      this.placePointers(tl, tl.loopPulse);
+      h.onLoop(at);
+      return false;
+    }
+    this.running = false;
+    this.ended = true;
+    this.pausedPulse = tl.totalPulses;
+    h.onEnd(at);
+    return true;
   }
 
   /** The row currently playing, for position(). */

@@ -2,7 +2,7 @@
    @bleepkit/player, or the fake one for `?engine=fake` and whenever the real one is not there yet), wrapped in the
    calls the views use: trigger a sound, play a song, hold a note. It keeps the clock the visuals read from, and a queue
    of engine events that are handed out when they become audible. */
-import * as realPlayer from "@bleepkit/player";
+import { createEngineNode } from "@bleepkit/player";
 import { createFakeEngine } from "../dev/fake-engine.ts";
 import type {
   EngineEvent,
@@ -11,6 +11,7 @@ import type {
   Song,
   SongPosition,
 } from "../lib/contract.ts";
+import { fire } from "../lib/dom.ts";
 import type { EngineNodeLike } from "./types.ts";
 
 /* The worklet bundle is built by `pnpm --filter @bleepkit/player build:worklet`; until it exists the glob is empty. */
@@ -26,11 +27,6 @@ const WORKLET_URL = Object.values(WORKLETS)[0] ?? null;
 
 export type EngineStatus = "starting" | "locked" | "running" | "error";
 
-type CreateNode = (
-  ctx: AudioContext,
-  opts?: { workletUrl?: string | URL }
-) => Promise<EngineNodeLike> | EngineNodeLike;
-
 /** The channel kinds hosted when no song is loaded (keyboard and instrument previews). */
 export const PREVIEW_KINDS = [
   "pulse",
@@ -45,12 +41,13 @@ export const PREVIEW_KINDS = [
 export class Engine {
   ctx: AudioContext | null = null;
   node: EngineNodeLike | null = null;
-  fake = false;
+  fake = false as boolean;
   status: EngineStatus = "starting";
   error = "";
   sampleRate = 48_000;
   cpu = 0;
-  playing = false;
+  // `as boolean`: a field started with a literal is typed as that literal by the linter, but these change at runtime
+  playing = false as boolean;
   position: SongPosition | null = null;
   /** Engine frame the playing song counted from (for the time display), and the song's tempo. */
   private readonly listeners = new Set<() => void>();
@@ -62,7 +59,7 @@ export class Engine {
   private handle = 0;
   private offNode: (() => void) | null = null;
   private tempo = 120;
-  private previewSongLoaded = false;
+  private previewSongLoaded = false as boolean;
 
   /** Create the context and the engine node. Safe to call once; the context stays suspended until a gesture. */
   async init(opts: { fake?: boolean } = {}): Promise<void> {
@@ -76,11 +73,11 @@ export class Engine {
       this.ctx = null;
     }
     this.sampleRate = this.ctx?.sampleRate ?? 48_000;
-    const create = (realPlayer as unknown as { createEngineNode?: CreateNode })
-      .createEngineNode;
-    if (!wantFake && this.ctx && create && WORKLET_URL) {
+    if (!wantFake && this.ctx && WORKLET_URL) {
       try {
-        this.node = await create(this.ctx, { workletUrl: WORKLET_URL });
+        this.node = await createEngineNode(this.ctx, {
+          workletUrl: WORKLET_URL,
+        });
         this.fake = false;
       } catch (err) {
         this.error = (err as Error).message;
@@ -197,7 +194,7 @@ export class Engine {
       const now = this.nowFrame();
       let n = 0;
       while (n < this.queue.length && (this.queue[n]?.frame ?? 0) <= now) {
-        n++;
+        n += 1;
       }
       if (n) {
         out.push(...this.queue.splice(0, n));
@@ -237,7 +234,8 @@ export class Engine {
       this.node.send({ id, sfx, type: "loadSfx" });
       this.sfxKeys.set(id, key);
     }
-    const handle = ++this.handle;
+    this.handle += 1;
+    const { handle } = this;
     this.node.send({ handle, id, type: "trigger", ...opts });
     this.announce({
       channelId: sfx.category,
@@ -381,7 +379,9 @@ export class Engine {
   dispose(): void {
     this.offNode?.();
     this.node?.dispose();
-    void this.ctx?.close();
+    if (this.ctx) {
+      fire(this.ctx.close());
+    }
   }
 }
 

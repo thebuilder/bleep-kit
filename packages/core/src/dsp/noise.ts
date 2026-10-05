@@ -1,7 +1,3 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/noNestedTernary: clamps and branch selects in the audio path read best inline
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/suspicious/noBitwiseOperators: DSP code: LFSR shifts, power-of-two ring masks, integer hashing and flag masks need bit operations
 /* LFSR noise generators for each chip (section 3.3). A generator is clocked at the chip's noise rate; when the rate
    exceeds the host rate the bits inside one output sample are averaged (a box filter), as an emulator would. */
 

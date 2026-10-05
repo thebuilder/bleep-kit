@@ -1,6 +1,3 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/suspicious/noBitwiseOperators: DSP code: LFSR shifts, power-of-two ring masks, integer hashing and flag masks need bit operations
 /* compileSong: patterns and MML merged into one pulse-based event list per channel (section 1.1). The sequencer
    plays this and nothing else. Flow effects (jump, skip, halt) are resolved here by walking the song row by row. */
 
@@ -9,7 +6,15 @@ import { mmlPanToByte } from "../mml/index.ts";
 import { parseMml } from "../mml/parser.ts";
 import { effectByte, effectFromByte } from "../normalize/effects.ts";
 import { isMmlOnly } from "../normalize/song.ts";
-import type { ChipChannel, Effect, Instrument, Row, Song } from "../types.ts";
+import type {
+  ChipChannel,
+  Effect,
+  Instrument,
+  MmlEvent,
+  Pattern,
+  Row,
+  Song,
+} from "../types.ts";
 import { PPQ } from "../types.ts";
 
 export type TimelineEvent =
@@ -120,19 +125,11 @@ function rowEvents(row: Row, pulse: number, order: number): TimelineEvent[] {
   } else if (row.note === "release") {
     out.push({ type: "release", ...base });
   }
-  if (row.note === "off" || row.note === "release") {
-    if (row.fx.length > 0 || row.vol !== null || row.inst !== null) {
-      out.push({
-        type: "fx",
-        ...base,
-        fx: row.fx.slice(),
-        inst: row.inst,
-        vol: row.vol,
-      });
-    }
-  } else if (
-    row.note === null &&
-    (row.fx.length > 0 || row.vol !== null || row.inst !== null)
+  // an off or release can carry effects, a volume or an instrument too, and so can a row with no note at all
+  const carries = row.fx.length > 0 || row.vol !== null || row.inst !== null;
+  if (
+    carries &&
+    (row.note === "off" || row.note === "release" || row.note === null)
   ) {
     out.push({
       type: "fx",
@@ -168,28 +165,101 @@ interface Pending {
   vol: number | null;
 }
 
-/** Turn one MML channel into timeline events. */
-function mmlEvents(
-  src: string,
-  loopPulse: number | null,
-  total: number,
-  marks: RowMark[]
-): TimelineEvent[] {
-  const parsed = parseMml(src);
-  const out: TimelineEvent[] = [];
-  const events = parsed.events;
-  let lastVol = 15;
-  let lastInst: string | null = null;
-  const hold: { pending: Pending | null } = { pending: null };
-  let resync = false;
+type NoteEvent = Extract<MmlEvent, { type: "note" }>;
 
-  const flush = (): void => {
-    const p = hold.pending;
+/**
+ * The events of one MML channel as the timeline builds them. Volume, instrument and pan changes wait in `pending`
+ * until a note at the same pulse takes them along (or the pulse moves on and they go out as an fx event), and a note
+ * only carries the volume or instrument that differs from the channel's last one.
+ */
+class MmlTrack {
+  private readonly out: TimelineEvent[] = [];
+  private pending: Pending | null = null;
+  private lastVol = 15;
+  private lastInst: string | null = null;
+  private readonly marks: RowMark[];
+  private readonly total: number;
+
+  constructor(marks: RowMark[], total: number) {
+    this.marks = marks;
+    this.total = total;
+  }
+
+  /** The first event of a loop carries the channel state, so every pass through the loop starts the same way. */
+  forgetState(): void {
+    this.lastVol = -1;
+    this.lastInst = null;
+  }
+
+  /** The pending change at `pulse`, flushing an earlier one first. */
+  ensure(pulse: number): Pending {
+    if (this.pending && Math.abs(this.pending.pulse - pulse) > EPS) {
+      this.flush();
+    }
+    this.pending ??= { fx: [], inst: null, pulse, vol: null };
+    return this.pending;
+  }
+
+  note(e: NoteEvent, events: readonly MmlEvent[], index: number): void {
+    if (e.pulse >= this.total - EPS) {
+      return;
+    }
+    if (this.pending && Math.abs(this.pending.pulse - e.pulse) > EPS) {
+      this.flush();
+    }
+    const p = this.pending;
+    const vol = p?.vol ?? e.volume;
+    const inst = p?.inst ?? e.inst;
+    const m = markAt(this.marks, e.pulse);
+    this.out.push({
+      fx: [...(p?.fx ?? []), ...e.fx],
+      inst: inst !== null && inst !== this.lastInst ? inst : null,
+      note: e.note,
+      order: m.order,
+      pulse: e.pulse,
+      row: m.row,
+      type: "note",
+      vol: vol === this.lastVol ? null : vol,
+    });
+    this.lastVol = vol;
+    this.lastInst = inst ?? this.lastInst;
+    this.pending = null;
+    this.noteOff(e.pulse + e.gate, events, index);
+  }
+
+  finish(): TimelineEvent[] {
+    this.flush();
+    return this.out;
+  }
+
+  /** The note off at the end of the gate, unless the next note starts right there and takes over. */
+  private noteOff(
+    offPulse: number,
+    events: readonly MmlEvent[],
+    index: number
+  ): void {
+    const next = events.slice(index + 1).find((x) => x.type === "note");
+    const nextStartsHere =
+      next !== undefined && Math.abs(next.pulse - offPulse) <= EPS;
+    if (nextStartsHere || offPulse > this.total + EPS) {
+      return;
+    }
+    const om = markAt(this.marks, Math.min(offPulse, this.total - EPS));
+    this.out.push({
+      order: om.order,
+      pulse: offPulse,
+      row: om.row,
+      type: "off",
+    });
+  }
+
+  private flush(): void {
+    const p = this.pending;
     if (!p) {
       return;
     }
-    const m = markAt(marks, p.pulse);
-    out.push({
+    const m = markAt(this.marks, p.pulse);
+    this.out.push({
       fx: p.fx,
       inst: p.inst,
       order: m.order,
@@ -198,23 +268,21 @@ function mmlEvents(
       type: "fx",
       vol: p.vol,
     });
-    hold.pending = null;
-  };
-  const ensure = (pulse: number): Pending => {
-    if (hold.pending && Math.abs(hold.pending.pulse - pulse) > EPS) {
-      flush();
-    }
-    if (!hold.pending) {
-      hold.pending = { fx: [], inst: null, pulse, vol: null };
-    }
-    return hold.pending;
-  };
+    this.pending = null;
+  }
+}
 
-  for (let k = 0; k < events.length; k += 1) {
-    const e = events[k];
-    if (!e) {
-      continue;
-    }
+/** Turn one MML channel into timeline events. */
+function mmlEvents(
+  src: string,
+  loopPulse: number | null,
+  total: number,
+  marks: RowMark[]
+): TimelineEvent[] {
+  const { events } = parseMml(src);
+  const track = new MmlTrack(marks, total);
+  let resync = false;
+  for (const [k, e] of events.entries()) {
     if (
       loopPulse !== null &&
       !resync &&
@@ -222,58 +290,185 @@ function mmlEvents(
       e.type !== "loop"
     ) {
       resync = true;
-      // Force the first event of the loop to carry the channel state, so every pass starts the same way.
-      lastVol = -1;
-      lastInst = null;
+      track.forgetState();
     }
     if (e.type === "volume") {
-      ensure(e.pulse).vol = e.value;
+      track.ensure(e.pulse).vol = e.value;
     } else if (e.type === "inst") {
-      ensure(e.pulse).inst = e.id;
+      track.ensure(e.pulse).inst = e.id;
     } else if (e.type === "pan") {
-      ensure(e.pulse).fx.push(effectFromByte("pan", mmlPanToByte(e.value)));
+      track
+        .ensure(e.pulse)
+        .fx.push(effectFromByte("pan", mmlPanToByte(e.value)));
     } else if (e.type === "note") {
-      if (e.pulse >= total - EPS) {
-        continue;
-      }
-      let p = hold.pending;
-      if (p && Math.abs(p.pulse - e.pulse) > EPS) {
-        flush();
-        p = null;
-      }
-      const vol = p?.vol ?? e.volume;
-      const inst = p?.inst ?? e.inst;
-      const m = markAt(marks, e.pulse);
-      out.push({
-        fx: [...(p?.fx ?? []), ...e.fx],
-        inst: inst !== null && inst !== lastInst ? inst : null,
-        note: e.note,
-        order: m.order,
-        pulse: e.pulse,
-        row: m.row,
-        type: "note",
-        vol: vol === lastVol ? null : vol,
-      });
-      lastVol = vol;
-      lastInst = inst ?? lastInst;
-      hold.pending = null;
-      const offPulse = e.pulse + e.gate;
-      const next = events.slice(k + 1).find((x) => x.type === "note");
-      const nextStartsHere =
-        next !== undefined && Math.abs(next.pulse - offPulse) <= EPS;
-      if (!nextStartsHere && offPulse <= total + EPS) {
-        const om = markAt(marks, Math.min(offPulse, total - EPS));
-        out.push({
-          order: om.order,
-          pulse: offPulse,
-          row: om.row,
-          type: "off",
-        });
+      track.note(e, events, k);
+    }
+  }
+  return track.finish();
+}
+
+/** Which timeline track a channel id writes to, and which channels are MML (their rows are not played from patterns). */
+interface Layout {
+  channelCount: number;
+  channelIndex: Map<string, number>;
+  mmlIds: Set<string>;
+}
+
+/** What walking the song row by row produces. */
+interface RowWalk {
+  loopPulse: number | null;
+  marks: RowMark[];
+  orderStarts: (number | null)[];
+  rowCount: number;
+  tempos: [number, number][];
+  tracks: TimelineEvent[][];
+}
+
+interface Position {
+  order: number;
+  row: number;
+}
+
+/** A tempo change; a second one on the same pulse replaces the first. */
+function recordTempo(
+  tempos: [number, number][],
+  pulse: number,
+  bpm: number
+): void {
+  const last = tempos.at(-1);
+  if (last && Math.abs(last[0] - pulse) < EPS) {
+    last[1] = bpm;
+  } else {
+    tempos.push([pulse, bpm]);
+  }
+}
+
+/** The events of one pattern row, in every channel that has one, and its tempo changes. */
+function emitRow(
+  layout: Layout,
+  walk: RowWalk,
+  pat: Pattern,
+  pos: Position,
+  pulse: number
+): void {
+  for (const [chId, rows] of Object.entries(pat.tracks)) {
+    const ci = layout.channelIndex.get(chId);
+    if (ci === undefined || layout.mmlIds.has(chId)) {
+      continue;
+    }
+    const r = rows.find((x) => x.row === pos.row);
+    if (!r) {
+      continue;
+    }
+    walk.tracks[ci]?.push(...rowEvents(r, pulse, pos.order));
+    for (const e of r.fx) {
+      if (e.type === "tempo") {
+        recordTempo(walk.tempos, pulse, effectByte(e));
       }
     }
   }
-  flush();
-  return out;
+}
+
+/** Where the walk goes after `pos`: a jump or skip effect, else the next row, else the next order entry, then the loop. */
+function nextPosition(
+  song: Song,
+  pat: Pattern,
+  flow: FlowRow,
+  pos: Position
+): Position | null {
+  if (flow.halt) {
+    return null;
+  }
+  let { order, row } = pos;
+  if (flow.jump !== null || flow.skip !== null) {
+    order = flow.jump ?? order + 1;
+    row = flow.skip ?? 0;
+  } else {
+    row += 1;
+    if (row >= pat.length) {
+      row = 0;
+      order += 1;
+    }
+  }
+  if (order >= song.order.length) {
+    return song.loop === null ? null : { order: song.loop, row: 0 };
+  }
+  const next = song.patterns[song.order[order] ?? ""];
+  return { order, row: next && row >= next.length ? 0 : row };
+}
+
+/** Walk the song one row at a time, resolving jump, skip and halt, until it ends or comes back to a row it played. */
+function walkRows(song: Song, layout: Layout, ppr: number): RowWalk {
+  const walk: RowWalk = {
+    loopPulse: null,
+    marks: [],
+    orderStarts: song.order.map(() => null),
+    rowCount: 0,
+    tempos: [[0, song.tempo]],
+    tracks: Array.from({ length: layout.channelCount }, () => []),
+  };
+  const visited = new Map<number, number>();
+  let pos: Position | null =
+    song.order.length === 0 ? null : { order: 0, row: 0 };
+  for (let steps = 0; pos && steps < MAX_ROW_STEPS; steps += 1) {
+    const pid = song.order[pos.order];
+    const pat = pid === undefined ? undefined : song.patterns[pid];
+    if (pid === undefined || !pat) {
+      break;
+    }
+    const pulse = walk.rowCount * ppr;
+    const key = pos.order * 1024 + pos.row;
+    const seen = visited.get(key);
+    if (seen !== undefined) {
+      walk.loopPulse = seen;
+      break;
+    }
+    visited.set(key, pulse);
+    if (pos.row === 0 && walk.orderStarts[pos.order] === null) {
+      walk.orderStarts[pos.order] = pulse;
+    }
+    walk.marks.push({ order: pos.order, pulse, row: pos.row });
+    emitRow(layout, walk, pat, pos, pulse);
+    walk.rowCount += 1;
+    pos = nextPosition(
+      song,
+      pat,
+      rowFlow(song, pid, pos.row, layout.mmlIds),
+      pos
+    );
+  }
+  return walk;
+}
+
+/** A song written only in MML runs as long as its longest channel and loops where the MML says (or at 0). */
+function mmlSpan(
+  song: Song,
+  ppr: number,
+  rowPulses: number
+): { loop: number | null; total: number } {
+  let end = 0;
+  let mmlLoop: number | null = null;
+  for (const c of song.channels) {
+    if (c.mml !== null) {
+      const parsed = parseMml(c.mml);
+      end = Math.max(end, parsed.endPulse);
+      if (parsed.loopPulse !== null && mmlLoop === null) {
+        mmlLoop = parsed.loopPulse;
+      }
+    }
+  }
+  const total = end > 0 ? end : Math.min(rowPulses, Math.max(end, ppr));
+  return {
+    loop: song.loop === null && mmlLoop === null ? null : (mmlLoop ?? 0),
+    total,
+  };
+}
+
+/** Keep the row marks inside the song. */
+function trimMarks(marks: RowMark[], totalPulses: number): void {
+  while (marks.length > 1 && (marks.at(-1)?.pulse ?? 0) >= totalPulses - EPS) {
+    marks.pop();
+  }
 }
 
 export function compileSong(
@@ -282,149 +477,39 @@ export function compileSong(
 ): SongTimeline {
   const channels = chipChannels(song);
   const ppr = PPQ / song.rowsPerBeat;
+  const layout: Layout = {
+    channelCount: channels.length,
+    channelIndex: new Map(channels.map((c, i) => [c.id, i])),
+    mmlIds: new Set(
+      song.channels.filter((c) => c.mml !== null).map((c) => c.id)
+    ),
+  };
+  const walk = walkRows(song, layout, ppr);
   const mmlOnly = isMmlOnly(song);
-  const channelIndex = new Map<string, number>();
-  for (const [i, c] of channels.entries()) {
-    channelIndex.set(c.id, i);
-  }
-  const mmlIds = new Set<string>();
-  for (const c of song.channels) {
-    if (c.mml !== null) {
-      mmlIds.add(c.id);
-    }
-  }
-
-  const tracks: TimelineEvent[][] = channels.map(() => []);
-  const marks: RowMark[] = [];
-  const tempos: [number, number][] = [[0, song.tempo]];
-  const orderStarts: (number | null)[] = song.order.map(() => null);
-  const visited = new Map<number, number>();
-  let loopPulse: number | null = null;
-
-  // Walk the song one row at a time, resolving jump, skip and halt.
-  let order = 0;
-  let row = 0;
-  let rowCount = 0;
-  let steps = 0;
-  let ended = song.order.length === 0;
-  while (!ended && steps < MAX_ROW_STEPS) {
-    steps += 1;
-    const pid = song.order[order];
-    const pat = pid === undefined ? undefined : song.patterns[pid];
-    if (pid === undefined || !pat) {
-      break;
-    }
-    const key = order * 1024 + row;
-    const pulse = rowCount * ppr;
-    const seen = visited.get(key);
-    if (seen !== undefined) {
-      loopPulse = seen;
-      break;
-    }
-    visited.set(key, pulse);
-    if (row === 0 && orderStarts[order] === null) {
-      orderStarts[order] = pulse;
-    }
-    marks.push({ order, pulse, row });
-    for (const [chId, rows] of Object.entries(pat.tracks)) {
-      const ci = channelIndex.get(chId);
-      if (ci === undefined || mmlIds.has(chId)) {
-        continue;
-      }
-      const r = rows.find((x) => x.row === row);
-      if (!r) {
-        continue;
-      }
-      tracks[ci]?.push(...rowEvents(r, pulse, order));
-      for (const e of r.fx) {
-        if (e.type === "tempo") {
-          const bpm = effectByte(e);
-          const last = tempos.at(-1);
-          if (last && Math.abs(last[0] - pulse) < EPS) {
-            last[1] = bpm;
-          } else {
-            tempos.push([pulse, bpm]);
-          }
-        }
-      }
-    }
-    rowCount += 1;
-    const flow = rowFlow(song, pid, row, mmlIds);
-    if (flow.halt) {
-      ended = true;
-      break;
-    }
-    if (flow.jump !== null || flow.skip !== null) {
-      order = flow.jump ?? order + 1;
-      row = flow.skip ?? 0;
-    } else {
-      row += 1;
-      if (row >= pat.length) {
-        row = 0;
-        order += 1;
-      }
-    }
-    if (order >= song.order.length) {
-      if (song.loop === null) {
-        ended = true;
-      } else {
-        order = song.loop;
-        row = 0;
-      }
-    } else {
-      const next = song.patterns[song.order[order] ?? ""];
-      if (next && row >= next.length) {
-        row = 0;
-      }
-    }
-  }
-
-  let totalPulses = rowCount * ppr;
-  let mmlLoop: number | null = null;
+  let totalPulses = walk.rowCount * ppr;
+  let { loopPulse } = walk;
   if (mmlOnly) {
-    let end = 0;
-    for (const c of song.channels) {
-      if (c.mml !== null) {
-        const parsed = parseMml(c.mml);
-        end = Math.max(end, parsed.endPulse);
-        if (parsed.loopPulse !== null && mmlLoop === null) {
-          mmlLoop = parsed.loopPulse;
-        }
-      }
-    }
-    totalPulses = Math.min(totalPulses, Math.max(end, ppr));
-    if (end > 0) {
-      totalPulses = end;
-    }
-    loopPulse = song.loop === null && mmlLoop === null ? null : (mmlLoop ?? 0);
-    // keep row marks inside the song
-    while (
-      marks.length > 1 &&
-      (marks.at(-1)?.pulse ?? 0) >= totalPulses - EPS
-    ) {
-      marks.pop();
-    }
+    const span = mmlSpan(song, ppr, totalPulses);
+    totalPulses = span.total;
+    loopPulse = span.loop;
+    trimMarks(walk.marks, totalPulses);
   }
 
   for (const c of song.channels) {
-    if (c.mml === null) {
-      continue;
+    const ci = layout.channelIndex.get(c.id);
+    if (c.mml !== null && ci !== undefined) {
+      const lp = mmlOnly ? loopPulse : null;
+      walk.tracks[ci]?.push(...mmlEvents(c.mml, lp, totalPulses, walk.marks));
     }
-    const ci = channelIndex.get(c.id);
-    if (ci === undefined) {
-      continue;
-    }
-    const lp = mmlOnly ? loopPulse : null;
-    tracks[ci]?.push(...mmlEvents(c.mml, lp, totalPulses, marks));
   }
 
-  for (const t of tracks) {
+  for (const t of walk.tracks) {
     t.sort((a, b) => a.pulse - b.pulse || PRIORITY[a.type] - PRIORITY[b.type]);
   }
 
   const starts: number[] = [];
   let carry = 0;
-  for (const s of orderStarts) {
+  for (const s of walk.orderStarts) {
     carry = s ?? carry;
     starts.push(carry);
   }
@@ -433,9 +518,9 @@ export function compileSong(
     channels,
     loopPulse,
     orderStarts: starts,
-    rows: marks,
-    tempos,
+    rows: walk.marks,
+    tempos: walk.tempos,
     totalPulses,
-    tracks,
+    tracks: walk.tracks,
   };
 }

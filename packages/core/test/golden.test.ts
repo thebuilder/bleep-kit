@@ -1,12 +1,23 @@
 /* Golden hashes, determinism and block-size independence (architecture section 9). Run with UPDATE_GOLDEN=1 to rewrite
    test/golden/<id>.json after an intentional change to the sound. */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { RenderResult } from "../src/index.ts";
 import {
   createSynth,
+  ENGINE_VERSION,
   normalizeInstrument,
   renderInstrumentNote,
   renderSfx,
@@ -32,7 +43,11 @@ interface Entry {
   frames: number;
   hash: string;
 }
-type GoldenFile = Record<string, Entry>;
+/** What a golden file holds: the entries by sample rate, and the engine version they were made under. */
+interface GoldenFile {
+  engineVersion: string;
+  renders: Record<string, Entry>;
+}
 
 function summarize(r: RenderResult): Entry {
   return {
@@ -42,23 +57,51 @@ function summarize(r: RenderResult): Entry {
   };
 }
 
+function readGolden(path: string): GoldenFile | null {
+  return existsSync(path)
+    ? (JSON.parse(readFileSync(path, "utf8")) as GoldenFile)
+    : null;
+}
+
+/** UPDATE_GOLDEN=1 rewrites a golden file, but not hashes that moved while ENGINE_VERSION stayed where it was. */
+function writeGolden(id: string, path: string, now: GoldenFile): void {
+  const had = readGolden(path);
+  if (
+    had &&
+    had.engineVersion === ENGINE_VERSION &&
+    JSON.stringify(had.renders) !== JSON.stringify(now.renders)
+  ) {
+    throw new Error(
+      `golden ${id}.json: the sound changed but ENGINE_VERSION is still "${ENGINE_VERSION}". If the change is on purpose, bump ENGINE_VERSION in src/version.ts (it invalidates the renders in every project's out/), then run UPDATE_GOLDEN=1 again.`
+    );
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(now, null, 2)}\n`);
+}
+
 function checkGolden(id: string, make: (rate: number) => RenderResult): void {
   const path = `${GOLDEN}${id}.json`;
-  const now: GoldenFile = {};
+  const now: GoldenFile = { engineVersion: ENGINE_VERSION, renders: {} };
   for (const rate of RATES) {
-    now[String(rate)] = summarize(make(rate));
+    now.renders[String(rate)] = summarize(make(rate));
   }
   if (UPDATE) {
-    mkdirSync(GOLDEN, { recursive: true });
-    writeFileSync(path, `${JSON.stringify(now, null, 2)}\n`);
+    writeGolden(id, path, now);
     return;
   }
+  const want = readGolden(path);
+  expect(want, `missing golden ${id}.json, run with UPDATE_GOLDEN=1`).not.toBe(
+    null
+  );
+  const { engineVersion, renders } = want as GoldenFile;
   expect(
-    existsSync(path),
-    `missing golden ${id}.json, run with UPDATE_GOLDEN=1`
-  ).toBe(true);
-  const want = JSON.parse(readFileSync(path, "utf8")) as GoldenFile;
-  expect(now).toEqual(want);
+    engineVersion,
+    `golden ${id}.json was written under ENGINE_VERSION "${engineVersion}" but src/version.ts says "${ENGINE_VERSION}". Whoever changed one has to change the other: regenerate with UPDATE_GOLDEN=1 after bumping ENGINE_VERSION on purpose, or restore the golden files.`
+  ).toBe(ENGINE_VERSION);
+  expect(
+    now.renders,
+    `golden ${id}.json: the sound changed but ENGINE_VERSION is still "${ENGINE_VERSION}". If it is on purpose, bump ENGINE_VERSION in src/version.ts, then run UPDATE_GOLDEN=1; if not, this is a regression.`
+  ).toEqual(renders);
 }
 
 function bitEqual(a: RenderResult, b: RenderResult): void {
@@ -77,6 +120,54 @@ function bitEqual(a: RenderResult, b: RenderResult): void {
   }
   expect(a.events).toEqual(b.events);
 }
+
+describe("golden files and ENGINE_VERSION", () => {
+  const entry = { events: 1, frames: 10, hash: "00000001" };
+  const file = (engineVersion: string, hash = entry.hash): GoldenFile => ({
+    engineVersion,
+    renders: { "48000": { ...entry, hash } },
+  });
+
+  it("every golden file records the engine version it was made under", () => {
+    const stale = readdirSync(GOLDEN)
+      .filter((name) => name.endsWith(".json"))
+      .filter(
+        (name) =>
+          (readGolden(`${GOLDEN}${name}`) as GoldenFile).engineVersion !==
+          ENGINE_VERSION
+      );
+    expect(
+      stale,
+      `golden files from another ENGINE_VERSION than "${ENGINE_VERSION}": regenerate them with UPDATE_GOLDEN=1 after bumping it on purpose`
+    ).toEqual([]);
+  });
+
+  it("refuses to rewrite moved hashes under the same version, allows them under a bumped one", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bleepkit-golden-"));
+    try {
+      const path = join(dir, "x.json");
+      writeGolden("x", path, file(ENGINE_VERSION));
+      // same hashes, same version: rewriting is harmless
+      writeGolden("x", path, file(ENGINE_VERSION));
+      // moved hash, same version: the sound changed without a bump
+      expect(() =>
+        writeGolden("x", path, file(ENGINE_VERSION, "00000002"))
+      ).toThrow(/bump ENGINE_VERSION in src\/version\.ts/);
+      expect(readGolden(path)).toEqual(file(ENGINE_VERSION));
+      // a file from an older version may be replaced by the new hashes
+      writeFileSync(path, JSON.stringify(file("0")));
+      writeGolden("x", path, file(ENGINE_VERSION, "00000002"));
+      expect(readGolden(path)).toEqual(file(ENGINE_VERSION, "00000002"));
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("is a string that the CLI render hash can include", () => {
+    expect(typeof ENGINE_VERSION).toBe("string");
+    expect(ENGINE_VERSION.length).toBeGreaterThan(0);
+  });
+});
 
 describe("golden renders", () => {
   it("sfx-coin", () => {

@@ -1,4 +1,5 @@
 import type { RenderResult } from "../types.ts";
+import { concatBytes } from "./buffers.ts";
 
 export interface OggOptions {
   /** Vorbis VBR quality, -1 (smallest) to 10 (best). Default 6. */
@@ -67,17 +68,6 @@ function clampChunk(
   return dst.subarray(0, count);
 }
 
-function concat(parts: Uint8Array[]): Uint8Array {
-  const total = parts.reduce((n, p) => n + p.length, 0);
-  const out = new Uint8Array(total);
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
-  }
-  return out;
-}
-
 /** Feed the encoder in fixed chunks (clamped to -1..1) and gather its output. The encoder owns its returned buffers, so copy. */
 function runEncoder(
   enc: PcmEncoder,
@@ -94,7 +84,7 @@ function runEncoder(
     parts.push(enc.encode(chunk).slice());
   }
   parts.push(enc.finalize().slice());
-  return concat(parts);
+  return concatBytes(parts);
 }
 
 /** Encode Ogg Vorbis. Loads wasm-media-encoders on first use. */

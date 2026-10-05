@@ -1,3 +1,12 @@
+import {
+  type Instrument,
+  noteName,
+  PPQ,
+  parseMml,
+  type Sfx,
+  type Song,
+} from "@bleepkit/core";
+import { describeSfx } from "@bleepkit/sfx";
 import { CliError, fmtDb, fmtSeconds, round } from "../output.ts";
 import {
   type DocKind,
@@ -7,15 +16,6 @@ import {
   resolveRef,
 } from "../project.ts";
 import { freshness, readMeta } from "../render.ts";
-import {
-  describeSfx,
-  type Instrument,
-  noteName,
-  PPQ,
-  parseMml,
-  type Sfx,
-  type Song,
-} from "../stubs.ts";
 import type { CommandSpec } from "./types.ts";
 
 interface ChannelFacts {
@@ -29,7 +29,7 @@ interface ChannelFacts {
   source: "mml" | "pattern" | "empty";
 }
 
-export interface SongFacts {
+interface SongFacts {
   approxSeconds: number;
   bars: number;
   channels: ChannelFacts[];
@@ -52,7 +52,47 @@ function range(notes: number[]): { high: string | null; low: string | null } {
   };
 }
 
-export function songFacts(song: Song): SongFacts {
+/** What one channel plays: its note numbers, where they came from and, for MML, how long it runs. */
+interface ChannelScan {
+  mmlLoopPulse: number | null;
+  mmlPulses: number;
+  notes: number[];
+  source: ChannelFacts["source"];
+}
+
+function scanMmlChannel(mml: string): ChannelScan {
+  const notes: number[] = [];
+  let mmlPulses = 0;
+  const parsed = parseMml(mml);
+  for (const e of parsed.events) {
+    if (e.type === "note") {
+      notes.push(e.note);
+    }
+    if (e.type === "note" || e.type === "rest") {
+      mmlPulses = Math.max(mmlPulses, e.pulse + e.duration);
+    }
+  }
+  return { mmlLoopPulse: parsed.loopPulse, mmlPulses, notes, source: "mml" };
+}
+
+function scanPatternChannel(song: Song, channelId: string): ChannelScan {
+  const notes: number[] = [];
+  for (const id of song.order) {
+    for (const row of song.patterns[id]?.tracks[channelId] ?? []) {
+      if (typeof row.note === "number") {
+        notes.push(row.note);
+      }
+    }
+  }
+  return {
+    mmlLoopPulse: null,
+    mmlPulses: 0,
+    notes,
+    source: notes.length > 0 ? "pattern" : "empty",
+  };
+}
+
+function songFacts(song: Song): SongFacts {
   const secondsPerRow = 60 / song.tempo / song.rowsPerBeat;
   let patternRows = 0;
   let loopRows: number | null = null;
@@ -65,40 +105,17 @@ export function songFacts(song: Song): SongFacts {
   let mmlPulses = 0;
   let mmlLoopPulse: number | null = null;
   const channels: ChannelFacts[] = song.channels.map((c) => {
-    const notes: number[] = [];
-    let source: ChannelFacts["source"] = "empty";
-    if (c.mml) {
-      source = "mml";
-      const parsed = parseMml(c.mml);
-      for (const e of parsed.events) {
-        if (e.type === "note") {
-          notes.push(e.note);
-        }
-        if (e.type === "note" || e.type === "rest") {
-          mmlPulses = Math.max(mmlPulses, e.pulse + e.duration);
-        }
-      }
-      mmlLoopPulse ??= parsed.loopPulse;
-    } else {
-      for (const id of song.order) {
-        for (const row of song.patterns[id]?.tracks[c.id] ?? []) {
-          if (typeof row.note === "number") {
-            notes.push(row.note);
-          }
-        }
-      }
-      if (notes.length > 0) {
-        source = "pattern";
-      }
-    }
+    const scan = c.mml ? scanMmlChannel(c.mml) : scanPatternChannel(song, c.id);
+    mmlPulses = Math.max(mmlPulses, scan.mmlPulses);
+    mmlLoopPulse ??= scan.mmlLoopPulse;
     return {
-      ...range(notes),
+      ...range(scan.notes),
       id: c.id,
       instrument: c.instrument,
       kind: c.kind,
       muted: c.muted,
-      notes: notes.length,
-      source,
+      notes: scan.notes.length,
+      source: scan.source,
     };
   });
   const mmlSeconds = (mmlPulses / PPQ) * (60 / song.tempo);
@@ -180,7 +197,7 @@ export function describeInstrument(inst: Instrument): string {
   return bits.join(" ");
 }
 
-export function sfxFacts(sfx: Sfx) {
+function sfxFacts(sfx: Sfx) {
   const note = Math.round(12 * Math.log2(sfx.frequency.start / 440) + 69);
   return {
     category: sfx.category,
@@ -197,7 +214,7 @@ export function sfxFacts(sfx: Sfx) {
   };
 }
 
-export function describeAny(
+function describeAny(
   pc: ProjectCtx,
   kind: DocKind,
   id: string

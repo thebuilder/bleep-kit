@@ -200,7 +200,7 @@ export function drawOpEnvelope(
   const r = seg(op.release * 2, 31);
   const total = a + d + s + r + 6;
   const k = (w - 2) / total;
-  const level = op.level;
+  const { level } = op;
   const top = 3;
   const base = hh - 3;
   const yAt = (v: number) => Math.round(base - v * (base - top));

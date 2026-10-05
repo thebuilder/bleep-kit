@@ -1,12 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import { type Issue, normalizeProject } from "@bleepkit/core";
 import { CliError } from "../output.ts";
 import {
   DOC_KINDS,
   type DocKind,
   docRel,
   ID_PATTERN,
-  KIND_DIRS,
   listIds,
   normalizeDocument,
   openProject,
@@ -14,10 +14,9 @@ import {
   parseRef,
   readJsonFile,
 } from "../project.ts";
-import { type Issue, normalizeProject } from "../stubs.ts";
 import type { CommandSpec } from "./types.ts";
 
-export interface ValidationEntry {
+interface ValidationEntry {
   issues: Issue[];
   ok: boolean;
   ref: string;
@@ -54,10 +53,7 @@ function check(pc: ProjectCtx, kind: DocKind, id: string): ValidationEntry {
   return { issues, ok: issues.every((i) => i.severity !== "error"), ref };
 }
 
-export function validateProject(
-  pc: ProjectCtx,
-  refs: string[]
-): ValidationEntry[] {
+function validateProject(pc: ProjectCtx, refs: string[]): ValidationEntry[] {
   const entries: ValidationEntry[] = [];
   if (refs.length === 0) {
     const raw = readJsonFile(
@@ -145,5 +141,3 @@ export const validateCommand: CommandSpec = {
   summary: "check documents; exit 1 on errors",
   usage: "validate [ref...]",
 };
-
-export { KIND_DIRS };

@@ -3,10 +3,11 @@ import { app } from "./app.ts";
 import { engine } from "./engine/engine.ts";
 import type { Instrument, Sfx, Song } from "./lib/contract.ts";
 import { chipChannels } from "./lib/core.ts";
+import { fire } from "./lib/dom.ts";
 import { type Doc, project } from "./state/docs.ts";
 
 export function unlockAudio(): void {
-  void engine.unlock();
+  fire(engine.unlock());
 }
 
 export function playSfx(

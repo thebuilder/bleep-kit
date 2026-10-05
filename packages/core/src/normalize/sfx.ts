@@ -1,5 +1,5 @@
-// biome-ignore-all assist/source/useSortedKeys: the key order of a document is part of its file format (version first, then name and the rest as written in the architecture)
 import { CHIPS, chipSfxWaves } from "../chips/index.ts";
+import { nearest } from "../nearest.ts";
 import type {
   ChipId,
   Normalized,
@@ -59,6 +59,27 @@ const SFX_KEYS = [
 ];
 const MAX_TOTAL_SECONDS = 10;
 
+/** The first `list.length` entries as integers in min..max: anything that is not a number is an error and becomes 0. */
+function readInts(
+  ctx: Ctx,
+  list: readonly unknown[],
+  p: string,
+  min: number,
+  max: number
+): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < list.length; i += 1) {
+    const s = list[i];
+    if (typeof s !== "number" || !Number.isFinite(s)) {
+      error(ctx, ptr(p, i), `must be a number (was ${show(s)})`);
+      out.push(0);
+    } else {
+      out.push(clampNum(ctx, s, ptr(p, i), { min, max, int: true }));
+    }
+  }
+  return out;
+}
+
 function readSteps(ctx: Ctx, arp: Rec): number[] {
   const v = arp.steps;
   const p = "/arpeggio/steps";
@@ -78,17 +99,7 @@ function readSteps(ctx: Ctx, arp: Rec): number[] {
     );
     list = list.slice(0, 8);
   }
-  const out: number[] = [];
-  for (let i = 0; i < list.length; i += 1) {
-    const s = list[i];
-    if (typeof s !== "number" || !Number.isFinite(s)) {
-      error(ctx, ptr(p, i), `must be a number (was ${show(s)})`);
-      out.push(0);
-    } else {
-      out.push(clampNum(ctx, s, ptr(p, i), { min: -24, max: 24, int: true }));
-    }
-  }
-  return out;
+  return readInts(ctx, list, p, -24, 24);
 }
 
 function readTable(ctx: Ctx, v: unknown, required: boolean): number[] | null {
@@ -108,17 +119,7 @@ function readTable(ctx: Ctx, v: unknown, required: boolean): number[] | null {
     error(ctx, p, `must have exactly 32 entries (had ${v.length})`);
     return required ? defaultWaveTable() : null;
   }
-  const out: number[] = [];
-  for (let i = 0; i < 32; i += 1) {
-    const s = v[i];
-    if (typeof s !== "number" || !Number.isFinite(s)) {
-      error(ctx, ptr(p, i), `must be a number (was ${show(s)})`);
-      out.push(0);
-    } else {
-      out.push(clampNum(ctx, s, ptr(p, i), { min: 0, max: 15, int: true }));
-    }
-  }
-  return out;
+  return readInts(ctx, v, p, 0, 15);
 }
 
 function readFm(ctx: Ctx, v: unknown, required: boolean): Sfx["fm"] {
@@ -169,16 +170,6 @@ function readWave(ctx: Ctx, doc: Rec, chip: ChipId, def: SfxWave): SfxWave {
     return fallback;
   }
   return wave;
-}
-
-function nearestDuty(list: readonly number[], d: number): number {
-  let best = list[0] ?? d;
-  for (const c of list) {
-    if (Math.abs(c - d) < Math.abs(best - d)) {
-      best = c;
-    }
-  }
-  return best;
 }
 
 export function normalizeSfx(input: unknown): Normalized<Sfx> {
@@ -295,7 +286,7 @@ export function normalizeSfx(input: unknown): Normalized<Sfx> {
     warn(
       ctx,
       "/duty/start",
-      `duty ${dutyStart} is not available on chip "${chip}" and will snap to ${nearestDuty(dutyList, dutyStart)}`
+      `duty ${dutyStart} is not available on chip "${chip}" and will snap to ${nearest(dutyList, dutyStart)}`
     );
   }
 

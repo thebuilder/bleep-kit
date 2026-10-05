@@ -1,5 +1,3 @@
-// biome-ignore-all lint/performance/noBarrelFile: the chip registry re-exports each profile
-// biome-ignore-all lint/style/noExportedImports: the module re-exports names it also uses itself
 import type {
   ChipChannel,
   ChipId,
@@ -64,5 +62,3 @@ export const CHIP_SFX_WAVES: Readonly<Record<ChipId, readonly SfxWave[]>> = {
 export function chipSfxWaves(id: ChipId): readonly SfxWave[] {
   return CHIP_SFX_WAVES[id];
 }
-
-export { ADLIB, C64, CUSTOM, GAMEBOY, GENESIS, NES, SNES };

@@ -1,7 +1,3 @@
-// biome-ignore-all assist/source/useSortedKeys: the key order of a document is part of its file format (version first, then name and the rest as written in the architecture)
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-
 import { CUSTOM_MAX_CHANNELS } from "../chips/custom.ts";
 import { CHIPS } from "../chips/index.ts";
 import { parseMml } from "../mml/parser.ts";
@@ -125,6 +121,121 @@ function fixedKindCheck(
   }
 }
 
+interface ChannelList {
+  channels: SongChannel[];
+  infos: ChannelInfo[];
+}
+
+/** The chip's default channels, used when the document has none that survive validation. */
+function defaultChannels(chip: ChipId): ChannelList {
+  const channels: SongChannel[] = [];
+  const infos: ChannelInfo[] = [];
+  for (const [i, c] of defaultSong(chip).channels.entries()) {
+    channels.push(c);
+    infos.push({ id: c.id, kind: c.kind, index: i, mml: null });
+  }
+  return { channels, infos };
+}
+
+/** The channel id: 1 to 32 characters. Null (with an error) when it is missing or malformed. */
+function readChannelId(ctx: Ctx, c: Rec, p: string): string | null {
+  const { id } = c;
+  if (typeof id === "string" && id.length > 0 && id.length <= 32) {
+    return id;
+  }
+  error(
+    ctx,
+    ptr(p, "id"),
+    id === undefined
+      ? "is required"
+      : `must be a string of 1 to 32 characters (was ${show(id)})`
+  );
+  return null;
+}
+
+/**
+ * The kind of a channel: free on a custom chip (up to CUSTOM_MAX_CHANNELS of them), fixed by the hardware
+ * otherwise. Null (with an error) when the channel has to be dropped.
+ */
+function resolveChannelKind(
+  ctx: Ctx,
+  c: Rec,
+  id: string,
+  p: string,
+  chip: ChipId,
+  profile: ChipProfile,
+  keptCount: number
+): ChannelKind | null {
+  if (chip === "custom") {
+    const kind = enumField(ctx, c, "kind", p, CHANNEL_KINDS, "pulse", true);
+    if (keptCount >= CUSTOM_MAX_CHANNELS) {
+      error(
+        ctx,
+        p,
+        `a custom song has at most ${CUSTOM_MAX_CHANNELS} channels, "${id}" was dropped`
+      );
+      return null;
+    }
+    return kind;
+  }
+  const hw = profile.channels.find((x) => x.id === id);
+  if (!hw) {
+    error(
+      ctx,
+      ptr(p, "id"),
+      `unknown channel "${id}" for chip "${chip}" (it has ${profile.channels.map((x) => x.id).join(", ")})`
+    );
+    return null;
+  }
+  if (c.kind !== undefined && c.kind !== hw.kind) {
+    warn(
+      ctx,
+      ptr(p, "kind"),
+      `kind ${show(c.kind)} does not match channel "${id}", using "${hw.kind}"`
+    );
+  }
+  return hw.kind;
+}
+
+/** The channel's instrument id, checked against the instruments when they are known. */
+function readChannelInstrument(
+  ctx: Ctx,
+  c: Rec,
+  p: string,
+  info: ChannelInfo,
+  chip: ChipId,
+  instruments: Record<string, Instrument> | undefined,
+  refs: Refs
+): string | null {
+  const raw = c.instrument;
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+  if (typeof raw !== "string" || !ID_RE.test(raw)) {
+    error(
+      ctx,
+      ptr(p, "instrument"),
+      `must be an instrument id of lowercase letters, digits and dashes (was ${show(raw)})`
+    );
+    return null;
+  }
+  fixedKindCheck(ctx, ptr(p, "instrument"), raw, info, chip, instruments, refs);
+  return raw;
+}
+
+/** The channel's MML text; blank text counts as none. */
+function readChannelMml(ctx: Ctx, c: Rec, p: string): string | null {
+  const { mml } = c;
+  if (mml === undefined || mml === null) {
+    return null;
+  }
+  if (typeof mml !== "string") {
+    error(ctx, ptr(p, "mml"), `must be a string or null (was ${show(mml)})`);
+    return null;
+  }
+  return mml.trim().length > 0 ? mml : null;
+}
+
 function readChannels(
   ctx: Ctx,
   doc: Rec,
@@ -132,34 +243,24 @@ function readChannels(
   profile: ChipProfile,
   instruments: Record<string, Instrument> | undefined,
   refs: Refs
-): { channels: SongChannel[]; infos: ChannelInfo[] } {
+): ChannelList {
   const raw = doc.channels;
-  const fallback = defaultSong(chip).channels;
-  const channels: SongChannel[] = [];
-  const infos: ChannelInfo[] = [];
   if (raw === undefined) {
-    for (const [i, c] of fallback.entries()) {
-      channels.push(c);
-      infos.push({ id: c.id, kind: c.kind, index: i, mml: null });
-    }
-    return { channels, infos };
+    return defaultChannels(chip);
   }
   if (!Array.isArray(raw) || raw.length === 0) {
     error(
       ctx,
       "/channels",
-      raw === undefined || !Array.isArray(raw)
-        ? `must be an array of channels (was ${show(raw)})`
-        : "must have at least 1 channel"
+      Array.isArray(raw)
+        ? "must have at least 1 channel"
+        : `must be an array of channels (was ${show(raw)})`
     );
-    for (const [i, c] of fallback.entries()) {
-      channels.push(c);
-      infos.push({ id: c.id, kind: c.kind, index: i, mml: null });
-    }
-    return { channels, infos };
+    return defaultChannels(chip);
   }
+  const channels: SongChannel[] = [];
+  const infos: ChannelInfo[] = [];
   const seen = new Set<string>();
-  const custom = chip === "custom";
   for (let i = 0; i < raw.length; i += 1) {
     const p = ptr("/channels", i);
     const c = raw[i];
@@ -168,46 +269,21 @@ function readChannels(
       continue;
     }
     dropUnknown(ctx, c, p, CHANNEL_KEYS);
-    const id = c.id;
-    if (typeof id !== "string" || id.length === 0 || id.length > 32) {
-      error(
-        ctx,
-        ptr(p, "id"),
-        id === undefined
-          ? "is required"
-          : `must be a string of 1 to 32 characters (was ${show(id)})`
-      );
+    const id = readChannelId(ctx, c, p);
+    if (id === null) {
       continue;
     }
-    let kind: ChannelKind;
-    if (custom) {
-      kind = enumField(ctx, c, "kind", p, CHANNEL_KINDS, "pulse", true);
-      if (channels.length >= CUSTOM_MAX_CHANNELS) {
-        error(
-          ctx,
-          p,
-          `a custom song has at most ${CUSTOM_MAX_CHANNELS} channels, "${id}" was dropped`
-        );
-        continue;
-      }
-    } else {
-      const hw = profile.channels.find((x) => x.id === id);
-      if (!hw) {
-        error(
-          ctx,
-          ptr(p, "id"),
-          `unknown channel "${id}" for chip "${chip}" (it has ${profile.channels.map((x) => x.id).join(", ")})`
-        );
-        continue;
-      }
-      kind = hw.kind;
-      if (c.kind !== undefined && c.kind !== kind) {
-        warn(
-          ctx,
-          ptr(p, "kind"),
-          `kind ${show(c.kind)} does not match channel "${id}", using "${kind}"`
-        );
-      }
+    const kind = resolveChannelKind(
+      ctx,
+      c,
+      id,
+      p,
+      chip,
+      profile,
+      channels.length
+    );
+    if (kind === null) {
+      continue;
     }
     if (seen.has(id)) {
       error(
@@ -218,48 +294,23 @@ function readChannels(
       continue;
     }
     seen.add(id);
-
-    let inst: string | null = null;
-    const rawInst = c.instrument;
     const info: ChannelInfo = { id, kind, index: i, mml: null };
-    if (rawInst !== undefined && rawInst !== null) {
-      if (typeof rawInst !== "string" || !ID_RE.test(rawInst)) {
-        error(
-          ctx,
-          ptr(p, "instrument"),
-          `must be an instrument id of lowercase letters, digits and dashes (was ${show(rawInst)})`
-        );
-      } else {
-        inst = rawInst;
-        fixedKindCheck(
-          ctx,
-          ptr(p, "instrument"),
-          rawInst,
-          info,
-          chip,
-          instruments,
-          refs
-        );
-      }
-    }
-    let mml: string | null = null;
-    if (c.mml !== undefined && c.mml !== null) {
-      if (typeof c.mml !== "string") {
-        error(
-          ctx,
-          ptr(p, "mml"),
-          `must be a string or null (was ${show(c.mml)})`
-        );
-      } else if (c.mml.trim().length > 0) {
-        mml = c.mml;
-      }
-    }
+    const instrument = readChannelInstrument(
+      ctx,
+      c,
+      p,
+      info,
+      chip,
+      instruments,
+      refs
+    );
+    const mml = readChannelMml(ctx, c, p);
     info.mml = mml;
     infos.push(info);
     channels.push({
       id,
       kind,
-      instrument: inst,
+      instrument,
       volume: numField(ctx, c, "volume", p, { min: 0, max: 1, def: 1 }),
       pan: numField(ctx, c, "pan", p, { min: -1, max: 1, def: 0 }),
       mml,
@@ -269,13 +320,7 @@ function readChannels(
           : readMuted(ctx, c.muted, ptr(p, "muted")),
     });
   }
-  if (channels.length === 0) {
-    for (const [i, c] of fallback.entries()) {
-      channels.push(c);
-      infos.push({ id: c.id, kind: c.kind, index: i, mml: null });
-    }
-  }
-  return { channels, infos };
+  return channels.length === 0 ? defaultChannels(chip) : { channels, infos };
 }
 
 function readMuted(ctx: Ctx, v: unknown, path: string): boolean {
@@ -380,18 +425,112 @@ interface RowContext {
   rowPaths: WeakMap<Row, string>;
 }
 
-function readRow(
-  ctx: Ctx,
-  entry: unknown,
-  path: string,
-  length: number,
-  rc: RowContext
-): Row | null {
-  if (!isRec(entry)) {
-    error(ctx, path, `must be a row object (was ${show(entry)})`);
+function readRowInst(ctx: Ctx, v: unknown, path: string): string | null {
+  if (v === undefined || v === null) {
     return null;
   }
-  dropUnknown(ctx, entry, path, ROW_KEYS);
+  if (typeof v === "string") {
+    return v;
+  }
+  error(ctx, path, `must be an instrument id or null (was ${show(v)})`);
+  return null;
+}
+
+function readRowVol(ctx: Ctx, v: unknown, path: string): number | null {
+  if (v === undefined || v === null) {
+    return null;
+  }
+  if (typeof v !== "number" || !Number.isFinite(v)) {
+    error(ctx, path, `must be a number 0 to 15 or null (was ${show(v)})`);
+    return null;
+  }
+  return clampNum(ctx, v, path, { min: 0, max: 15, int: true });
+}
+
+/** The effects of a typed row: at most 4, each a code string or a { type, x, y } object. */
+function readRowFx(ctx: Ctx, v: unknown, path: string): Effect[] {
+  if (v === undefined) {
+    return [];
+  }
+  if (!Array.isArray(v)) {
+    error(ctx, path, `must be an array of effects (was ${show(v)})`);
+    return [];
+  }
+  let list: unknown[] = v;
+  if (list.length > 4) {
+    warn(
+      ctx,
+      path,
+      `a row holds at most 4 effects (had ${list.length}), extra effects were dropped`
+    );
+    list = list.slice(0, 4);
+  }
+  const out: Effect[] = [];
+  for (const [k, f] of list.entries()) {
+    const e = readEffect(ctx, f, ptr(path, k));
+    if (e) {
+      out.push(e);
+    }
+  }
+  return out;
+}
+
+/** A row written as separate fields: note, inst, vol and fx. */
+function readFieldsRow(
+  ctx: Ctx,
+  entry: Rec,
+  path: string,
+  rowNum: number
+): Row {
+  return {
+    row: rowNum,
+    note: readNote(ctx, entry.note, ptr(path, "note")),
+    inst: readRowInst(ctx, entry.inst, ptr(path, "inst")),
+    vol: readRowVol(ctx, entry.vol, ptr(path, "vol")),
+    fx: readRowFx(ctx, entry.fx, ptr(path, "fx")),
+  };
+}
+
+/** A row written as the compact string "C-4 lead vF A0F"; the separate fields next to it are ignored. */
+function readStringRow(
+  ctx: Ctx,
+  entry: Rec,
+  path: string,
+  rowNum: number
+): Row {
+  let row: Row = { row: rowNum, note: null, inst: null, vol: null, fx: [] };
+  if (typeof entry.s === "string") {
+    const parsed = parseRowString(entry.s, rowNum);
+    for (const i of parsed.issues) {
+      ctx.issues.push({
+        severity: i.severity,
+        path: i.path === "/s" ? ptr(path, "s") : `${path}${i.path}`,
+        message: i.message,
+      });
+    }
+    ({ row } = parsed);
+  } else {
+    error(
+      ctx,
+      ptr(path, "s"),
+      `must be a row string like "C-4 lead vF" (was ${show(entry.s)})`
+    );
+  }
+  for (const k of ["note", "inst", "vol", "fx"]) {
+    if (entry[k] !== undefined) {
+      warn(ctx, ptr(path, k), `is ignored because "s" is set`);
+    }
+  }
+  return row;
+}
+
+/** The row number: a whole number from 0 below the pattern length. Null (with an error) otherwise. */
+function readRowNumber(
+  ctx: Ctx,
+  entry: Rec,
+  path: string,
+  length: number
+): number | null {
   const rowNum = entry.row;
   if (typeof rowNum !== "number" || !Number.isInteger(rowNum) || rowNum < 0) {
     error(
@@ -411,84 +550,29 @@ function readRow(
     );
     return null;
   }
-  let row: Row = { row: rowNum, note: null, inst: null, vol: null, fx: [] };
-  if (entry.s === undefined) {
-    row.note = readNote(ctx, entry.note, ptr(path, "note"));
-    if (entry.inst !== undefined && entry.inst !== null) {
-      if (typeof entry.inst === "string") {
-        row.inst = entry.inst;
-      } else {
-        error(
-          ctx,
-          ptr(path, "inst"),
-          `must be an instrument id or null (was ${show(entry.inst)})`
-        );
-      }
-    }
-    if (entry.vol !== undefined && entry.vol !== null) {
-      if (typeof entry.vol !== "number" || !Number.isFinite(entry.vol)) {
-        error(
-          ctx,
-          ptr(path, "vol"),
-          `must be a number 0 to 15 or null (was ${show(entry.vol)})`
-        );
-      } else {
-        row.vol = clampNum(ctx, entry.vol, ptr(path, "vol"), {
-          min: 0,
-          max: 15,
-          int: true,
-        });
-      }
-    }
-    if (entry.fx !== undefined) {
-      if (Array.isArray(entry.fx)) {
-        let list: unknown[] = entry.fx;
-        if (list.length > 4) {
-          warn(
-            ctx,
-            ptr(path, "fx"),
-            `a row holds at most 4 effects (had ${list.length}), extra effects were dropped`
-          );
-          list = list.slice(0, 4);
-        }
-        for (const [k, f] of list.entries()) {
-          const e = readEffect(ctx, f, ptr(ptr(path, "fx"), k));
-          if (e) {
-            row.fx.push(e);
-          }
-        }
-      } else {
-        error(
-          ctx,
-          ptr(path, "fx"),
-          `must be an array of effects (was ${show(entry.fx)})`
-        );
-      }
-    }
-  } else {
-    if (typeof entry.s === "string") {
-      const parsed = parseRowString(entry.s, rowNum);
-      for (const i of parsed.issues) {
-        ctx.issues.push({
-          severity: i.severity,
-          path: i.path === "/s" ? ptr(path, "s") : `${path}${i.path}`,
-          message: i.message,
-        });
-      }
-      row = parsed.row;
-    } else {
-      error(
-        ctx,
-        ptr(path, "s"),
-        `must be a row string like "C-4 lead vF" (was ${show(entry.s)})`
-      );
-    }
-    for (const k of ["note", "inst", "vol", "fx"]) {
-      if (entry[k] !== undefined) {
-        warn(ctx, ptr(path, k), `is ignored because "s" is set`);
-      }
-    }
+  return rowNum;
+}
+
+function readRow(
+  ctx: Ctx,
+  entry: unknown,
+  path: string,
+  length: number,
+  rc: RowContext
+): Row | null {
+  if (!isRec(entry)) {
+    error(ctx, path, `must be a row object (was ${show(entry)})`);
+    return null;
   }
+  dropUnknown(ctx, entry, path, ROW_KEYS);
+  const rowNum = readRowNumber(ctx, entry, path, length);
+  if (rowNum === null) {
+    return null;
+  }
+  const row =
+    entry.s === undefined
+      ? readFieldsRow(ctx, entry, path, rowNum)
+      : readStringRow(ctx, entry, path, rowNum);
   if (row.inst !== null) {
     if (ID_RE.test(row.inst)) {
       fixedKindCheck(
@@ -514,14 +598,98 @@ function readRow(
   return row;
 }
 
+/** The rows of one track: invalid and duplicate rows dropped, the rest sorted by row number. */
+function readTrackRows(
+  ctx: Ctx,
+  rowsRaw: unknown[],
+  path: string,
+  length: number,
+  rc: RowContext
+): Row[] {
+  const rows: Row[] = [];
+  const seenRows = new Set<number>();
+  let sorted = true;
+  for (let r = 0; r < rowsRaw.length; r += 1) {
+    const row = readRow(ctx, rowsRaw[r], ptr(path, r), length, rc);
+    if (!row) {
+      continue;
+    }
+    if (seenRows.has(row.row)) {
+      error(
+        ctx,
+        ptr(ptr(path, r), "row"),
+        `row ${row.row} is listed twice, the duplicate was dropped`
+      );
+      continue;
+    }
+    seenRows.add(row.row);
+    const last = rows.at(-1);
+    if (last && last.row > row.row) {
+      sorted = false;
+    }
+    rows.push(row);
+  }
+  if (!sorted) {
+    warn(ctx, path, "rows must be sorted by row, they were sorted");
+    rows.sort((a, b) => a.row - b.row);
+  }
+  return rows;
+}
+
+/** What reading a pattern's tracks needs to know about the song around it. */
+interface PatternEnv {
+  chip: ChipId;
+  infos: ChannelInfo[];
+  instruments: Record<string, Instrument> | undefined;
+  refs: Refs;
+  rowPaths: WeakMap<Row, string>;
+}
+
+function readPattern(ctx: Ctx, p: string, praw: Rec, env: PatternEnv): Pattern {
+  dropUnknown(ctx, praw, p, ["length", "tracks"]);
+  const length = numField(ctx, praw, "length", p, {
+    min: 1,
+    max: 256,
+    int: true,
+    def: 64,
+  });
+  const tracksRaw = section(ctx, praw, "tracks", p);
+  const tracks: Record<string, Row[]> = {};
+  for (const [chId, rowsRaw] of Object.entries(tracksRaw)) {
+    const tp = ptr(ptr(p, "tracks"), chId);
+    const info = env.infos.find((c) => c.id === chId);
+    if (!info) {
+      warn(
+        ctx,
+        tp,
+        `unknown field "${chId}" was dropped (no channel with that id)`
+      );
+      continue;
+    }
+    if (!Array.isArray(rowsRaw)) {
+      error(ctx, tp, `must be an array of rows (was ${show(rowsRaw)})`);
+      continue;
+    }
+    const rc: RowContext = {
+      chip: env.chip,
+      channel: info,
+      instruments: env.instruments,
+      refs: env.refs,
+      rowPaths: env.rowPaths,
+    };
+    const rows = readTrackRows(ctx, rowsRaw, tp, length, rc);
+    if (info.mml !== null && rows.length > 0) {
+      warn(ctx, tp, `is ignored because channel "${chId}" has MML`);
+    }
+    tracks[chId] = rows;
+  }
+  return { length, tracks };
+}
+
 function readPatterns(
   ctx: Ctx,
   doc: Rec,
-  chip: ChipId,
-  infos: ChannelInfo[],
-  instruments: Record<string, Instrument> | undefined,
-  refs: Refs,
-  rowPaths: WeakMap<Row, string>
+  env: PatternEnv
 ): Record<string, Pattern> {
   const raw = doc.patterns;
   const out: Record<string, Pattern> = {};
@@ -536,76 +704,11 @@ function readPatterns(
     const p = ptr("/patterns", pid);
     if (pid.length === 0 || pid.length > 64) {
       error(ctx, p, "pattern ids must be 1 to 64 characters");
-      continue;
-    }
-    if (!isRec(praw)) {
+    } else if (isRec(praw)) {
+      out[pid] = readPattern(ctx, p, praw, env);
+    } else {
       error(ctx, p, `must be an object (was ${show(praw)})`);
-      continue;
     }
-    dropUnknown(ctx, praw, p, ["length", "tracks"]);
-    const length = numField(ctx, praw, "length", p, {
-      min: 1,
-      max: 256,
-      int: true,
-      def: 64,
-    });
-    const tracksRaw = section(ctx, praw, "tracks", p);
-    const tracks: Record<string, Row[]> = {};
-    for (const [chId, rowsRaw] of Object.entries(tracksRaw)) {
-      const tp = ptr(ptr(p, "tracks"), chId);
-      const info = infos.find((c) => c.id === chId);
-      if (!info) {
-        warn(
-          ctx,
-          tp,
-          `unknown field "${chId}" was dropped (no channel with that id)`
-        );
-        continue;
-      }
-      if (!Array.isArray(rowsRaw)) {
-        error(ctx, tp, `must be an array of rows (was ${show(rowsRaw)})`);
-        continue;
-      }
-      const rc: RowContext = {
-        chip,
-        channel: info,
-        instruments,
-        refs,
-        rowPaths,
-      };
-      const rows: Row[] = [];
-      const seenRows = new Set<number>();
-      let sorted = true;
-      for (let r = 0; r < rowsRaw.length; r += 1) {
-        const row = readRow(ctx, rowsRaw[r], ptr(tp, r), length, rc);
-        if (!row) {
-          continue;
-        }
-        if (seenRows.has(row.row)) {
-          error(
-            ctx,
-            ptr(ptr(tp, r), "row"),
-            `row ${row.row} is listed twice, the duplicate was dropped`
-          );
-          continue;
-        }
-        seenRows.add(row.row);
-        const last = rows.at(-1);
-        if (last && last.row > row.row) {
-          sorted = false;
-        }
-        rows.push(row);
-      }
-      if (!sorted) {
-        warn(ctx, tp, "rows must be sorted by row, they were sorted");
-        rows.sort((a, b) => a.row - b.row);
-      }
-      if (info.mml !== null && rows.length > 0) {
-        warn(ctx, tp, `is ignored because channel "${chId}" has MML`);
-      }
-      tracks[chId] = rows;
-    }
-    out[pid] = { length, tracks };
   }
   return out;
 }
@@ -705,6 +808,169 @@ function nearestBoundary(starts: number[], pulse: number): number {
   return best;
 }
 
+/** What the channels' MML says about the song as a whole. */
+interface MmlSummary {
+  any: boolean;
+  /** Pulse where the longest channel ends. */
+  end: number;
+  /** Pulse of the first L command in any channel. */
+  loop: number | null;
+  /** The first t command in any channel. */
+  tempo: number | null;
+}
+
+/** Parse every MML channel once, for its issues, tempo, loop point and length, and the instruments it uses. */
+function summarizeMml(
+  ctx: Ctx,
+  infos: ChannelInfo[],
+  chip: ChipId,
+  instruments: Record<string, Instrument> | undefined,
+  refs: Refs
+): MmlSummary {
+  const sum: MmlSummary = { any: false, end: 0, loop: null, tempo: null };
+  for (const info of infos) {
+    if (info.mml === null) {
+      continue;
+    }
+    sum.any = true;
+    const path = ptr(ptr("/channels", info.index), "mml");
+    const parsed = parseMml(info.mml);
+    for (const i of parsed.issues) {
+      ctx.issues.push({ severity: i.severity, path, message: i.message });
+    }
+    sum.end = Math.max(sum.end, parsed.endPulse);
+    sum.tempo ??= parsed.tempo;
+    sum.loop ??= parsed.loopPulse;
+    for (const e of parsed.events) {
+      if (e.type === "inst") {
+        fixedKindCheck(ctx, path, e.id, info, chip, instruments, refs);
+      }
+    }
+  }
+  return sum;
+}
+
+/** The patterns and order of an MML-only song: empty patterns of SYNTH_PATTERN_BEATS beats that give it its length. */
+function synthesizeStructure(
+  mmlEnd: number,
+  rowsPerBeat: number
+): { order: string[]; patterns: Record<string, Pattern> } {
+  const patterns: Record<string, Pattern> = {};
+  const order: string[] = [];
+  const perPattern = SYNTH_PATTERN_BEATS * rowsPerBeat;
+  const total = Math.max(mmlEnd, 1);
+  const count = Math.min(
+    256,
+    Math.max(1, Math.ceil(total / (SYNTH_PATTERN_BEATS * PPQ) - 1e-9))
+  );
+  for (let k = 0; k < count; k += 1) {
+    const pid = `mml-${k + 1}`;
+    patterns[pid] = { length: perPattern, tracks: {} };
+    order.push(pid);
+  }
+  return { order, patterns };
+}
+
+/** The order list when the document's own is empty or missing: every pattern, or the first one. */
+function fallbackOrder(
+  ctx: Ctx,
+  doc: Rec,
+  patterns: Record<string, Pattern>
+): string[] {
+  const ids = Object.keys(patterns);
+  if (ids.length === 0) {
+    patterns["pattern-1"] = { length: 64, tracks: {} };
+    ids.push("pattern-1");
+  }
+  if (Array.isArray(doc.order) && doc.order.length === 0) {
+    error(ctx, "/order", "must list at least 1 pattern");
+  }
+  return doc.order === undefined ? ids : [ids[0] ?? "pattern-1"];
+}
+
+/**
+ * The loop order index. The MML loop point wins over the document's `loop`: in a synthesized song it picks the
+ * pattern it falls in, otherwise it is snapped to the nearest order boundary (with a warning when that moves it).
+ */
+function resolveLoop(
+  ctx: Ctx,
+  doc: Rec,
+  structure: {
+    order: string[];
+    patterns: Record<string, Pattern>;
+    synthesized: boolean;
+  },
+  pulsesPerRow: number,
+  mmlLoop: number | null
+): number | null {
+  const { order, patterns, synthesized } = structure;
+  const loop = readLoop(ctx, doc, order.length);
+  if (mmlLoop === null) {
+    return loop;
+  }
+  if (synthesized) {
+    return Math.min(
+      order.length - 1,
+      Math.floor(mmlLoop / (SYNTH_PATTERN_BEATS * PPQ) + 1e-9)
+    );
+  }
+  const starts: number[] = [0];
+  for (const pid of order) {
+    starts.push(
+      (starts.at(-1) ?? 0) + (patterns[pid]?.length ?? 0) * pulsesPerRow
+    );
+  }
+  const idx = nearestBoundary(starts.slice(0, order.length), mmlLoop);
+  const exact = Math.abs((starts[idx] ?? 0) - mmlLoop) < 1e-6;
+  const agrees = loop !== null && idx === loop;
+  if (!(exact || agrees)) {
+    warn(
+      ctx,
+      "/loop",
+      `MML loop point L at pulse ${mmlLoop} is not on an order boundary and was rounded to order ${idx}`
+    );
+  } else if (!agrees && doc.loop !== undefined && doc.loop !== null) {
+    warn(
+      ctx,
+      "/loop",
+      `MML loop point L overrides loop ${show(doc.loop)}, the song loops to order ${idx}`
+    );
+  }
+  return idx;
+}
+
+function readMaster(
+  ctx: Ctx,
+  doc: Rec,
+  chip: ChipId,
+  profile: ChipProfile
+): SongMaster {
+  const m = section(ctx, doc, "master", "");
+  dropUnknown(ctx, m, "/master", ["volume", "echo", "reverb"]);
+  const master: SongMaster = {
+    volume: numField(ctx, m, "volume", "/master", { min: 0, max: 1, def: 0.8 }),
+    echo: readEcho(ctx, m.echo),
+    reverb: readReverb(ctx, m.reverb),
+  };
+  if (!profile.constraints.masterFx) {
+    if (master.echo) {
+      warn(
+        ctx,
+        "/master/echo",
+        `chip "${chip}" has no master effects, the echo is ignored`
+      );
+    }
+    if (master.reverb) {
+      warn(
+        ctx,
+        "/master/reverb",
+        `chip "${chip}" has no master effects, the reverb is ignored`
+      );
+    }
+  }
+  return master;
+}
+
 export function normalizeSong(
   input: unknown,
   instruments?: Record<string, Instrument>
@@ -744,66 +1010,22 @@ export function normalizeSong(
     instruments,
     refs
   );
-  const patterns = readPatterns(
-    ctx,
-    doc,
+  const patterns = readPatterns(ctx, doc, {
     chip,
     infos,
     instruments,
     refs,
-    rowPaths
-  );
-  const pulsesPerRow = PPQ / rowsPerBeat;
-
-  // MML: parse every channel once for issues, tempo, loop point and length
-  let tempo = tempo0;
-  let mmlTempo: number | null = null;
-  let mmlLoop: number | null = null;
-  let mmlEnd = 0;
-  let anyMml = false;
-  for (const info of infos) {
-    if (info.mml === null) {
-      continue;
-    }
-    anyMml = true;
-    const path = ptr(ptr("/channels", info.index), "mml");
-    const parsed = parseMml(info.mml);
-    for (const i of parsed.issues) {
-      ctx.issues.push({ severity: i.severity, path, message: i.message });
-    }
-    mmlEnd = Math.max(mmlEnd, parsed.endPulse);
-    if (parsed.tempo !== null && mmlTempo === null) {
-      mmlTempo = parsed.tempo;
-    }
-    if (parsed.loopPulse !== null && mmlLoop === null) {
-      mmlLoop = parsed.loopPulse;
-    }
-    for (const e of parsed.events) {
-      if (e.type !== "inst") {
-        continue;
-      }
-      if (!refs.used.has(e.id)) {
-        refs.used.set(e.id, path);
-      }
-      if (instruments) {
-        const inst = instruments[e.id];
-        if (!inst) {
-          error(ctx, path, `instrument "${e.id}" does not exist`);
-        } else if (chip !== "custom" && inst.kind !== info.kind) {
-          error(
-            ctx,
-            path,
-            `instrument "${e.id}" is kind "${inst.kind}" but channel "${info.id}" is "${info.kind}"`
-          );
-        }
-      }
-    }
-  }
+    rowPaths,
+  });
+  const mml = summarizeMml(ctx, infos, chip, instruments, refs);
   const patternIds = Object.keys(patterns);
+  // an MML-only song: no rows anywhere, so the MML decides the song's tempo, length and loop
   const synthInput =
-    anyMml &&
+    mml.any &&
     !hasAnyRows(patterns) &&
     (patternIds.length === 0 || patternIds.every((k) => SYNTH_ID_RE.test(k)));
+  const { tempo: mmlTempo } = mml;
+  let tempo = tempo0;
   if (mmlTempo !== null) {
     if (synthInput) {
       tempo = mmlTempo;
@@ -817,108 +1039,18 @@ export function normalizeSong(
   }
 
   // Structure: patterns and order. An MML-only song gets synthesized patterns (empty, structure only).
-  let order: string[] = [];
-  let synthesized = false;
-  let outPatterns = patterns;
-  if (synthInput) {
-    synthesized = true;
-    outPatterns = {};
-    const perPattern = SYNTH_PATTERN_BEATS * rowsPerBeat;
-    const total = Math.max(mmlEnd, 1);
-    const count = Math.min(
-      256,
-      Math.max(1, Math.ceil(total / (SYNTH_PATTERN_BEATS * PPQ) - 1e-9))
-    );
-    for (let k = 0; k < count; k += 1) {
-      const pid = `mml-${k + 1}`;
-      outPatterns[pid] = { length: perPattern, tracks: {} };
-      order.push(pid);
-    }
-  } else {
-    order = readOrder(ctx, doc, outPatterns);
-    if (order.length === 0) {
-      const ids = Object.keys(outPatterns);
-      if (ids.length === 0) {
-        outPatterns["pattern-1"] = { length: 64, tracks: {} };
-        ids.push("pattern-1");
-      }
-      order = [ids[0] ?? "pattern-1"];
-      if (
-        doc.order !== undefined &&
-        Array.isArray(doc.order) &&
-        doc.order.length === 0
-      ) {
-        error(ctx, "/order", "must list at least 1 pattern");
-      }
-      if (doc.order === undefined) {
-        order = ids;
-      }
-    }
+  const structure = synthInput
+    ? { ...synthesizeStructure(mml.end, rowsPerBeat), synthesized: true }
+    : { order: readOrder(ctx, doc, patterns), patterns, synthesized: false };
+  if (structure.order.length === 0) {
+    structure.order = fallbackOrder(ctx, doc, structure.patterns);
   }
-
-  // loop
-  let loop: number | null = readLoop(ctx, doc, order.length);
-  const starts: number[] = [0];
-  for (const pid of order) {
-    starts.push(
-      (starts.at(-1) ?? 0) + (outPatterns[pid]?.length ?? 0) * pulsesPerRow
-    );
-  }
-  if (mmlLoop !== null) {
-    if (synthesized) {
-      loop = Math.min(
-        order.length - 1,
-        Math.floor(mmlLoop / (SYNTH_PATTERN_BEATS * PPQ) + 1e-9)
-      );
-    } else {
-      const idx = nearestBoundary(starts.slice(0, order.length), mmlLoop);
-      const exact = Math.abs((starts[idx] ?? 0) - mmlLoop) < 1e-6;
-      const agrees = loop !== null && idx === loop;
-      if (!(exact || agrees)) {
-        warn(
-          ctx,
-          "/loop",
-          `MML loop point L at pulse ${mmlLoop} is not on an order boundary and was rounded to order ${idx}`
-        );
-      } else if (!agrees && doc.loop !== undefined && doc.loop !== null) {
-        warn(
-          ctx,
-          "/loop",
-          `MML loop point L overrides loop ${show(doc.loop)}, the song loops to order ${idx}`
-        );
-      }
-      loop = idx;
-    }
-  }
+  const { order, patterns: outPatterns } = structure;
+  const loop = resolveLoop(ctx, doc, structure, PPQ / rowsPerBeat, mml.loop);
 
   // jump targets are checked once the order length is final
   checkJumps(ctx, outPatterns, order.length, rowPaths);
-
-  // master
-  const m = section(ctx, doc, "master", "");
-  dropUnknown(ctx, m, "/master", ["volume", "echo", "reverb"]);
-  const master: SongMaster = {
-    volume: numField(ctx, m, "volume", "/master", { min: 0, max: 1, def: 0.8 }),
-    echo: readEcho(ctx, m.echo),
-    reverb: readReverb(ctx, m.reverb),
-  };
-  if (!profile.constraints.masterFx) {
-    if (master.echo) {
-      warn(
-        ctx,
-        "/master/echo",
-        `chip "${chip}" has no master effects, the echo is ignored`
-      );
-    }
-    if (master.reverb) {
-      warn(
-        ctx,
-        "/master/reverb",
-        `chip "${chip}" has no master effects, the reverb is ignored`
-      );
-    }
-  }
-
+  const master = readMaster(ctx, doc, chip, profile);
   instrumentWarnings(ctx, chip, instruments, refs);
 
   const value: Song = {
@@ -999,6 +1131,28 @@ function readLoop(ctx: Ctx, doc: Rec, orderLength: number): number | null {
   return v;
 }
 
+/** Drop the jump effects of a row whose target is outside the order list. */
+function dropBadJumps(
+  ctx: Ctx,
+  row: Row,
+  path: string | undefined,
+  orderLength: number
+) {
+  const kept: Effect[] = [];
+  for (const [k, e] of row.fx.entries()) {
+    if (e.type === "jump" && effectByte(e) >= orderLength) {
+      error(
+        ctx,
+        path === undefined ? "/patterns" : ptr(ptr(path, "fx"), k),
+        `jump target ${effectByte(e)} must be inside the order list (0 to ${orderLength - 1}), the effect was dropped`
+      );
+    } else {
+      kept.push(e);
+    }
+  }
+  row.fx = kept;
+}
+
 function checkJumps(
   ctx: Ctx,
   patterns: Record<string, Pattern>,
@@ -1008,20 +1162,7 @@ function checkJumps(
   for (const pat of Object.values(patterns)) {
     for (const rows of Object.values(pat.tracks)) {
       for (const row of rows) {
-        const path = rowPaths.get(row);
-        const kept: Effect[] = [];
-        for (const [k, e] of row.fx.entries()) {
-          if (e.type === "jump" && effectByte(e) >= orderLength) {
-            error(
-              ctx,
-              path === undefined ? "/patterns" : ptr(ptr(path, "fx"), k),
-              `jump target ${effectByte(e)} must be inside the order list (0 to ${orderLength - 1}), the effect was dropped`
-            );
-          } else {
-            kept.push(e);
-          }
-        }
-        row.fx = kept;
+        dropBadJumps(ctx, row, rowPaths.get(row), orderLength);
       }
     }
   }

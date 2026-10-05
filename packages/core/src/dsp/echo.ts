@@ -1,4 +1,3 @@
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
 /* Master echo (section 3.6): a stereo delay line up to one second at the host rate, feedback through a one-pole
    lowpass, and a wet level. Fed by the per-voice sends. */
 

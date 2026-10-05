@@ -1,6 +1,3 @@
-// biome-ignore-all lint/performance/useTopLevelRegex: patterns sit next to the assertion that uses them
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/suspicious/noUnnecessaryConditions: Biome types fields initialised with false or 0 as literals and flags mutable state as constant
 import { describe, expect, it } from "vitest";
 import type { Instrument, Issue, Normalized, Row, Song } from "../src/index.ts";
 import {
@@ -331,7 +328,7 @@ describe("instrument", () => {
   });
 
   it("requires 2 or 4 fm operators and matches the chip's operator count", () => {
-    const fm = defaultInstrument("fm").fm;
+    const { fm } = defaultInstrument("fm");
     expect(fm).not.toBeNull();
     const three = {
       ...defaultInstrument("fm"),
@@ -535,6 +532,95 @@ describe("song", () => {
     expect(b.issues).toEqual([]);
     expect(a.value.patterns["pattern-1"]?.tracks.pulse1).toEqual(typed);
     expect(b.value).toEqual(a.value);
+  });
+
+  it("reads every form of a row's note", () => {
+    const notes: unknown[] = [
+      60,
+      "C-4",
+      "off",
+      "OFF",
+      "rel",
+      "release",
+      "...",
+      "",
+      null,
+      60.4,
+    ];
+    const r = normalizeSong({
+      ...nes(),
+      patterns: {
+        "pattern-1": {
+          length: 16,
+          tracks: {
+            pulse1: notes.map((note, row) => ({
+              fx: [],
+              inst: null,
+              note,
+              row,
+              vol: null,
+            })),
+          },
+        },
+      },
+    });
+    const rows = r.value.patterns["pattern-1"]?.tracks.pulse1 ?? [];
+    expect(rows.map((x) => x.note)).toEqual([
+      60,
+      60,
+      "off",
+      "off",
+      "release",
+      "release",
+      null,
+      null,
+      null,
+      60,
+    ]);
+    // a fractional note number is rounded with a warning, nothing else is wrong
+    expect(r.issues.filter((i) => i.severity === "error")).toEqual([]);
+  });
+
+  it("rejects a note that is not a note, and clamps one out of range", () => {
+    const withNote = (note: unknown) =>
+      normalizeSong({
+        ...nes(),
+        patterns: {
+          "pattern-1": {
+            length: 16,
+            tracks: {
+              pulse1: [{ fx: [], inst: null, note, row: 0, vol: null }],
+            },
+          },
+        },
+      });
+    const high = withNote(300);
+    expect(high.value.patterns["pattern-1"]?.tracks.pulse1?.[0]?.note).toBe(
+      127
+    );
+    expect(high.issues.some((i) => i.severity === "warning")).toBe(true);
+    for (const bad of ["H-9", "banana", {}, true]) {
+      const r = withNote(bad);
+      expect(
+        r.issues.some((i) => i.severity === "error"),
+        `a note of ${JSON.stringify(bad)} should be an error`
+      ).toBe(true);
+    }
+  });
+
+  it("falls back to an order of every pattern, or of the first one, and says so when the order is empty", () => {
+    const patterns = {
+      a: { length: 16, tracks: {} },
+      b: { length: 16, tracks: {} },
+    };
+    const missing = normalizeSong({ ...nes(), order: undefined, patterns });
+    expect(missing.value.order).toEqual(["a", "b"]);
+    const empty = normalizeSong({ ...nes(), order: [], patterns });
+    expect(empty.value.order).toEqual(["a"]);
+    has(empty, "error", "/order", /at least 1 pattern/);
+    const none = normalizeSong({ ...nes(), order: [], patterns: {} });
+    expect(none.value.order).toEqual(["pattern-1"]);
+    expect(none.value.patterns["pattern-1"]?.length).toBe(64);
   });
 
   it("accepts string effects inside typed rows", () => {

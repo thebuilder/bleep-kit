@@ -7,7 +7,7 @@ import {
   EFFECT_TYPES,
   SFX_CATEGORIES,
   SFX_WAVES,
-} from "./stubs.ts";
+} from "@bleepkit/core";
 
 export const FORMAT_SECTIONS = [
   "overview",

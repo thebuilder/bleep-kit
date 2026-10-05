@@ -3,6 +3,8 @@
    sparkle bursts for coin, powerup and blip sounds, and lightning strikes for explosion and hit. The studio feeds it
    through `reactive`; the generator draws from that state, so it is `live` and drawn every frame. A second small
    generator, `bleep-sea`, draws the dark water of the Mega Drive scene. */
+
+import { choose } from "../lib/dom.ts";
 import {
   bay,
   defineGenerator,
@@ -66,7 +68,7 @@ export const bleepPulse = defineGenerator("bleep-pulse", {
   },
   render(c) {
     const { W, H, p } = c;
-    const t = reactive.t;
+    const { t } = reactive;
     const level = Math.min(1, reactive.level * 3);
     const k = p.base + level * 0.55 * p.gain + reactive.pulse * 0.4 * p.gain;
     const cy = p.y * H;
@@ -77,9 +79,9 @@ export const bleepPulse = defineGenerator("bleep-pulse", {
       for (
         let y = Math.max(0, Math.floor(cy - r));
         y < Math.min(H, Math.ceil(cy + r));
-        y++
+        y += 1
       ) {
-        for (let x = Math.floor(cx - r); x < Math.ceil(cx + r); x++) {
+        for (let x = Math.floor(cx - r); x < Math.ceil(cx + r); x += 1) {
           const d = Math.hypot(x - cx, (y - cy) * 1.15) / r;
           if (d >= 1) {
             continue;
@@ -102,7 +104,7 @@ export const bleepPulse = defineGenerator("bleep-pulse", {
       const rr = 6 + f * Math.min(W * 0.45, 90);
       const a = (1 - f) * 0.5;
       const n = Math.max(24, Math.round(rr * 3));
-      for (let i = 0; i < n; i++) {
+      for (let i = 0; i < n; i += 1) {
         const ang = (i / n) * Math.PI;
         c.glow(
           cx + Math.cos(ang) * rr * 1.5,
@@ -121,7 +123,7 @@ export const bleepPulse = defineGenerator("bleep-pulse", {
       const f = age / BURST_S;
       const bx = c.screenX(b.x * W);
       const by = b.y * H;
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 12; i += 1) {
         const ang = hash2(i, Math.floor(b.x * 997), 3) * TAU;
         const sp = 10 + hash2(i, Math.floor(b.x * 991), 4) * 26;
         const x = bx + Math.cos(ang) * sp * age * 1.4;
@@ -141,7 +143,13 @@ export const bleepPulse = defineGenerator("bleep-pulse", {
         continue;
       }
       const f = age / STRIKE_S;
-      const flicker = f < 0.5 ? 1 : f < 0.65 ? 0.2 : 0.7;
+      const flicker = choose(
+        [
+          [f < 0.5, 1],
+          [f < 0.65, 0.2],
+        ],
+        0.7
+      );
       const a = (1 - f) * flicker;
       const rng = mulberry32(s.seed);
       let x = c.screenX(s.x * W);
@@ -189,7 +197,7 @@ export const bleepSea = defineGenerator("bleep-sea", {
   render(c) {
     const { W, H, p } = c;
     const y0 = Math.floor(p.top * H);
-    for (let y = y0; y < H; y++) {
+    for (let y = y0; y < H; y += 1) {
       const f = (y - y0) / Math.max(1, H - y0);
       const row = Math.floor(f * 6 + bay(y, 0)) / 6;
       const col: [number, number, number] = [
@@ -201,7 +209,7 @@ export const bleepSea = defineGenerator("bleep-sea", {
       // shimmering glints, more of them near the horizon
       const wob = c.wave(0.8, y * 0.6);
       const count = Math.round(5 * (1 - f) + 1);
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < count; i += 1) {
         const gx =
           c.left +
           ((((hash2(i, y, c.seed) * W + wob * 6 + c.t * (4 + (y % 3))) % W) +

@@ -1,4 +1,3 @@
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
 /* Offline rendering (section 4.2): build a Synth at the requested rate, drive it with the right messages and run
    process() in 128-frame blocks, collecting events. The limiter's lookahead delay is trimmed so audio lines up with
    event frames. Pure functions of their inputs: two calls give bit-identical output. */
@@ -149,7 +148,7 @@ function runFrames(
 }
 
 /** Exact frame of a pulse under the song's tempo map, with the sequencer's own arithmetic. */
-export function pulseToFrame(
+function pulseToFrame(
   tl: SongTimeline,
   sampleRate: number,
   pulse: number
@@ -222,6 +221,40 @@ export function renderSfx(sfx: Sfx, opts?: RenderOptions): RenderResult {
   };
 }
 
+/** How many frames a song render is expected to take: one pass, the extra loop passes and the tail. */
+function songFrameEstimate(
+  tl: SongTimeline,
+  sr: number,
+  loops: number,
+  tail: number
+): number {
+  const end = pulseToFrame(tl, sr, tl.totalPulses);
+  const passFrames =
+    tl.loopPulse === null ? 0 : end - pulseToFrame(tl, sr, tl.loopPulse);
+  return end + passFrames * (loops - 1) + Math.round(tail * sr);
+}
+
+/** What a song render adds to the result: the loop points in frames, and the stems when they were asked for. */
+function songExtras(
+  song: Song,
+  tl: SongTimeline,
+  sr: number,
+  frames: number,
+  stemRun: Run | null
+): Partial<RenderResult> {
+  const extra: Partial<RenderResult> = {};
+  if (tl.loopPulse !== null) {
+    extra.loopStart = pulseToFrame(tl, sr, tl.loopPulse);
+    extra.loopEnd = pulseToFrame(tl, sr, tl.totalPulses);
+  }
+  if (stemRun) {
+    const ids = chipChannels(song).slice(0, 10);
+    extra.stemIds = ids.map((c) => c.id);
+    extra.stems = stemRun.stems.map((g) => g.take(0, frames));
+  }
+  return extra;
+}
+
 export function renderSong(
   song: Song,
   instruments: Record<string, Instrument>,
@@ -238,15 +271,7 @@ export function renderSong(
   const tl = compileSong(song, instruments);
   const latency = synth.latency;
   const maxFrames = Math.round(MAX_SECONDS * sr);
-  const passFrames =
-    tl.loopPulse === null
-      ? 0
-      : pulseToFrame(tl, sr, tl.totalPulses) -
-        pulseToFrame(tl, sr, tl.loopPulse);
-  const estimate =
-    pulseToFrame(tl, sr, tl.totalPulses) +
-    passFrames * (loops - 1) +
-    Math.round(tail * sr);
+  const estimate = songFrameEstimate(tl, sr, loops, tail);
   synth.playForRender(loops);
   while (!synth.ended && run.left.len < maxFrames) {
     if (!runFrames(run, BLOCK, opts, () => estimate)) {
@@ -260,16 +285,7 @@ export function renderSong(
     runFrames(run, desired - run.left.len, opts, () => estimate);
   }
   const frames = Math.max(0, Math.min(run.left.len, desired) - latency);
-  const extra: Partial<RenderResult> = {};
-  if (tl.loopPulse !== null) {
-    extra.loopStart = pulseToFrame(tl, sr, tl.loopPulse);
-    extra.loopEnd = pulseToFrame(tl, sr, tl.totalPulses);
-  }
-  if (opts?.stems) {
-    const ids = chipChannels(song).slice(0, 10);
-    extra.stemIds = ids.map((c) => c.id);
-    extra.stems = run.stems.map((g) => g.take(0, frames));
-  }
+  const extra = songExtras(song, tl, sr, frames, opts?.stems ? run : null);
   return finish(run, sr, latency, frames, extra);
 }
 

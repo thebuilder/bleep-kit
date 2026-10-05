@@ -2,6 +2,15 @@
 // typed audio.ts and manifest.json (architecture.md sections 7 and 8). Shared with the studio server's /api/export.
 import fs from "node:fs";
 import path from "node:path";
+import type {
+  AudioManifest,
+  Issue,
+  ManifestSfx,
+  ManifestSong,
+  Sfx,
+  Song,
+} from "@bleepkit/core";
+import { decodeWav } from "@bleepkit/core/tools";
 import {
   MP3_LOOP_WARNING,
   manifestJson,
@@ -30,15 +39,6 @@ import {
   recordExport,
   renderDoc,
 } from "./render.ts";
-import {
-  type AudioManifest,
-  decodeWav,
-  type Issue,
-  type ManifestSfx,
-  type ManifestSong,
-  type Sfx,
-  type Song,
-} from "./stubs.ts";
 
 export interface ExportOptions {
   clean?: boolean;
@@ -388,7 +388,7 @@ export async function runExport(
     written: [],
   };
   for (const t of targets) {
-    // sequential on purpose: renders are CPU bound and the log reads in document order
+    // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, renders are CPU bound and the log reads in document order
     await exportTarget(x, t);
   }
   if (x.mp3Song) {

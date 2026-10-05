@@ -1,7 +1,6 @@
-// biome-ignore-all lint/suspicious/noBitwiseOperators: DSP code: LFSR shifts, power-of-two ring masks, integer hashing and flag masks need bit operations
 /* Lookup tables, built lazily once (section 3.11). Table construction may use Math.sin and Math.exp; the hot path never does. */
 
-export const SINE_SIZE = 4096;
+const SINE_SIZE = 4096;
 
 let sine: Float32Array | null = null;
 let dbAmp: Float32Array | null = null;
@@ -29,8 +28,8 @@ export function sinCycles(table: Float32Array, phase: number): number {
   return a + (b - a) * frac;
 }
 
-export const DB_RES = 16;
-export const DB_MAX = 144;
+const DB_RES = 16;
+const DB_MAX = 144;
 
 /** Attenuation in dB (index = dB * DB_RES) to linear amplitude. */
 export function dbAmpTable(): Float32Array {

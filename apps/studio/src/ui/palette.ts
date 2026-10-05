@@ -39,7 +39,7 @@ export function openPalette(commands: Command[]): void {
   const list = h("div", { class: "cmd-list", role: "listbox" });
   let sel = 0;
   let shown: Command[] = [];
-  let close = () => undefined as void;
+  let close: () => void = () => undefined;
   const run = (c: Command | undefined) => {
     if (!c) {
       return;

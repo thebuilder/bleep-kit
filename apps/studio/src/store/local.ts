@@ -1,7 +1,6 @@
 /* Standalone mode: the project lives in IndexedDB (database "bleepkit-studio", object store "files" keyed by path),
    with the same shapes the server returns. Without IndexedDB (a private window, tests) it falls back to memory. */
 
-import type { Project } from "../lib/contract.ts";
 import { defaultProject, normalizeProject } from "../lib/core.ts";
 import { readZip, writeZip } from "../zip.ts";
 import { starterFiles } from "./seed.ts";
@@ -17,6 +16,10 @@ import {
   type WriteResult,
 } from "./store.ts";
 
+const JSON_EXT = /\.json$/;
+const ZIP_ROOT_FOLDER =
+  /^[^/]+\/(?=(project\.json|sfx\/|songs\/|instruments\/))/;
+
 interface Row {
   bytes?: Uint8Array;
   mtime: number;
@@ -26,11 +29,11 @@ interface Row {
 
 /** The key-value layer under the store: IndexedDB in the browser, a Map for tests. */
 export interface FileBackend {
-  all(): Promise<Row[]>;
-  clear(): Promise<void>;
-  del(path: string): Promise<void>;
-  get(path: string): Promise<Row | undefined>;
-  put(row: Row): Promise<void>;
+  all: () => Promise<Row[]>;
+  clear: () => Promise<void>;
+  del: (path: string) => Promise<void>;
+  get: (path: string) => Promise<Row | undefined>;
+  put: (row: Row) => Promise<void>;
 }
 
 export function memoryBackend(): FileBackend {
@@ -123,19 +126,20 @@ export class LocalStore implements ProjectStore {
 
   /** Add the starter documents to a project that has none of its own. */
   async seed(overwrite = false): Promise<number> {
-    let n = 0;
-    for (const [path, json] of starterFiles()) {
-      if (!overwrite && (await this.backend.get(path))) {
-        continue;
-      }
-      await this.backend.put({
-        mtime: Date.now(),
-        path,
-        text: stringify(json),
-      });
-      n++;
-    }
-    return n;
+    const written = await Promise.all(
+      [...starterFiles()].map(async ([path, json]) => {
+        if (!overwrite && (await this.backend.get(path))) {
+          return 0;
+        }
+        await this.backend.put({
+          mtime: Date.now(),
+          path,
+          text: stringify(json),
+        });
+        return 1;
+      })
+    );
+    return written.reduce<number>((a, b) => a + b, 0);
   }
 
   async open(): Promise<ProjectInfo> {
@@ -234,27 +238,25 @@ export class LocalStore implements ProjectStore {
     // zips made from a folder may carry one top-level directory
     const stripped = entries.map((e) => ({
       ...e,
-      path: e.path.replace(
-        /^[^/]+\/(?=(project\.json|sfx\/|songs\/|instruments\/))/,
-        ""
-      ),
+      path: e.path.replace(ZIP_ROOT_FOLDER, ""),
     }));
     const wanted = stripped.filter((e) => kindOfPath(e.path));
     if (replace) {
       await this.backend.clear();
     }
-    for (const e of wanted) {
-      const isJson = e.path.endsWith(".json");
-      await this.backend.put(
-        isJson
-          ? {
-              mtime: Date.now(),
-              path: e.path,
-              text: new TextDecoder().decode(e.data),
-            }
-          : { bytes: e.data, mtime: Date.now(), path: e.path }
-      );
-    }
+    await Promise.all(
+      wanted.map((e) =>
+        this.backend.put(
+          e.path.endsWith(".json")
+            ? {
+                mtime: Date.now(),
+                path: e.path,
+                text: new TextDecoder().decode(e.data),
+              }
+            : { bytes: e.data, mtime: Date.now(), path: e.path }
+        )
+      )
+    );
     return wanted.length;
   }
 
@@ -266,10 +268,10 @@ export class LocalStore implements ProjectStore {
     } catch {
       return null;
     }
-    const o = json as Record<string, unknown>;
+    const o = json as Record<string, unknown> | null;
     const id =
       name
-        .replace(/\.json$/, "")
+        .replace(JSON_EXT, "")
         .toLowerCase()
         .replace(/[^a-z0-9-]+/g, "-")
         .replace(/^-+|-+$/g, "") || "imported";
@@ -303,5 +305,3 @@ export class LocalStore implements ProjectStore {
     await this.seed(true);
   }
 }
-
-export type { Project };

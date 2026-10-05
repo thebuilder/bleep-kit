@@ -55,7 +55,7 @@ export const CHIP_THEME: Record<ChipId, ChipTheme> = {
 };
 
 export const chipTheme = (id: ChipId | string | undefined): ChipTheme =>
-  CHIP_THEME[(id as ChipId) ?? "nes"] ?? CHIP_THEME.nes;
+  CHIP_THEME[id as ChipId] ?? CHIP_THEME.nes;
 
 export const KIND_COLOR: Record<ChannelKind, string> = {
   fm: "var(--k-fm)",

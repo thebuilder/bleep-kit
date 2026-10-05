@@ -1,5 +1,3 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
 /* MML formatting: events back to text, and tracker rows back to text. */
 
 import { formatEffect } from "../normalize/effects.ts";
@@ -25,7 +23,7 @@ const NAMES = [
 const EPS = 1e-6;
 
 /** Length tokens ("4", "8..") for a duration in pulses, as one entry or several that tie or follow each other. */
-export function lengthTokens(pulses: number): string[] {
+function lengthTokens(pulses: number): string[] {
   const out: string[] = [];
   let left = pulses;
   let guard = 0;
@@ -77,76 +75,95 @@ function joinNotes(
   return parts.join("&");
 }
 
+type NoteEvent = Extract<MmlEvent, { type: "note" }>;
+
+/** What the text has set so far: formatting only repeats a command when a note needs a different value. */
+interface FormatState {
+  gate: number;
+  inst: string | null;
+  octave: number;
+  volume: number;
+}
+
+/** The v, @ and q commands a note needs because its settings differ from the running ones. */
+function writeNoteSettings(e: NoteEvent, st: FormatState, out: string[]) {
+  if (e.volume !== st.volume) {
+    st.volume = e.volume;
+    out.push(`v${e.volume}`);
+  }
+  if (e.inst !== null && e.inst !== st.inst) {
+    st.inst = e.inst;
+    out.push(`@${e.inst}`);
+  }
+  const q = Math.min(8, Math.max(1, Math.round((8 * e.gate) / e.duration)));
+  if (q !== st.gate) {
+    st.gate = q;
+    out.push(`q${q}`);
+  }
+}
+
+function writeNote(e: NoteEvent, st: FormatState, out: string[]) {
+  writeNoteSettings(e, st, out);
+  for (const fx of e.fx) {
+    out.push(`{${formatEffect(fx)}}`);
+  }
+  const nt = noteText(e.note, st.octave);
+  st.octave = nt.octave;
+  const lengths = lengthTokens(e.duration);
+  if (nt.text.includes(" ")) {
+    // "o5 c": the octave command stays in front, ties repeat only the letter
+    const [oct, letter] = nt.text.split(" ") as [string, string];
+    out.push(`${oct} ${joinNotes(letter, lengths, false)}`);
+  } else {
+    out.push(joinNotes(nt.text, lengths, nt.text.startsWith("n")));
+  }
+}
+
+function writeEvent(e: MmlEvent, st: FormatState, out: string[]) {
+  switch (e.type) {
+    case "volume":
+      st.volume = e.value;
+      out.push(`v${e.value}`);
+      break;
+    case "inst":
+      st.inst = e.id;
+      out.push(`@${e.id}`);
+      break;
+    case "pan":
+      out.push(`p${e.value}`);
+      break;
+    case "loop":
+      out.push("L");
+      break;
+    case "rest":
+      out.push(
+        lengthTokens(e.duration)
+          .map((l) => `r${l}`)
+          .join(" ")
+      );
+      break;
+    case "note":
+      writeNote(e, st, out);
+      break;
+    default:
+      break;
+  }
+}
+
 /** Events to MML text. Reparsing the text yields the same events (for events that came from parseMml). */
 export function formatMml(
   events: readonly MmlEvent[],
   opts: MmlOptions = {}
 ): string {
   const out: string[] = [];
-  let octave = opts.octave ?? 4;
-  let volume = opts.volume ?? 15;
-  let inst: string | null = null;
-  let gate = 8;
+  const st: FormatState = {
+    gate: 8,
+    inst: null,
+    octave: opts.octave ?? 4,
+    volume: opts.volume ?? 15,
+  };
   for (const e of events) {
-    switch (e.type) {
-      case "volume":
-        volume = e.value;
-        out.push(`v${e.value}`);
-        break;
-      case "inst":
-        inst = e.id;
-        out.push(`@${e.id}`);
-        break;
-      case "pan":
-        out.push(`p${e.value}`);
-        break;
-      case "loop":
-        out.push("L");
-        break;
-      case "rest":
-        out.push(
-          lengthTokens(e.duration)
-            .map((l) => `r${l}`)
-            .join(" ")
-        );
-        break;
-      case "note": {
-        if (e.volume !== volume) {
-          volume = e.volume;
-          out.push(`v${e.volume}`);
-        }
-        if (e.inst !== null && e.inst !== inst) {
-          inst = e.inst;
-          out.push(`@${e.inst}`);
-        }
-        const q = Math.min(
-          8,
-          Math.max(1, Math.round((8 * e.gate) / e.duration))
-        );
-        if (q !== gate) {
-          gate = q;
-          out.push(`q${q}`);
-        }
-        for (const fx of e.fx) {
-          out.push(`{${formatEffect(fx)}}`);
-        }
-        const nt = noteText(e.note, octave);
-        octave = nt.octave;
-        const numeric = nt.text.startsWith("n");
-        const head = nt.text;
-        const lengths = lengthTokens(e.duration);
-        if (nt.text.includes(" ")) {
-          // "o5 c": the octave command stays in front, ties repeat only the letter
-          const [oct, letter] = nt.text.split(" ") as [string, string];
-          out.push(`${oct} ${joinNotes(letter, lengths, false)}`);
-        } else {
-          out.push(joinNotes(head, lengths, numeric));
-        }
-        break;
-      }
-      default:
-        break;
-    }
+    writeEvent(e, st, out);
   }
   return out.join(" ");
 }
@@ -181,7 +198,7 @@ export function patternToMml(
     }
     const startPulse = r.row * pulsesPerRow;
     if (r.inst !== null && r.inst !== inst) {
-      inst = r.inst;
+      ({ inst } = r);
       events.push({ id: r.inst, pulse: startPulse, type: "inst" });
     }
     if (r.vol !== null && r.vol !== volume) {

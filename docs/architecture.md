@@ -51,6 +51,7 @@ Rules:
 ```ts
 // documents and normalize
 export { FORMAT_VERSION, CHIP_IDS, CHANNEL_KINDS, SFX_CATEGORIES, SFX_WAVES, EFFECT_TYPES, SAMPLE_GENERATOR_IDS, PPQ, SCOPE_FRAMES } from "./types.ts";
+export { ENGINE_VERSION } from "./version.ts";   // a string ("2" today): the version of the sound, bumped when golden hashes change on purpose (section 6.2)
 export type * from "./types.ts";
 export { normalizeProject, normalizeSfx, normalizeInstrument, normalizeSong, defaultProject, defaultSfx, defaultInstrument, defaultSong } from "./normalize/index.ts";
 export { issuesToText } from "./normalize/issues.ts";
@@ -198,6 +199,7 @@ See section 5 (worklet protocol) and section 7 (manifest) for the shapes. `@blee
 src/types.ts              the contract (section 2.2, verbatim)
 src/index.ts  src/tools.ts
 src/prng.ts               mulberry32, hashString, deriveSeed
+src/version.ts            ENGINE_VERSION
 src/notes.ts              note names and frequencies
 src/normalize/            issues.ts (Issue, Normalized, helpers), project.ts, sfx.ts, instrument.ts, song.ts, effects.ts (fx string <-> typed), index.ts
 src/mml/                  lexer.ts, parser.ts, format.ts, index.ts
@@ -1150,7 +1152,7 @@ Pitch-less params a game may vary at trigger time: `velocity` (scales volume), `
 ### 3.10 Determinism
 
 - `renderSfx` and `renderSong` are pure functions of their inputs and `RenderOptions`. Two calls with the same inputs produce bit-identical `Float32Array`s (golden hash tests, section 9). The realtime `Synth` produces the same samples for the same sequence of messages at the same frames.
-- Randomness: noise generators are LFSRs seeded from `deriveSeed(opts.seed, channelIndex)`; sample generators use `SamplePatch.seed`; nothing else is random. `Math.random`, `Date`, `performance.now` and `crypto` are banned in core, sfx and player sources (lint test `test/no-nondeterminism.test.ts` in core greps all three packages).
+- Randomness: noise generators are LFSRs seeded from `deriveSeed(opts.seed, channelIndex)`; sample generators use `SamplePatch.seed`; nothing else is random. The one exception is the SID noise waveform: like the chip, its register starts from the fixed reset value `0x7FFFF8` and is not seeded. `Math.random`, `Date`, `performance.now` and `crypto` are banned in core, sfx and player sources (lint test `test/no-nondeterminism.test.ts` in core greps all three packages). One file is exempt, by path, with the reason in the test: `packages/player/src/worklet/load-meter.ts`, the worklet's CPU load meter, which times `process` for the `load` figure in `clock` messages. Its reading only feeds that figure and never reaches a sample, and it takes the clock from an injected host object (`performance`, else `Date`).
 - Float math: use `Math.fround` nowhere; keep plain doubles into Float32Array stores. Avoid `Math.sin` in the hot path (table lookups), so results do not depend on the platform's libm. Table construction may use `Math.sin` since it runs once and is then stored as Float32 (identical across platforms for the same inputs in practice; the golden tests pin it).
 
 ### 3.11 Performance budget
@@ -1188,7 +1190,7 @@ Events for visuals, from any path: `noteOn` (channel, note, hz, velocity, id = i
 
 ### 4.3 Scope reader
 
-`createScopeReader(rings, sampleRate)` returns `{ latest(channel, frames): Float32Array, at(channel, frame, frames): Float32Array }` which copies from the ring into a reused output buffer. `at` lets the UI ask for the samples that were playing at a given engine frame, which is how the studio aligns scopes to the audio clock: the UI knows `(engineFrame now) = lastClockFrame + (audioContext.currentTime - lastClockTime - outputLatency) * sampleRate`.
+`createScopeReader(rings, sampleRate)` returns `{ latest(channel, frames): Float32Array, at(channel, frame, frames): Float32Array }` which copies from the ring into a reused output buffer. `at(channel, frame, frames)` copies the window of `frames` samples that STARTS at engine frame `frame` (the window is `[frame, frame + frames)`, so `latest(channel, n)` equals `at(channel, head - n, n)`). It lets the UI ask for the samples that were playing at a given engine frame, which is how the studio aligns scopes to the audio clock: the UI knows `(engineFrame now) = lastClockFrame + (audioContext.currentTime - lastClockTime - outputLatency) * sampleRate`.
 
 ## 5. AudioWorklet protocol
 
@@ -1297,7 +1299,7 @@ Binary `bleepkit`, built with esbuild into `packages/cli/dist/index.mjs` like Pi
 | `bleepkit studio [dir] [--port 5174] [--open] [--no-open]` | starts the server (section 6.3) and serves the built studio; prints the URL; runs until Ctrl-C | streams `{ type: "listening", url }` then one line per file event in `--json` |
 | `bleepkit describe <ref>` | the text description of an sfx (or a song summary: channels, length, loop, notes per channel) for agents | `{ ok, description }` |
 
-Staleness: a render in `out/` is stale when the document's mtime, any instrument it references, or `project.json` is newer than the render, or when the render's sidecar `out/<kind>/<id>.meta.json` (holding `{ hash }` of the normalized documents and options) does not match the current hash. `render` and `export` use the hash, not mtime, as the final word.
+Staleness: a render in `out/` is stale when the document's mtime, any instrument it references, or `project.json` is newer than the render, or when the render's sidecar `out/<kind>/<id>.meta.json` (holding `{ hash }` of the normalized documents and options) does not match the current hash. `render` and `export` use the hash, not mtime, as the final word. The hash covers the normalized documents, the effective options, the project's master settings, the CLI's pipeline version and core's `ENGINE_VERSION` (`packages/core/src/version.ts`, a string exported from `@bleepkit/core`). `ENGINE_VERSION` is the version of the sound: it is bumped by hand in the same change that moves a golden hash on purpose, and that makes every render in every project stale (the next `render` or `export` redoes it, `list` shows it as stale) so an old `out/` never passes for the new sound. Core's golden test enforces the discipline: each `test/golden/<id>.json` stores the `engineVersion` it was made under, the test fails with a message naming `ENGINE_VERSION` when the hashes moved or the versions differ, and `UPDATE_GOLDEN=1` refuses to rewrite moved hashes under a version the file already holds. The WAV files the CLI writes carry `ISFT: bleepkit <cli version>` (section 8).
 
 ### 6.3 Studio server
 
@@ -1376,13 +1378,15 @@ export const songs = {
 export type SfxId = keyof typeof sfx;
 export type SongId = keyof typeof songs;
 
-export const manifest: AudioManifest = {
+export const manifest = {
   base: "/audio/",
   sampleRate: 48000,
   sfx: { coin: { file: "coin.ogg", duration: 0.31 }, laser: { file: "laser.ogg", duration: 0.42 } },
   songs: { title: { file: "title.ogg", duration: 25.0, loopStart: 4.8, loopEnd: 24.0, events: "title.events.json" } },
-};
+} as const satisfies AudioManifest;
 ```
+
+The manifest is written `as const satisfies AudioManifest`, not annotated `: AudioManifest`. An annotation would widen the keys to `string` and `createPlayer({ manifest })` could no longer type the ids; `as const` keeps the literal keys and `satisfies` still checks the shape against the player's `AudioManifest`. Embedded documents (`data`) are the one exception: `as const` would turn every array in them readonly, which `AudioManifest` rejects, so each `data` literal is cast to `NonNullable<ManifestSfx["data"]>` or `NonNullable<ManifestSong["data"]>` (the generated file then also imports `ManifestSfx` and `ManifestSong`). The CLI tests type-check a generated `audio.ts`, with and without `embed`, against `@bleepkit/player` with `tsc`, including that a wrong id does not compile.
 
 With `embed: true`, `manifest.sfx.<id>.data` and `manifest.songs.<id>.data` carry the normalized documents and the player can synthesize them (then `file` is still written so games can choose). `export` also writes `manifest.json` (the same object) into `export.dir` for `loadManifest`. Ids become keys verbatim (they are valid identifiers when quoted; the generator quotes keys that contain dashes).
 
@@ -1402,7 +1406,7 @@ Every package has `test/`. Fixtures live in `packages/core/test/fixtures/` (docu
 
 - DSP unit tests (core): pulse duty ratio by counting samples above zero over 100 cycles (within 1%); frequency by zero crossings and by FFT peak (within 0.5% at 440 Hz for every oscillator and FM at low index); NES period quantization reproduces known cents errors (A-7 on NES pulse is sharp by a known amount); envelope timing: attack reaches 0.99 within attack seconds plus 1 ms, release falls below -60 dB within release seconds times 1.2; macro loop and release indexes; LFSR noise short mode has period 93 or 31 in NES; SID filter cutoff lowers the FFT energy above cutoff by at least 12 dB per octave; limiter never exceeds -0.3 dBFS on a +12 dB input; echo repeats at the delay time (cross correlation peak).
 - Sequencer tests: a pattern with notes at rows 0, 4, 8 emits noteOn events at the expected frames for tempo 120 and 150; `jump`, `skip`, `halt`, loop points; MML and the equivalent pattern produce identical event lists; effects per tick values at tick 0, 1, 2.
-- Golden tests: for every fixture document, `renderSfx` / `renderSong` at 48000 and 44100 produce a Float32 output whose FNV-1a hash of the raw bytes matches `test/golden/<id>.json`. A changed golden must be updated on purpose with `UPDATE_GOLDEN=1 pnpm test` and reviewed by listening (the orchestrator) or by analysis diff. The same test renders twice and asserts bit equality (determinism) and renders through `createSynth` in 128-frame blocks versus 64-frame blocks and asserts equality (block-size independence).
+- Golden tests: for every fixture document, `renderSfx` / `renderSong` at 48000 and 44100 produce a Float32 output whose FNV-1a hash of the raw bytes matches `test/golden/<id>.json`. A changed golden must be updated on purpose: bump `ENGINE_VERSION` (section 6.2), run `UPDATE_GOLDEN=1 pnpm test` (it refuses to move hashes under an unbumped version), and review by listening (the orchestrator) or by analysis diff. The same test renders twice and asserts bit equality (determinism) and renders through `createSynth` in 128-frame blocks versus 64-frame blocks and asserts equality (block-size independence).
 - Normalize tests: every rule in section 2 has a test with the issue path and severity; round trip `normalize(normalize(x).value)` yields zero issues and deep-equal output; the compact row string form and the typed form normalize to the same thing; version greater than FORMAT_VERSION is an error.
 - MML tests: each grammar element; `formatMml(parseMml(x).events)` reparses to the same events; error positions.
 - Sfx tests: every category at 20 seeds normalizes with zero errors, renders under 10 s, has peak above -20 dBFS, and `describeSfx` mentions the category; `mutateSfx` with amount 0 is identity; same seed same result.
@@ -1457,7 +1461,7 @@ An unlocked AudioContext needs a gesture: the first click anywhere resumes it; u
 
 All canvas, all at `devicePixelRatio`, all driven by one `requestAnimationFrame` loop in `src/visuals/loop.ts` that reads the engine clock once per frame and gives every visual `{ frame, time, events since last frame }`. Under `prefers-reduced-motion` every visual draws its still state (scopes show a flat line with the current level, no bursts, backdrop static) and the loop runs at 10 fps.
 
-- Per-channel oscilloscopes: one per channel header in the song view, 96 x 32 CSS pixels, trigger on rising zero crossing so the wave stands still, line in the channel color with a 2-pixel glow, kind label. Reads `ScopeReader.at(channel, nowFrame - window)`.
+- Per-channel oscilloscopes: one per channel header in the song view, 96 x 32 CSS pixels, trigger on rising zero crossing so the wave stands still, line in the channel color with a 2-pixel glow, kind label. Reads `ScopeReader.at(channel, nowFrame - window, window)`: `frame` is the start of the window.
 - Master oscilloscope and spectrum: on the stage top strip in every view, 1024-point FFT (from `core/tools` `fft`), 64 log-spaced bars with peak hold (hold 400 ms then fall 24 dB/s), bar color from the chip's palette, clipping turns the top red.
 - Tracker playhead and row flash: the playing row glows for 80 ms on each `row` event; a note on in a channel column pulses the cell.
 - Keyboard lighting: the piano keys in the instrument view and a small 4-octave strip in the song view light per `noteOn` in the channel color with a 150 ms fade.

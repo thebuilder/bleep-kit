@@ -4,17 +4,17 @@ import type { FromWorklet, ToWorklet } from "../lib/contract.ts";
 
 export interface ScopeReaderLike {
   /** The samples that were playing at engine frame `frame`, `frames` long. */
-  at(channel: number, frame: number, frames: number): Float32Array;
+  at: (channel: number, frame: number, frames: number) => Float32Array;
   /** The last `frames` samples of a channel (-1 and -2 are master left and right). */
-  latest(channel: number, frames: number): Float32Array;
+  latest: (channel: number, frames: number) => Float32Array;
 }
 
 export interface EngineNodeLike {
-  dispose(): void;
+  dispose: () => void;
   node?: unknown;
   /** Engine frame that is playing out of the speakers right now. */
-  nowFrame(): number;
-  on(handler: (msg: FromWorklet) => void): () => void;
+  nowFrame: () => number;
+  on: (handler: (msg: FromWorklet) => void) => () => void;
   scopes: ScopeReaderLike;
-  send(msg: ToWorklet): void;
+  send: (msg: ToWorklet) => void;
 }

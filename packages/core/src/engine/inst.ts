@@ -5,6 +5,7 @@ import type { FmRt } from "../dsp/fm.ts";
 import { compileFmPatch } from "../dsp/fm.ts";
 import type { MacroRt } from "../dsp/macro.ts";
 import { compileMacro } from "../dsp/macro.ts";
+import { nearest } from "../nearest.ts";
 import type { ChannelKind, ChipId, ChipProfile, Instrument } from "../types.ts";
 
 /** Sample data a voice can play (SNES profile). */
@@ -30,7 +31,7 @@ export const SRC_SAMPLE = 8;
 
 export const DEFAULT_DUTIES: readonly number[] = [0.125, 0.25, 0.5, 0.75];
 
-export function sourceOfKind(kind: ChannelKind): number {
+function sourceOfKind(kind: ChannelKind): number {
   switch (kind) {
     case "pulse":
       return SRC_PULSE;
@@ -83,16 +84,6 @@ export interface InstRt {
   wave: Float32Array;
 }
 
-export function snapDuty(list: readonly number[], d: number): number {
-  let best = list[0] ?? d;
-  for (const c of list) {
-    if (Math.abs(c - d) < Math.abs(best - d)) {
-      best = c;
-    }
-  }
-  return best;
-}
-
 export function waveToBipolar(table: readonly number[]): Float32Array {
   const out = new Float32Array(32);
   for (let i = 0; i < 32; i += 1) {
@@ -120,7 +111,7 @@ export function compileInstrument(
     duties: list,
     duty:
       profile.constraints.dutyCycles.length > 0
-        ? snapDuty(list, baseDuty)
+        ? nearest(list, baseDuty)
         : baseDuty,
     finetune: inst.finetune,
     fm: inst.fm

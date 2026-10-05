@@ -1,4 +1,3 @@
-// biome-ignore-all assist/source/useSortedKeys: the key order of a document is part of its file format (version first, then name and the rest as written in the architecture)
 import type { Normalized, Project, ProjectExport } from "../types.ts";
 import { CHIP_IDS, FORMAT_VERSION } from "../types.ts";
 import { defaultProject } from "./defaults.ts";

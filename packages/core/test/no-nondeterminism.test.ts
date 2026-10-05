@@ -1,4 +1,3 @@
-// biome-ignore-all lint/performance/useTopLevelRegex: patterns sit next to the assertion that uses them
 /* Section 3.10: nothing in core, sfx or player sources may read randomness or a clock. Audio is a pure function of its
    inputs and the seed, so Math.random, Date, performance and crypto are banned. This test greps the three packages. */
 
@@ -9,6 +8,14 @@ import { describe, expect, it } from "vitest";
 
 const PACKAGES = fileURLToPath(new URL("../../", import.meta.url));
 const ROOTS = ["core", "sfx", "player"].map((p) => join(PACKAGES, p, "src"));
+
+/* Files allowed to read a clock, by path relative to packages/. The CPU load meter of the worklet needs a clock: it
+   times `process` and reports `load` in `clock` messages for the studio's meter. The reading never reaches the audio
+   path (it only feeds that one number), so it cannot change a sample, and the file takes its clock from an injected
+   host object (`globalThis` by default) so tests can stub it. Nothing else may be listed here. */
+const CLOCK_EXEMPT: ReadonlySet<string> = new Set([
+  "player/src/worklet/load-meter.ts",
+]);
 
 /* Real uses only. Reading a clock off an injected host object (`host.performance`) is how the worklet load meter stays
    outside the audio path, so a bare property name does not count, a call on the global does. */
@@ -103,6 +110,12 @@ describe("no nondeterminism in core, sfx and player", () => {
     }
   });
 
+  it("every exempt file exists, so an exemption cannot go stale", () => {
+    for (const rel of CLOCK_EXEMPT) {
+      expect(statSync(join(PACKAGES, rel)).isFile()).toBe(true);
+    }
+  });
+
   it("no source uses Math.random, Date, performance or crypto", () => {
     const bad: string[] = [];
     let scanned = 0;
@@ -110,6 +123,11 @@ describe("no nondeterminism in core, sfx and player", () => {
       const files: string[] = [];
       walk(root, files);
       for (const file of files) {
+        if (
+          CLOCK_EXEMPT.has(file.slice(PACKAGES.length).replaceAll("\\", "/"))
+        ) {
+          continue;
+        }
         scanned += 1;
         const found = findViolations(readFileSync(file, "utf8"));
         if (found.length > 0) {

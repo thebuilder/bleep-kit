@@ -8,6 +8,8 @@ import type {
   WriteResult,
 } from "./store.ts";
 
+const HTTP_SCHEME = /^http/;
+
 interface Health {
   ok: boolean;
   root?: string;
@@ -34,7 +36,7 @@ export async function probeServer(
     if (!type.includes("json")) {
       return null;
     }
-    const body = (await res.json()) as Health;
+    const body = (await res.json()) as Health | null;
     return body?.ok ? body : null;
   } catch {
     return null;
@@ -48,7 +50,7 @@ export class ServerStore implements ProjectStore {
   private readonly listeners = new Set<(m: ServerMessage) => void>();
   private socket: WebSocket | null = null;
   private retry = 500;
-  private closed = false;
+  private closed = false as boolean;
 
   constructor(base = "", root = "project folder") {
     this.base = base;
@@ -65,7 +67,7 @@ export class ServerStore implements ProjectStore {
     }
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const origin = this.base
-      ? this.base.replace(/^http/, "ws")
+      ? this.base.replace(HTTP_SCHEME, "ws")
       : `${proto}//${location.host}`;
     try {
       const ws = new WebSocket(`${origin}/ws`);

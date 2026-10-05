@@ -2,39 +2,43 @@
   "$schema": "../../node_modules/@biomejs/biome/configuration_schema.json",
   "root": false,
   "extends": "//",
-  "linter": {
-    "rules": {
-      // The studio is a canvas and pixel-art app: bit twiddling, tight loops and `i++` are the clearest way to write
-      // that code, and `void promise` marks a deliberately unawaited call.
-      "style": {
-        "noIncrementDecrement": "off",
-        "noNestedTernary": "off",
-        "useDestructuring": "off",
-        "noDescendingSpecificity": "off",
-        "useConsistentMethodSignatures": "off",
-        "noExportedImports": "off",
-        "useForOf": "off",
-        "useConsistentTypeDefinitions": "off"
-      },
-      // noUnnecessaryConditions: defensive checks on data that arrives from disk, the server and a worker are kept on purpose.
-      "suspicious": {
-        "noBitwiseOperators": "off",
-        "noShadow": "off",
-        "noUnnecessaryConditions": "off",
-        "noConfusingVoidType": "off",
-        "useAwait": "off",
-        "noAlert": "off"
-      },
-      "complexity": {
-        "noVoid": "off",
-        "noExcessiveCognitiveComplexity": "off",
-        "noForEach": "off"
-      },
-      "performance": {
-        "useTopLevelRegex": "off",
-        "noAwaitInLoops": "off",
-        "noNamespaceImport": "off"
+  "overrides": [
+    {
+      // Bit twiddling is the point of these two files: CRC-32 and little-endian packing for the zip writer, and the
+      // bit-reversal permutation of the FFT. Rewriting them with arithmetic would be slower and harder to check.
+      "includes": ["src/zip.ts", "src/visuals/fft.ts"],
+      "linter": { "rules": { "suspicious": { "noBitwiseOperators": "off" } } }
+    },
+    {
+      // Per-frame drawing code, the keyboard map and the view builders read top to bottom as one pass over a canvas or a
+      // key table; splitting them into helpers that share ten locals would only hide the flow. Everything outside
+      // these folders keeps the default limit.
+      "includes": [
+        "src/visuals/**",
+        "src/backdrop/**",
+        "src/views/**",
+        "src/dev/**",
+        "src/ui/piano.ts"
+      ],
+      "linter": {
+        "rules": { "complexity": { "noExcessiveCognitiveComplexity": "off" } }
+      }
+    },
+    {
+      // Pixelkit is ejected into src/pixelkit by its CLI and kept as generated: it is still formatted and checked like
+      // everything else, but these rules would only produce churn against upstream (bit tricks in its noise and dither
+      // code, `i++` loops, method style signatures in its types, long scene functions).
+      "includes": ["src/pixelkit/**"],
+      "linter": {
+        "rules": {
+          "complexity": { "noExcessiveCognitiveComplexity": "off" },
+          "style": {
+            "noIncrementDecrement": "off",
+            "useConsistentMethodSignatures": "off"
+          },
+          "suspicious": { "noBitwiseOperators": "off" }
+        }
       }
     }
-  }
+  ]
 }

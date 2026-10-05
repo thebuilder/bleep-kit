@@ -39,7 +39,7 @@ function hostName(value: string): string {
 }
 
 /** Rejects DNS rebinding (Host) and cross-site pages (Origin): only localhost pages may drive this server. */
-export function originAllowed(headers: http.IncomingHttpHeaders): boolean {
+function originAllowed(headers: http.IncomingHttpHeaders): boolean {
   const { host } = headers;
   if (host && !LOCAL_HOSTS.has(hostName(host))) {
     return false;

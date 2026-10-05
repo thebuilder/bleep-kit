@@ -19,17 +19,17 @@ export interface WaveOpts {
 /** min and max per column of the left channel, as 0..1 magnitudes either side of the middle. */
 export function columnPeaks(r: RenderResult, cols: number): Float32Array {
   const out = new Float32Array(cols * 2);
-  const ch = r.channels[0];
+  const [ch] = r.channels;
   if (!ch || r.frames === 0) {
     return out;
   }
   const per = r.frames / cols;
-  for (let c = 0; c < cols; c++) {
+  for (let c = 0; c < cols; c += 1) {
     let lo = 0;
     let hi = 0;
     const from = Math.floor(c * per);
     const to = Math.max(from + 1, Math.floor((c + 1) * per));
-    for (let i = from; i < to && i < r.frames; i++) {
+    for (let i = from; i < to && i < r.frames; i += 1) {
       const v = ch[i] ?? 0;
       if (v < lo) {
         lo = v;
@@ -73,7 +73,7 @@ export function drawWaveform(
   const played = o.played ?? -1;
   const playedCols = played < 0 ? cols : Math.floor(played * cols);
   const amp = mid - 2;
-  for (let c = 0; c < cols; c++) {
+  for (let c = 0; c < cols; c += 1) {
     const lo = Math.max(-1, pk[c * 2] ?? 0);
     const hi = Math.min(1, pk[c * 2 + 1] ?? 0);
     const top = Math.round(mid - hi * amp);
@@ -136,7 +136,7 @@ export function makeSpectrogram(
   canvas.width = cols;
   canvas.height = rows;
   const ctx = canvas.getContext("2d");
-  const ch = r.channels[0];
+  const [ch] = r.channels;
   if (
     !(ctx && ch) ||
     r.frames === 0 ||
@@ -171,14 +171,14 @@ export function makeSpectrogram(
       c0[2] + (c1[2] - c0[2]) * f,
     ];
   };
-  for (let c = 0; c < cols; c++) {
+  for (let c = 0; c < cols; c += 1) {
     const centre = Math.floor(((c + 0.5) / cols) * r.frames);
     const start = Math.max(0, Math.min(r.frames - size, centre - size / 2));
-    for (let i = 0; i < size; i++) {
+    for (let i = 0; i < size; i += 1) {
       win[i] = ch[start + i] ?? 0;
     }
     spec.magnitudes(win, mag);
-    for (let y = 0; y < rows; y++) {
+    for (let y = 0; y < rows; y += 1) {
       const hz = lowHz * (nyq / lowHz) ** ((rows - 1 - y) / (rows - 1));
       const bin = Math.min(size / 2 - 1, Math.round((hz / nyq) * (size / 2)));
       const m = mag[bin] ?? 0;

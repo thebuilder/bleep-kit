@@ -77,9 +77,10 @@ describe("studio command", () => {
         if (Date.now() > deadline) {
           throw new Error(`timed out; lines: ${lines.join("|")}`);
         }
-        await new Promise<void>((r) => {
-          waiters.push(r);
-          setTimeout(r, 200);
+        // biome-ignore lint/performance/noAwaitInLoops: a polling loop, each pass waits for the next line or 200 ms
+        await new Promise<void>((resolve) => {
+          waiters.push(resolve);
+          setTimeout(resolve, 200);
         });
       }
     };
@@ -108,8 +109,10 @@ describe("studio command", () => {
     runProcess(repo, ["init"]);
     const net = await import("node:net");
     const blocker = net.createServer();
-    await new Promise<void>((r) => blocker.listen(0, "127.0.0.1", r));
-    const port = (blocker.address() as { port: number }).port;
+    await new Promise<void>((resolve) =>
+      blocker.listen(0, "127.0.0.1", resolve)
+    );
+    const { port } = blocker.address() as { port: number };
     const r = runProcess(repo, [
       "studio",
       "--port",

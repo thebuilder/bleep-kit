@@ -3,6 +3,7 @@ import { parseRoute, routeHash } from "../src/app.ts";
 import { createHistory } from "../src/lib/history.ts";
 import { LocalStore, memoryBackend } from "../src/store/local.ts";
 import { STARTER_PROJECT, starterFiles } from "../src/store/seed.ts";
+import { fieldLabel, issuesBox } from "../src/ui/issues.ts";
 import { fuzzy } from "../src/ui/palette.ts";
 import { keyToOffset } from "../src/ui/piano.ts";
 import { highlightTs } from "../src/views/project.ts";
@@ -73,12 +74,12 @@ describe("history", () => {
   it("keeps at most the limit", () => {
     const h = createHistory(3);
     h.reset("0");
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= 10; i += 1) {
       h.push(String(i));
     }
     let steps = 0;
     while (h.undo() !== null) {
-      steps++;
+      steps += 1;
     }
     expect(steps).toBe(3);
   });
@@ -294,6 +295,7 @@ describe("the studio app", () => {
   const until = async (fn: () => boolean, ms = 3000) => {
     const t0 = Date.now();
     while (!fn() && Date.now() - t0 < ms) {
+      // biome-ignore lint/performance/noAwaitInLoops: polling, each wait must finish before the next check
       await settle(20);
     }
     return fn();
@@ -301,7 +303,7 @@ describe("the studio app", () => {
 
   beforeAll(async () => {
     (
-      window as unknown as { happyDOM?: { setURL(url: string): void } }
+      window as unknown as { happyDOM?: { setURL: (url: string) => void } }
     ).happyDOM?.setURL("http://localhost:3000/?engine=fake&store=local#/pads");
     document.body.innerHTML =
       '<canvas id="backdrop"></canvas><div id="app"></div>';
@@ -310,7 +312,7 @@ describe("the studio app", () => {
     appMod = await import("../src/app.ts");
     const { boot } = await import("../src/shell.ts");
     await boot(document.getElementById("app") as HTMLElement);
-    const node = engineMod.engine.node;
+    const { node } = engineMod.engine;
     if (node) {
       const send = node.send.bind(node);
       node.send = (msg) => {
@@ -436,7 +438,7 @@ describe("the studio app", () => {
     ).toBe("Coin 2");
   });
 
-  it("goes quiet under prefers-reduced-motion", async () => {
+  it("goes quiet under prefers-reduced-motion", () => {
     loopMod.setReduced(true);
     expect(document.documentElement.dataset.reduced).toBe("1");
     const frames: boolean[] = [];
@@ -455,3 +457,69 @@ describe("the studio app", () => {
 });
 
 vi.setConfig({ testTimeout: 15_000 });
+
+describe("starter content", () => {
+  it("normalizes with zero issues", async () => {
+    const {
+      normalizeInstrument,
+      normalizeProject,
+      normalizeSfx,
+      normalizeSong,
+    } = await import("../src/lib/core.ts");
+    const bad: string[] = [];
+    for (const [path, doc] of starterFiles()) {
+      let res: { issues: readonly { message: string; path: string }[] } =
+        normalizeProject(doc);
+      if (path.startsWith("sfx/")) {
+        res = normalizeSfx(doc);
+      } else if (path.startsWith("songs/")) {
+        res = normalizeSong(doc);
+      } else if (path.startsWith("instruments/")) {
+        res = normalizeInstrument(doc);
+      }
+      for (const i of res.issues) {
+        bad.push(`${path} ${i.path} ${i.message}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});
+
+describe("issue field labels", () => {
+  it("translates JSON pointers into the inspector's field names", () => {
+    expect(fieldLabel("/loop")).toBe("Loop to order");
+    expect(fieldLabel("/frequency/start")).toBe("Frequency / Start (Hz)");
+    expect(fieldLabel("/bitcrush/rateDivide")).toBe("Crush / Rate divide");
+    expect(fieldLabel("/channels/2/mml")).toBe("Channel 3 / MML");
+    expect(fieldLabel("/fm/ops/1/sustainLevel")).toBe(
+      "FM patch / Operator 2 / Sustain level"
+    );
+    expect(fieldLabel("/patterns/verse/tracks/noise/4/note")).toBe(
+      "Pattern verse / noise / Row 4 / Note"
+    );
+    expect(fieldLabel("/master/echo")).toBe("Master / Echo");
+    expect(fieldLabel("")).toBe("Whole document");
+  });
+
+  it("falls back to plain words for paths it does not know", () => {
+    expect(fieldLabel("/someNewField")).toBe("Some new field");
+    expect(fieldLabel("/envelope/newThing")).toBe("Envelope / New thing");
+    expect(fieldLabel("/arpeggio/steps/3")).toBe("Arpeggio / Steps / Item 4");
+  });
+
+  it("still reads legacy dotted paths", () => {
+    expect(fieldLabel("frequency.start")).toBe("Frequency / Start (Hz)");
+  });
+
+  it("never prints a raw pointer in the issues box", () => {
+    const box = issuesBox([
+      {
+        message: "MML loop point L overrides loop 1",
+        path: "/loop",
+        severity: "warning",
+      },
+    ]);
+    expect(box?.textContent).toContain("Loop to order");
+    expect(box?.textContent).not.toContain("/loop");
+  });
+});

@@ -1,8 +1,3 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/noExportedImports: the module re-exports names it also uses itself
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/suspicious/noBitwiseOperators: DSP code: LFSR shifts, power-of-two ring masks, integer hashing and flag masks need bit operations
-// biome-ignore-all lint/suspicious/noUnnecessaryConditions: Biome types fields initialised with false or 0 as literals and flags mutable state as constant
 /* The realtime engine (sections 3 and 4.1). Everything that allocates is a load* or set* method; process() never
    allocates. Time inside process is split into segments at every tick and sequencer event, so notes start on the
    exact frame and results do not depend on the host's block size. */
@@ -47,7 +42,7 @@ import {
   zeroRing,
 } from "./scope.ts";
 import type { SeqHandler } from "./sequencer.ts";
-import { MAX_SEQ_CHANNELS, SongPlayer } from "./sequencer.ts";
+import { SongPlayer } from "./sequencer.ts";
 import type { SfxProgram } from "./sfx-compile.ts";
 import { compileSfx } from "./sfx-compile.ts";
 import type { RowMark, SongTimeline, TimelineEvent } from "./timeline.ts";
@@ -553,6 +548,42 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
 
   // ---------------------------------------------------------------- sfx and manual notes
 
+  /** An sfx voice that is idle, or null when every one is busy. */
+  private freeSfxVoice(): Voice | null {
+    for (const v of this.sfxVoices) {
+      if (!(v.active || v.pending)) {
+        return v;
+      }
+    }
+    return null;
+  }
+
+  /** The sfx voice to steal: the quietest one already releasing, else the oldest one not about to start. */
+  private stealableSfxVoice(): Voice | null {
+    let target: Voice | null = null;
+    let lowest = Number.POSITIVE_INFINITY;
+    for (const v of this.sfxVoices) {
+      if (v.sfxReleased && !v.pending) {
+        const lvl = v.currentLevel();
+        if (lvl < lowest) {
+          lowest = lvl;
+          target = v;
+        }
+      }
+    }
+    if (target) {
+      return target;
+    }
+    let oldest = Number.POSITIVE_INFINITY;
+    for (const v of this.sfxVoices) {
+      if (!v.pending && v.startFrame < oldest) {
+        oldest = v.startFrame;
+        target = v;
+      }
+    }
+    return target ?? this.sfxVoices[0] ?? null;
+  }
+
   trigger(
     id: string,
     opts?: { velocity?: number; pan?: number; pitch?: number; seed?: number }
@@ -561,39 +592,9 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
     if (!prog) {
       return 0;
     }
-    let target: Voice | null = null;
-    for (const v of this.sfxVoices) {
-      if (!(v.active || v.pending)) {
-        target = v;
-        break;
-      }
-    }
-    let steal = false;
-    if (!target) {
-      steal = true;
-      let lowest = Number.POSITIVE_INFINITY;
-      for (const v of this.sfxVoices) {
-        if (v.sfxReleased && !v.pending) {
-          const lvl = v.currentLevel();
-          if (lvl < lowest) {
-            lowest = lvl;
-            target = v;
-          }
-        }
-      }
-      if (!target) {
-        let oldest = Number.POSITIVE_INFINITY;
-        for (const v of this.sfxVoices) {
-          if (!v.pending && v.startFrame < oldest) {
-            oldest = v.startFrame;
-            target = v;
-          }
-        }
-      }
-      if (!target) {
-        target = this.sfxVoices[0] ?? null;
-      }
-    }
+    let target = this.freeSfxVoice();
+    const steal = target === null;
+    target ??= this.stealableSfxVoice();
     if (!target) {
       return 0;
     }
@@ -947,30 +948,8 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
   get latency(): number {
     return this.limiter.latency;
   }
-
-  /** True while anything can still make sound: voices, buses or master effect tails are ignored. */
-  anyVoiceActive(): boolean {
-    for (const v of this.songVoices) {
-      if (v.active) {
-        return true;
-      }
-    }
-    for (const v of this.sfxVoices) {
-      if (v.active || v.pending) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /** The chip profile of the loaded song (custom without one). */
-  get chipId(): ChipId {
-    return this.chip;
-  }
 }
 
 export function createSynth(opts: SynthOptions): Synth {
   return new SynthImpl(opts);
 }
-
-export { MAX_SEQ_CHANNELS };

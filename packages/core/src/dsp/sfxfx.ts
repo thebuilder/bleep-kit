@@ -1,9 +1,6 @@
-// biome-ignore-all lint/style/noNestedTernary: clamps and branch selects in the audio path read best inline
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/suspicious/noBitwiseOperators: DSP code: LFSR shifts, power-of-two ring masks, integer hashing and flag masks need bit operations
 /* Sfx-only voice effects (section 3.6): 12 dB lowpass with resonance, 12 dB highpass, phaser comb, bitcrush. */
 
-export const PHASER_RING = 1024;
+const PHASER_RING = 1024;
 
 export interface SfxFx {
   crushCount: number;

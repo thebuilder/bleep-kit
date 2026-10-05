@@ -1,5 +1,3 @@
-// biome-ignore-all lint/style/noNestedTernary: clamps and branch selects in the audio path read best inline
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
 /* Chamberlin state variable filter, run at twice the host rate so it stays stable up to 12 kHz cutoffs. */
 
 export const SVF_LP = 1;

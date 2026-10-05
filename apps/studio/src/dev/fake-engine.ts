@@ -73,9 +73,9 @@ export function createFakeEngine(ctx: BaseAudioContext | null): EngineNodeLike {
   };
   const monoOf = (r: RenderResult): Float32Array => {
     const m = new Float32Array(r.frames);
-    const a = r.channels[0];
+    const [a] = r.channels;
     const b = r.channels[1] ?? a;
-    for (let i = 0; i < r.frames; i++) {
+    for (let i = 0; i < r.frames; i += 1) {
       m[i] = ((a?.[i] ?? 0) + (b?.[i] ?? 0)) / 2;
     }
     return m;
@@ -232,12 +232,12 @@ export function createFakeEngine(ctx: BaseAudioContext | null): EngineNodeLike {
           const base = renderFrameAt(frame);
           const L =
             songRes.channels[channel === -1 ? 0 : 1] ?? songRes.channels[0];
-          for (let i = 0; i < frames; i++) {
+          for (let i = 0; i < frames; i += 1) {
             o[i] = L?.[wrapRender(base + i)] ?? 0;
           }
         }
         for (const v of voices) {
-          for (let i = 0; i < frames; i++) {
+          for (let i = 0; i < frames; i += 1) {
             const k = frame + i - v.start;
             if (k >= 0 && k < v.mono.length) {
               o[i] = (o[i] ?? 0) + (v.mono[k] ?? 0);
@@ -249,7 +249,7 @@ export function createFakeEngine(ctx: BaseAudioContext | null): EngineNodeLike {
       if (playing && songRes?.stems?.[channel]) {
         const stem = songRes.stems[channel];
         const base = renderFrameAt(frame);
-        for (let i = 0; i < frames; i++) {
+        for (let i = 0; i < frames; i += 1) {
           o[i] = stem[wrapRender(base + i)] ?? 0;
         }
       }
@@ -257,7 +257,7 @@ export function createFakeEngine(ctx: BaseAudioContext | null): EngineNodeLike {
         if (v.channel !== channel) {
           continue;
         }
-        for (let i = 0; i < frames; i++) {
+        for (let i = 0; i < frames; i += 1) {
           const k = frame + i - v.start;
           if (k >= 0 && k < v.mono.length) {
             o[i] = (o[i] ?? 0) + (v.mono[k] ?? 0);
@@ -405,8 +405,7 @@ export function createFakeEngine(ctx: BaseAudioContext | null): EngineNodeLike {
     send(msg: ToWorklet) {
       switch (msg.type) {
         case "loadSong":
-          song = msg.song;
-          songInstruments = msg.instruments;
+          ({ song, instruments: songInstruments } = msg);
           break;
         case "unloadSong":
           stopSource();

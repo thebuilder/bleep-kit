@@ -1,5 +1,7 @@
 /* A pixel-art piano on a canvas: it lights keys (with a 150 ms fade after release), takes mouse and touch input, and
    labels the keys. The song view uses it as a small read-only strip, the instrument view as a playable keyboard. */
+
+import { choose } from "../lib/dom.ts";
 import { rgba, type Surface, surface } from "../visuals/canvas.ts";
 
 const isBlack = (n: number) => [1, 3, 6, 8, 10].includes(n % 12);
@@ -24,13 +26,13 @@ export interface PianoOpts {
 
 export interface Piano {
   /** true while something is lit or fading (the owner can skip drawing otherwise) */
-  busy(now?: number): boolean;
-  clear(): void;
-  dispose(): void;
-  draw(now?: number): void;
+  busy: (now?: number) => boolean;
+  clear: () => void;
+  dispose: () => void;
+  draw: (now?: number) => void;
   /** light a key; `on` true until release() */
-  light(note: number, color: string, on?: boolean, now?: number): void;
-  release(note: number, now?: number): void;
+  light: (note: number, color: string, on?: boolean, now?: number) => void;
+  release: (note: number, now?: number) => void;
   surface: Surface;
 }
 
@@ -38,7 +40,7 @@ export function createPiano(canvas: HTMLCanvasElement, o: PianoOpts): Piano {
   const s = surface(canvas);
   const lit = new Map<number, Lit>();
   const whites: number[] = [];
-  for (let n = o.lo; n <= o.hi; n++) {
+  for (let n = o.lo; n <= o.hi; n += 1) {
     if (!isBlack(n)) {
       whites.push(n);
     }
@@ -60,7 +62,7 @@ export function createPiano(canvas: HTMLCanvasElement, o: PianoOpts): Piano {
   };
   const noteAt = (px: number, py: number): number | null => {
     // black keys sit on top, so test them first
-    for (let n = o.lo; n <= o.hi; n++) {
+    for (let n = o.lo; n <= o.hi; n += 1) {
       if (isBlack(n)) {
         const g = geometry(n);
         if (px >= g.x && px < g.x + g.w && py < g.h) {
@@ -120,11 +122,13 @@ export function createPiano(canvas: HTMLCanvasElement, o: PianoOpts): Piano {
         : '10px "JetBrains Mono", monospace';
       ctx.textAlign = "center";
       ctx.textBaseline = "alphabetic";
-      ctx.fillStyle = g.black
-        ? "rgba(236,231,218,0.8)"
-        : a > 0.5
-          ? "#1b1306"
-          : "#5b566a";
+      ctx.fillStyle = choose(
+        [
+          [g.black, "rgba(236,231,218,0.8)"],
+          [a > 0.5, "#1b1306"],
+        ],
+        "#5b566a"
+      );
       ctx.fillText(text, x + w / 2, g.black ? g.h - 10 : g.h - 8);
     }
   };
@@ -151,7 +155,7 @@ export function createPiano(canvas: HTMLCanvasElement, o: PianoOpts): Piano {
       for (const n of whites) {
         drawKey(n, now);
       }
-      for (let n = o.lo; n <= o.hi; n++) {
+      for (let n = o.lo; n <= o.hi; n += 1) {
         if (isBlack(n)) {
           drawKey(n, now);
         }

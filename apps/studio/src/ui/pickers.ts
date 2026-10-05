@@ -3,7 +3,6 @@ import { app } from "../app.ts";
 import {
   CATEGORY_KIND,
   categoryColor,
-  KIND_COLOR,
   KIND_HEX,
   KIND_LABEL,
 } from "../lib/chips.ts";
@@ -13,8 +12,8 @@ import {
   chipProfile,
   defaultInstrument,
   defaultSong,
+  deriveSeed,
   generateSfx,
-  hashString,
 } from "../lib/core.ts";
 import { h } from "../lib/dom.ts";
 import { playSfx } from "../playback.ts";
@@ -32,9 +31,7 @@ export async function createSfx(
   const base = category;
   const id = project.uniqueId("sfx", base);
   const seed =
-    ((project.project.seed * 100_003 +
-      hashString(`${id}:${project.list("sfx").length}`)) >>>
-      0) %
+    deriveSeed(project.project.seed, `${id}:${project.list("sfx").length}`) %
     1_000_000;
   const sfx = generateSfx(category, {
     chip: project.project.chip,
@@ -51,7 +48,7 @@ export async function createSfx(
 
 export function pickCategory(onPick: (c: SfxCategory) => void): void {
   const grid = h("div", { class: "cat-grid" });
-  let close = () => undefined as void;
+  let close: () => void = () => undefined;
   for (const c of SFX_CATEGORIES) {
     const color = categoryColor(c);
     grid.append(
@@ -94,7 +91,7 @@ export function pickCategory(onPick: (c: SfxCategory) => void): void {
 export function pickKind(onPick: (k: ChannelKind) => void): void {
   const chip = chipProfile(project.project.chip);
   const grid = h("div", { class: "cat-grid kinds" });
-  let close = () => undefined as void;
+  let close: () => void = () => undefined;
   const kinds: ChannelKind[] = [
     "pulse",
     "triangle",
@@ -153,7 +150,7 @@ export async function createInstrument(kind: ChannelKind): Promise<void> {
     "instrument",
     kind === "pulse" ? "pulse-lead" : `${kind}-voice`
   );
-  const chip = project.project.chip;
+  const { chip } = project.project;
   const inst = defaultInstrument(
     kind,
     chipProfile(chip).kinds.includes(kind) ? chip : null
@@ -179,5 +176,3 @@ export async function createSong(): Promise<void> {
   const doc = await project.create("song", id, song);
   app.navigate(`#/song/${doc.id}`);
 }
-
-export { KIND_COLOR };

@@ -1,18 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-import { analysisText } from "../analysis-text.ts";
-import { CliError, display } from "../output.ts";
-import { openProject, resolveRef, writeFileAtomic } from "../project.ts";
-import { type RenderOpts, renderDoc } from "../render.ts";
 import {
-  type AnalysisLike,
+  type Analysis,
   analyze,
   decodeWav,
   encodePng,
   spectrogramImage,
   waveformImage,
-} from "../stubs.ts";
+} from "@bleepkit/core/tools";
+import { analysisText } from "../analysis-text.ts";
+import { CliError, display } from "../output.ts";
+import { openProject, resolveRef, writeFileAtomic } from "../project.ts";
+import { type RenderOpts, renderDoc } from "../render.ts";
 import type { CommandSpec } from "./types.ts";
 
 const WAV_EXT_RE = /\.wav$/i;
@@ -24,7 +24,7 @@ function analyzeFile(
   file: string,
   images: boolean,
   window: number | undefined
-): AnalysisLike {
+): Analysis {
   const abs = path.resolve(ctx.cwd, file);
   if (!fs.existsSync(abs)) {
     throw new CliError("not-found", `file not found: ${file}`, {
@@ -44,10 +44,10 @@ function analyzeFile(
   try {
     result = decodeWav(new Uint8Array(fs.readFileSync(abs)));
   } catch (error) {
-    throw new CliError(
+    throw CliError.because(
+      error,
       "invalid",
-      `cannot read ${file} as WAV: ${(error as Error).message}`,
-      { cause: error }
+      `cannot read ${file} as WAV: ${(error as Error).message}`
     );
   }
   const analysis = analyze(result, {
@@ -127,7 +127,7 @@ export const analyzeCommand: CommandSpec = {
       (target.includes(path.sep) &&
         fs.existsSync(path.resolve(ctx.cwd, target)) &&
         fs.statSync(path.resolve(ctx.cwd, target)).isFile());
-    let analysis: AnalysisLike;
+    let analysis: Analysis;
     let cached: boolean | undefined;
     let ref: string | undefined;
     if (looksLikeFile) {

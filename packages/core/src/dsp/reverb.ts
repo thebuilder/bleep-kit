@@ -1,7 +1,3 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/style/useForOf: indexed loops over typed arrays in the audio path need the index
-// biome-ignore-all lint/suspicious/noUnnecessaryConditions: Biome types fields initialised with false or 0 as literals and flags mutable state as constant
 /* Master reverb (section 3.6): a small Schroeder network, 4 parallel feedback combs (damped by a one-pole in each)
    into 2 series allpasses per side. Delay lengths follow Freeverb and scale with `size`. Fed by the reverb sends. */
 

@@ -2,6 +2,11 @@
    (section 6.3), `local.ts` keeps the same shapes in IndexedDB (section 6.5). Paths are always relative to the
    project folder, with forward slashes. */
 import type { Issue, Project } from "../lib/contract.ts";
+import { hashString } from "../lib/core.ts";
+import { choose } from "../lib/dom.ts";
+
+const DOC_PATH = /^(sfx|instruments|songs)\/[^/]+\.json$/;
+const JSON_EXT = /\.json$/;
 
 export type FileKind = "project" | "sfx" | "instrument" | "song" | "render";
 
@@ -46,27 +51,27 @@ export type ServerMessage =
   | { type: "log"; level: "info" | "warn" | "error"; message: string };
 
 export interface ProjectStore {
-  analyzeRemote?(ref: string): Promise<unknown>;
-  close(): void;
-  exportAll?(dryRun: boolean): Promise<unknown>;
+  analyzeRemote?: (ref: string) => Promise<unknown>;
+  close: () => void;
+  exportAll?: (dryRun: boolean) => Promise<unknown>;
   /** Short text for the status area: the folder on disk, or "this browser". */
   readonly label: string;
-  list(): Promise<FileEntry[]>;
+  list: () => Promise<FileEntry[]>;
   readonly mode: "server" | "local";
-  open(): Promise<ProjectInfo>;
-  readBytes(path: string): Promise<Uint8Array | null>;
-  readJson(path: string): Promise<FileJson>;
-  remove(path: string): Promise<void>;
+  open: () => Promise<ProjectInfo>;
+  readBytes: (path: string) => Promise<Uint8Array | null>;
+  readJson: (path: string) => Promise<FileJson>;
+  remove: (path: string) => Promise<void>;
   /** Server only. */
-  render?(ref: string, options?: Record<string, unknown>): Promise<unknown>;
-  subscribe(fn: (msg: ServerMessage) => void): () => void;
-  writeBytes(path: string, bytes: Uint8Array): Promise<void>;
+  render?: (ref: string, options?: Record<string, unknown>) => Promise<unknown>;
+  subscribe: (fn: (msg: ServerMessage) => void) => () => void;
+  writeBytes: (path: string, bytes: Uint8Array) => Promise<void>;
   /** Write a document; `ifMatch` is the etag the caller loaded, left out to overwrite. */
-  writeJson(
+  writeJson: (
     path: string,
     json: unknown,
     ifMatch?: string
-  ): Promise<WriteResult>;
+  ) => Promise<WriteResult>;
 }
 
 /** Document ids are file names without the extension. */
@@ -76,13 +81,15 @@ export function kindOfPath(path: string): FileKind | null {
   if (path === "project.json") {
     return "project";
   }
-  const m = /^(sfx|instruments|songs)\/[^/]+\.json$/.exec(path);
+  const m = DOC_PATH.exec(path);
   if (m) {
-    return m[1] === "sfx"
-      ? "sfx"
-      : m[1] === "instruments"
-        ? "instrument"
-        : "song";
+    return choose(
+      [
+        [m[1] === "sfx", "sfx" as const],
+        [m[1] === "instruments", "instrument" as const],
+      ],
+      "song" as const
+    );
   }
   return path.startsWith("out/") ? "render" : null;
 }
@@ -95,17 +102,12 @@ export const DIR_OF = {
 export const pathFor = (kind: "sfx" | "instrument" | "song", id: string) =>
   `${DIR_OF[kind]}/${id}.json`;
 export const idOfPath = (path: string) =>
-  (path.split("/").pop() ?? "").replace(/\.json$/, "");
+  (path.split("/").pop() ?? "").replace(JSON_EXT, "");
 
 /** 12 hex characters, like the server's etag (a hash of the bytes). */
 export function etagOf(text: string): string {
-  let h1 = 0x81_1c_9d_c5;
-  let h2 = 0x01_00_01_93 ^ text.length;
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i);
-    h1 = Math.imul(h1 ^ c, 0x01_00_01_93) >>> 0;
-    h2 = Math.imul(h2 + c, 0x85_eb_ca_6b) >>> 0;
-  }
+  const h1 = hashString(text);
+  const h2 = hashString(`${text.length}:${text}`);
   return (
     h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0")
   ).slice(0, 12);

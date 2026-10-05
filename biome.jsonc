@@ -4,5 +4,98 @@
   "files": {
     // docs/ is prose that other tools write into; it is not linted or reformatted here.
     "includes": ["!docs"]
-  }
+  },
+  "overrides": [
+    {
+      // The frozen contract (architecture.md section 2.2), copied verbatim: its members are grouped by topic and read
+      // top to bottom like the document, and its method signatures type `this` for the objects that implement them.
+      // Reordering or restyling the file would make it differ from the contract it mirrors, so the formatter skips it too
+      // (it aligns the trailing comments the contract uses).
+      "includes": ["packages/core/src/types.ts"],
+      "formatter": { "enabled": false },
+      "linter": {
+        "rules": { "style": { "useConsistentMethodSignatures": "off" } }
+      },
+      "assist": {
+        "actions": { "source": { "useSortedInterfaceMembers": "off" } }
+      }
+    },
+    {
+      // Documents on disk: the key order of a normalized document is part of its file format (version first, then the
+      // name and the rest in the order the architecture lists them), so it is not alphabetical.
+      "includes": ["packages/core/src/normalize/**"],
+      "assist": { "actions": { "source": { "useSortedKeys": "off" } } }
+    },
+    {
+      // DSP and binary formats: LFSR shifts, power-of-two ring masks, integer hashing, bit reversal for the FFT, CRC-32,
+      // RIFF/PNG/Ogg fields and flag masks are bitwise by nature, and rewriting them with arithmetic hides what they do.
+      "includes": [
+        "packages/core/src/dsp/**",
+        "packages/core/src/engine/**",
+        "packages/core/src/chips/**",
+        "packages/core/src/samples/**",
+        "packages/core/src/tools/**",
+        "packages/core/src/prng.ts",
+        "packages/core/test/**"
+      ],
+      "linter": {
+        "rules": { "suspicious": { "noBitwiseOperators": "off" } }
+      }
+    },
+    {
+      // The per-sample audio path (oscillators, envelopes, filters, voices, the sequencer and sample generators):
+      // - noExcessiveCognitiveComplexity: a sample loop and an effect switch are one pass over the signal. Splitting
+      //   them into helpers per branch hides the signal flow, and adds call overhead to code that runs 48000 times a
+      //   second per voice. Fallow's thresholdOverrides (.fallowrc.jsonc) pin a ceiling instead, so they cannot grow.
+      // - useDestructuring and noNestedTernary: loops copy fields into locals on purpose, and clamps and branch
+      //   selects read best inline.
+      // - useForOf: indexed loops over typed arrays need the index.
+      // - noUnnecessaryConditions: Biome types fields initialised with `false` or `0` as literals and then flags a
+      //   check on mutable state as constant.
+      "includes": [
+        "packages/core/src/dsp/**",
+        "packages/core/src/engine/**",
+        "packages/core/src/samples/**"
+      ],
+      "linter": {
+        "rules": {
+          "complexity": { "noExcessiveCognitiveComplexity": "off" },
+          "style": {
+            "noNestedTernary": "off",
+            "useDestructuring": "off",
+            "useForOf": "off"
+          },
+          "suspicious": { "noUnnecessaryConditions": "off" }
+        }
+      }
+    },
+    {
+      // Package entry points re-export on purpose: that is what an entry point is.
+      "includes": [
+        "packages/*/src/index.ts",
+        "packages/core/src/tools.ts",
+        "packages/core/src/*/index.ts"
+      ],
+      "linter": {
+        "rules": { "performance": { "noBarrelFile": "off" } }
+      }
+    },
+    {
+      // Tests: regexes in assertions run once, tests import the module under test as a namespace when they sweep over
+      // its exports (chip tables, the studio's loader), and indexed loops over typed arrays need the index.
+      // noUnnecessaryConditions: Biome's types ignore noUncheckedIndexedAccess, so it calls the `?.` on a record or
+      // array lookup (`song.patterns[id]?.tracks`) unnecessary, and tsc requires it.
+      "includes": ["**/test/**"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "useTopLevelRegex": "off",
+            "noNamespaceImport": "off"
+          },
+          "style": { "useForOf": "off" },
+          "suspicious": { "noUnnecessaryConditions": "off" }
+        }
+      }
+    }
+  ]
 }

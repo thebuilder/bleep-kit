@@ -3,6 +3,7 @@
    import and export of the whole project. */
 import type { Command, ViewHooks } from "../app.ts";
 import { app } from "../app.ts";
+import { engine } from "../engine/engine.ts";
 import { download, exportInBrowser } from "../export-local.ts";
 import {
   type Manifest,
@@ -18,7 +19,7 @@ import {
   type Sfx,
   type Song,
 } from "../lib/contract.ts";
-import { debounce, h, prefs } from "../lib/dom.ts";
+import { choose, debounce, fire, h, prefs } from "../lib/dom.ts";
 import type { ViewCtx } from "../shell.ts";
 import { project } from "../state/docs.ts";
 import type { LocalStore } from "../store/local.ts";
@@ -30,6 +31,11 @@ import {
   toggleField,
 } from "../ui/fields.ts";
 import { icon } from "../ui/icons.ts";
+import { confirmDialog } from "../ui/modal.ts";
+
+const EVENTS_EXT = /\.events$/;
+const LAST_EXT = /\.[^.]+$/;
+const LEADING_DOTDOT = /^(\.\.\/)+/;
 
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -42,14 +48,14 @@ export function highlightTs(src: string): string {
   let last = 0;
   for (const m of src.matchAll(token)) {
     out += esc(src.slice(last, m.index));
-    const cls =
-      m[1] === undefined
-        ? m[2] === undefined
-          ? m[3] === undefined
-            ? "n"
-            : "k"
-          : "s"
-        : "c";
+    const cls = choose(
+      [
+        [m[1] !== undefined, "c"],
+        [m[2] !== undefined, "s"],
+        [m[3] !== undefined, "k"],
+      ],
+      "n"
+    );
     out += `<i class="${cls}">${esc(m[0])}</i>`;
     last = (m.index ?? 0) + m[0].length;
   }
@@ -64,7 +70,7 @@ interface Stale {
 
 export function mountProject(ctx: ViewCtx): ViewHooks {
   const { host, insp } = ctx;
-  const store = project.store;
+  const { store } = project;
   const local = store.mode === "local";
   let files: FileEntry[] = [];
   let exporting = false;
@@ -164,9 +170,7 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
       edit((p) => {
         p.master.volume = v;
       }, "mvol");
-      import("../engine/engine.ts").then(({ engine }) =>
-        engine.setMaster({ volume: v })
-      );
+      engine.setMaster({ volume: v });
     },
     step: 0.01,
     value: p0.master.volume,
@@ -177,9 +181,7 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
       edit((p) => {
         p.master.limiter = v;
       }, "lim");
-      import("../engine/engine.ts").then(({ engine }) =>
-        engine.setMaster({ limiter: v })
-      );
+      engine.setMaster({ limiter: v });
     },
     value: p0.master.limiter,
   });
@@ -276,7 +278,7 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
       `${Object.keys(m.sfx).length} sfx, ${Object.keys(m.songs).length} songs. Durations are estimates until you export.`;
     q("#pName").textContent = p.name;
     q("#pExpSub").textContent = local
-      ? `Renders in this browser and downloads a zip with ${p.export.dir.replace(/^(\.\.\/)+/, "")} and ${p.export.manifest.replace(/^(\.\.\/)+/, "")}`
+      ? `Renders in this browser and downloads a zip with ${p.export.dir.replace(LEADING_DOTDOT, "")} and ${p.export.manifest.replace(LEADING_DOTDOT, "")}`
       : `The studio server writes to ${p.export.dir}`;
   }
   const preview = debounce(renderPreview, 120);
@@ -297,8 +299,8 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
     for (const f of files) {
       if (f.kind === "render") {
         const base = (f.path.split("/").pop() ?? "")
-          .replace(/\.[^.]+$/, "")
-          .replace(/\.events$/, "");
+          .replace(LAST_EXT, "")
+          .replace(EVENTS_EXT, "");
         outs.set(base, Math.max(outs.get(base) ?? 0, f.mtime));
       }
     }
@@ -440,7 +442,7 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
       setTimeout(() => {
         prog.hidden = true;
       }, 1500);
-      void refreshFiles();
+      fire(refreshFiles());
     }
   }
   function showServerResult(res: unknown): void {
@@ -455,8 +457,8 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
       typeof f === "string"
         ? f
         : String(
-            (f as { path?: string; file?: string })?.path ??
-              (f as { file?: string })?.file ??
+            (f as { path?: string; file?: string } | null)?.path ??
+              (f as { file?: string } | null)?.file ??
               JSON.stringify(f)
           )
     );
@@ -483,7 +485,7 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
       outBox.append(h("p", { class: "bad" }, w));
     }
   }
-  go.addEventListener("click", () => void runExport());
+  go.addEventListener("click", () => fire(runExport()));
 
   /* ----- local-only actions ----- */
   if (local) {
@@ -500,6 +502,7 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
       let n = 0;
       for (const f of Array.from(input.files ?? [])) {
         if (f.name.endsWith(".zip")) {
+          // biome-ignore lint/performance/noAwaitInLoops: files are imported in the order they were dropped, so a later file with the same id wins
           n += await ls.importZip(new Uint8Array(await f.arrayBuffer()), false);
         } else if ((await ls.importDocument(f.name, await f.text())) !== null) {
           n += 1;
@@ -514,17 +517,18 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
       );
       app.navigate("#/project");
     });
-    q("#pReset").addEventListener("click", () => {
-      if (
-        !confirm("Replace everything in this browser with the starter kit?")
-      ) {
+    q("#pReset").addEventListener("click", async () => {
+      const yes = await confirmDialog(
+        "Replace everything in this browser with the starter kit? Your own sounds and songs here will be gone.",
+        "Replace everything"
+      );
+      if (!yes) {
         return;
       }
-      void ls.resetToStarter().then(async () => {
-        await project.load(store);
-        app.toast("Back to the starter kit");
-        app.navigate("#/pads");
-      });
+      await ls.resetToStarter();
+      await project.load(store);
+      app.toast("Back to the starter kit");
+      app.navigate("#/pads");
     });
   }
 
@@ -585,7 +589,7 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
   buildInspector();
   renderPreview();
   renderStale();
-  void refreshFiles();
+  fire(refreshFiles());
   ctx.cleanup(() => {
     unsub();
     preview.cancel();
@@ -604,7 +608,7 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
       icon: "export",
       id: "proj:export",
       keys: "Ctrl E",
-      run: () => void runExport(),
+      run: () => fire(runExport()),
       title: "Export now",
     },
   ];

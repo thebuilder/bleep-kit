@@ -3,7 +3,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { CliError, type Ctx, closest } from "./output.ts";
 import {
   type Instrument,
   type Issue,
@@ -14,7 +13,8 @@ import {
   type Project,
   type Sfx,
   type Song,
-} from "./stubs.ts";
+} from "@bleepkit/core";
+import { CliError, type Ctx, closest } from "./output.ts";
 
 export const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
@@ -58,10 +58,11 @@ export function writeFileAtomic(abs: string, data: string | Uint8Array): void {
     fs.renameSync(tmp, abs);
   } catch (error) {
     fs.rmSync(tmp, { force: true });
-    throw new CliError(
+    throw CliError.because(
+      error,
       "write",
       `could not write ${abs}: ${(error as Error).message}`,
-      { cause: error, hint: "Check that the folder exists and is writable." }
+      { hint: "Check that the folder exists and is writable." }
     );
   }
 }
@@ -118,7 +119,7 @@ function probe(dir: string): ProjectProbe | null {
   return null;
 }
 
-export function findProjectDir(ctx: Ctx, explicit?: string): string {
+function findProjectDir(ctx: Ctx, explicit?: string): string {
   const flag = explicit ?? ctx.projectFlag;
   if (flag !== undefined) {
     let dir = path.resolve(ctx.cwd, flag);
@@ -180,21 +181,21 @@ export function readJsonFile(abs: string, rel: string): unknown {
   try {
     text = fs.readFileSync(abs, "utf8");
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    throw new CliError(
+    const { code } = error as NodeJS.ErrnoException;
+    throw CliError.because(
+      error,
       code === "ENOENT" ? "not-found" : "write",
-      `cannot read ${rel}: ${(error as Error).message}`,
-      { cause: error }
+      `cannot read ${rel}: ${(error as Error).message}`
     );
   }
   try {
     return JSON.parse(text);
   } catch (error) {
-    throw new CliError(
+    throw CliError.because(
+      error,
       "invalid",
       `${rel} is not valid JSON: ${(error as Error).message}`,
       {
-        cause: error,
         hint: "Fix the syntax (trailing commas and comments are not allowed in JSON) or regenerate the file.",
       }
     );
@@ -212,10 +213,11 @@ export function loadProjectFile(root: string): {
     raw = readJsonFile(path.join(root, rel), rel);
   } catch (error) {
     if (error instanceof CliError && error.code === "invalid") {
-      throw new CliError(
+      throw CliError.because(
+        error,
         "no-project",
         error.message,
-        error.hint ? { cause: error, hint: error.hint } : { cause: error }
+        error.hint ? { hint: error.hint } : {}
       );
     }
     throw error;
@@ -541,28 +543,33 @@ export function resolveRef(
   });
 }
 
+/** The instrument ids a channel's MML switches to with `@id`. */
+function mmlInstrumentIds(mml: string | null): string[] {
+  if (!mml) {
+    return [];
+  }
+  return [...mml.matchAll(/@([A-Za-z0-9-]+)/g)].flatMap((m) =>
+    m[1] ? [m[1]] : []
+  );
+}
+
 /** Every instrument id a song uses: channel defaults, row `inst` fields and MML `@id` switches. */
-export function referencedInstruments(song: Song): string[] {
+function referencedInstruments(song: Song): string[] {
   const ids = new Set<string>();
   for (const channel of song.channels) {
     if (channel.instrument) {
       ids.add(channel.instrument);
     }
-    if (channel.mml) {
-      for (const m of channel.mml.matchAll(/@([A-Za-z0-9-]+)/g)) {
-        if (m[1]) {
-          ids.add(m[1]);
-        }
-      }
+    for (const id of mmlInstrumentIds(channel.mml)) {
+      ids.add(id);
     }
   }
-  for (const pattern of Object.values(song.patterns)) {
-    for (const rows of Object.values(pattern.tracks)) {
-      for (const row of rows) {
-        if (row.inst) {
-          ids.add(row.inst);
-        }
-      }
+  const rows = Object.values(song.patterns).flatMap((pattern) =>
+    Object.values(pattern.tracks).flat()
+  );
+  for (const row of rows) {
+    if (row.inst) {
+      ids.add(row.inst);
     }
   }
   return [...ids].sort();

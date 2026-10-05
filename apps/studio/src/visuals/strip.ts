@@ -2,6 +2,7 @@
    log spectrum with peak hold (hold 400 ms, then fall 24 dB/s, clipping turns the top red), and a level meter. */
 import { chipTheme } from "../lib/chips.ts";
 import type { ChipId } from "../lib/contract.ts";
+import { choose } from "../lib/dom.ts";
 import { rgba, surface, triggerIndex } from "./canvas.ts";
 import { createSpectrum } from "./fft.ts";
 import { addVisual, type Frame, MASTER_WINDOW } from "./loop.ts";
@@ -11,14 +12,17 @@ const SEG = 3;
 const GAP = 1;
 const MIN_HZ = 40;
 const MAX_HZ = 16_000;
-const DB_FLOOR = -78;
+const DB_FLOOR = -60;
 const HOLD_MS = 400;
 const FALL_DB_S = 24;
+/** The scope normalizes quiet signals up to this height (a fraction of the half height) with at most this gain. */
+const SCOPE_TARGET = 0.85;
+const SCOPE_MAX_GAIN = 5;
 
 export interface Strip {
-  dispose(): void;
+  dispose: () => void;
   el: HTMLElement;
-  setChip(chip: ChipId): void;
+  setChip: (chip: ChipId) => void;
 }
 
 export function createStrip(host: HTMLElement): Strip {
@@ -42,6 +46,7 @@ export function createStrip(host: HTMLElement): Strip {
   let clipUntil = 0;
   let peakHoldDb = DB_FLOOR;
   let peakHoldAt = 0;
+  let scopeGain = 1.6;
 
   const binEdges = (rate: number) => {
     if (rate === lastRate) {
@@ -49,11 +54,11 @@ export function createStrip(host: HTMLElement): Strip {
     }
     lastRate = rate;
     const hzPerBin = rate / 1024;
-    for (let i = 0; i <= BARS; i++) {
+    for (let i = 0; i <= BARS; i += 1) {
       const hz = MIN_HZ * (Math.min(MAX_HZ, rate / 2.1) / MIN_HZ) ** (i / BARS);
       edges[i] = Math.max(1, Math.round(hz / hzPerBin));
     }
-    for (let i = 1; i <= BARS; i++) {
+    for (let i = 1; i <= BARS; i += 1) {
       if ((edges[i] ?? 0) <= (edges[i - 1] ?? 0)) {
         edges[i] = (edges[i - 1] ?? 0) + 1;
       }
@@ -73,13 +78,31 @@ export function createStrip(host: HTMLElement): Strip {
     const start = f.reduced ? 0 : triggerIndex(f.master, win);
     const pts: number[] = [];
     const amp = h * 0.42;
+    // auto gain: quiet music still draws a readable wave; it rises slowly and drops fast so a loud hit never clips
+    let wavePeak = 0;
+    if (!f.reduced) {
+      for (let i = 0; i < win; i += 4) {
+        wavePeak = Math.max(
+          wavePeak,
+          Math.abs(f.master[Math.min(MASTER_WINDOW - 1, start + i)] ?? 0)
+        );
+      }
+    }
+    const want = Math.max(
+      1.2,
+      Math.min(SCOPE_MAX_GAIN, SCOPE_TARGET / Math.max(wavePeak, 1e-4))
+    );
+    scopeGain =
+      want < scopeGain
+        ? want
+        : scopeGain + (want - scopeGain) * Math.min(1, f.dt * 3);
     for (let i = 0; i < w; i += 2) {
       const idx = Math.min(
         MASTER_WINDOW - 1,
         start + Math.floor((i / w) * win)
       );
       const v = f.reduced ? 0 : (f.master[idx] ?? 0);
-      pts.push(h / 2 - Math.max(-1, Math.min(1, v * 1.6)) * amp);
+      pts.push(h / 2 - Math.max(-1, Math.min(1, v * scopeGain)) * amp);
     }
     const stroke = (width: number, color: string) => {
       ctx.lineWidth = width;
@@ -110,13 +133,13 @@ export function createStrip(host: HTMLElement): Strip {
     ctx.clearRect(0, 0, w, h);
     binEdges(f.sampleRate);
     fft.magnitudes(f.master, mag);
-    const dt = f.dt;
+    const { dt } = f;
     const slot = w / BARS;
     const barW = Math.max(2, Math.floor(slot) - 1);
     const rows = Math.floor((h - 4) / (SEG + GAP));
-    for (let b = 0; b < BARS; b++) {
+    for (let b = 0; b < BARS; b += 1) {
       let m = 0;
-      for (let k = edges[b] ?? 1; k < (edges[b + 1] ?? 2); k++) {
+      for (let k = edges[b] ?? 1; k < (edges[b + 1] ?? 2); k += 1) {
         m = Math.max(m, mag[k] ?? 0);
       }
       // pink-ish tilt so the highs are visible
@@ -141,19 +164,20 @@ export function createStrip(host: HTMLElement): Strip {
         (((peaks[b] as number) - DB_FLOOR) / -DB_FLOOR) * rows
       );
       const x = Math.round(b * slot);
-      for (let r = 0; r < rows; r++) {
+      for (let r = 0; r < rows; r += 1) {
         const y = h - 2 - (r + 1) * (SEG + GAP);
         const t = r / rows;
         const on = r < lit;
         if (on) {
           const clip = f.peak >= 0.999 && r >= rows - 3;
-          ctx.fillStyle = clip
-            ? "#e2766f"
-            : t < 0.5
-              ? theme.ramp[0]
-              : t < 0.82
-                ? theme.ramp[1]
-                : theme.ramp[2];
+          ctx.fillStyle = choose(
+            [
+              [clip, "#e2766f"],
+              [t < 0.5, theme.ramp[0]],
+              [t < 0.82, theme.ramp[1]],
+            ],
+            theme.ramp[2]
+          );
           ctx.fillRect(x, y, barW, SEG);
         } else {
           ctx.fillStyle = "rgba(255,255,255,0.035)";
@@ -187,17 +211,17 @@ export function createStrip(host: HTMLElement): Strip {
     const bw = Math.floor((w - 14) / 2);
     for (const side of [0, 1]) {
       const x = 6 + side * (bw + 2);
-      for (let r = 0; r < rows; r++) {
+      for (let r = 0; r < rows; r += 1) {
         const y = h - 4 - (r + 1) * (SEG + GAP);
         const t = r / rows;
-        ctx.fillStyle =
-          r < lit
-            ? t > 0.88
-              ? "#e2766f"
-              : t > 0.7
-                ? "#f3b24a"
-                : "#74c08f"
-            : "rgba(255,255,255,0.04)";
+        ctx.fillStyle = choose(
+          [
+            [r >= lit, "rgba(255,255,255,0.04)"],
+            [t > 0.88, "#e2766f"],
+            [t > 0.7, "#f3b24a"],
+          ],
+          "#74c08f"
+        );
         ctx.fillRect(x, y, bw, SEG);
       }
       if (holdRow > 0) {

@@ -5,7 +5,6 @@ export type Rgb = readonly [number, number, number];
 
 function hex(color: string): Rgb {
   const n = Number.parseInt(color.slice(1), 16);
-  // biome-ignore lint/suspicious/noBitwiseOperators: unpacking a 24 bit color
   return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
 }
 
@@ -194,7 +193,6 @@ export class Canvas {
       for (let r = 0; r < GLYPH_HEIGHT; r += 1) {
         const bits = rows[r] ?? 0;
         for (let c = 0; c < GLYPH_WIDTH; c += 1) {
-          // biome-ignore lint/suspicious/noBitwiseOperators: reading a glyph row bitmask
           if ((bits >> (GLYPH_WIDTH - 1 - c)) & 1) {
             this.rect(
               cursor + c * scale,

@@ -4,11 +4,15 @@
    first twenty pads. */
 import type { Command, ViewHooks } from "../app.ts";
 import { app } from "../app.ts";
-import { engine } from "../engine/engine.ts";
 import { CHIP_THEME, categoryColor, categoryRing } from "../lib/chips.ts";
 import { SFX_CATEGORIES, type Sfx } from "../lib/contract.ts";
-import { describeSfx, mutateMany, randomizeSfx } from "../lib/core.ts";
-import { clamp, h, reducedMotion } from "../lib/dom.ts";
+import {
+  deriveSeed,
+  describeSfx,
+  mutateMany,
+  randomizeSfx,
+} from "../lib/core.ts";
+import { fire, h, reducedMotion, reflow } from "../lib/dom.ts";
 import { playSfx, playSfxValue } from "../playback.ts";
 import { peaks, renderSfxAsync } from "../render-service.ts";
 import type { ViewCtx } from "../shell.ts";
@@ -50,7 +54,7 @@ function drawThumb(
   if (!data) {
     return;
   }
-  for (let x = 0; x < THUMB_W; x++) {
+  for (let x = 0; x < THUMB_W; x += 1) {
     const lo = data[x * 2] ?? 0;
     const hi = data[x * 2 + 1] ?? 0;
     const top = Math.round(mid - Math.min(1, hi * 1.6) * (mid - 1));
@@ -69,7 +73,15 @@ interface Burst {
   rect: { x: number; y: number; w: number; h: number };
   seed: number;
 }
-const BURST_MS = 320;
+const BURST_MS = 380;
+
+/** The playhead that sweeps across a pad's waveform thumbnail while its sound plays. */
+interface Sweep {
+  at: number;
+  color: string;
+  ms: number;
+  rect: { x: number; y: number; w: number; h: number };
+}
 
 export function mountPads(ctx: ViewCtx): ViewHooks {
   const { host, insp } = ctx;
@@ -97,6 +109,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
     el: HTMLElement;
   } | null = null;
   const bursts: Burst[] = [];
+  const sweeps: Sweep[] = [];
   const litUntil = new Map<string, number>();
 
   function colorsOf(s: Sfx) {
@@ -152,7 +165,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
     select(doc.id);
     playSfx(doc);
     el.classList.remove("hit");
-    void el.offsetWidth;
+    reflow(el);
     el.classList.add("hit");
     litUntil.set(
       doc.id,
@@ -163,8 +176,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
 
   function randomize(doc: Doc): void {
     const old = doc.value as Sfx;
-    const seed =
-      (old.seed * 1_103_515_245 + 12_345 + Math.floor(performance.now())) >>> 0;
+    const seed = deriveSeed(old.seed, Math.floor(performance.now()));
     project.edit<Sfx>(doc, (d) => {
       const fresh = randomizeSfx(d, seed % 1_000_000);
       return { ...fresh, category: d.category, chip: d.chip, name: d.name };
@@ -250,7 +262,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
       const doPlay = () => {
         playSfxValue(vid, v);
         tile.classList.remove("hit");
-        void tile.offsetWidth;
+        reflow(tile);
         tile.classList.add("hit");
       };
       tile.addEventListener("pointerdown", (e) => {
@@ -346,13 +358,15 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
       class: "pad pad-new",
     });
     add.innerHTML = `<span class="plus">${icon("plus", 32)}</span><span class="nm">New SFX</span><span class="du">pick a flavor</span>`;
-    add.addEventListener("click", () => pickCategory((c) => void createSfx(c)));
+    add.addEventListener("click", () =>
+      pickCategory((c) => fire(createSfx(c)))
+    );
     grid.append(add);
     (host.querySelector("#padCount") as HTMLElement).textContent =
       `${docs.length} sound${docs.length === 1 ? "" : "s"}`;
     if (!(selected && padEls.has(selected))) {
       selected = null;
-      const first = docs[0];
+      const [first] = docs;
       if (first) {
         select(first.id);
       } else {
@@ -452,10 +466,25 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
         },
         seed: Math.floor(f.time) % 97,
       });
+      const thumb = el.querySelector(".thumb");
+      if (thumb && sfx) {
+        const tr = thumb.getBoundingClientRect();
+        sweeps.push({
+          at: f.time,
+          color,
+          ms: Math.max(120, durationOf(sfx) * 1000),
+          rect: {
+            h: tr.height,
+            w: tr.width,
+            x: tr.left - wr.left,
+            y: tr.top - wr.top,
+          },
+        });
+      }
       const pe = padEls.get(e.id);
       if (pe) {
         pe.classList.remove("hit");
-        void pe.offsetWidth;
+        reflow(pe);
         pe.classList.add("hit", "lit");
         litUntil.set(
           e.id,
@@ -479,7 +508,23 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
       burstSurface.fit();
     }
     c.clearRect(0, 0, burstSurface.w, burstSurface.h);
-    for (let i = bursts.length - 1; i >= 0; i--) {
+    for (let i = sweeps.length - 1; i >= 0; i -= 1) {
+      const sw = sweeps[i] as Sweep;
+      const p = (now - sw.at) / sw.ms;
+      if (p > 1) {
+        sweeps.splice(i, 1);
+        continue;
+      }
+      // the part already played brightens, a hard 2 px playhead leads it
+      const x = Math.round(sw.rect.x + p * sw.rect.w);
+      c.fillStyle = "rgba(255,255,255,0.16)";
+      c.fillRect(sw.rect.x, sw.rect.y, x - sw.rect.x, sw.rect.h);
+      c.fillStyle = rgba(sw.color, 0.35);
+      c.fillRect(x - 4, sw.rect.y, 4, sw.rect.h);
+      c.fillStyle = "#fff";
+      c.fillRect(x - 1, sw.rect.y - 2, 2, sw.rect.h + 4);
+    }
+    for (let i = bursts.length - 1; i >= 0; i -= 1) {
       const b = bursts[i] as Burst;
       const age = now - b.at;
       if (age > BURST_MS) {
@@ -489,39 +534,37 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
       const t = age / BURST_MS;
       const cx = b.rect.x + b.rect.w / 2;
       const cy = b.rect.y + b.rect.h / 2;
-      const half = (b.rect.w / 2) * (0.5 + t * 0.85);
-      const step = 4;
-      const sx = Math.round((cx - half) / step) * step;
-      const sy = Math.round((cy - half) / step) * step;
-      const size = Math.round((half * 2) / step) * step;
-      c.fillStyle = rgba(b.color, (1 - t) * 0.9);
-      const th = t < 0.5 ? 4 : 2;
-      c.fillRect(sx, sy, size, th);
-      c.fillRect(sx, sy + size - th, size, th);
-      c.fillRect(sx, sy, th, size);
-      c.fillRect(sx + size - th, sy, th, size);
-      // a second, fainter ring
-      if (t > 0.15) {
-        const h2 = half * 0.78;
-        const s2 = Math.round((h2 * 2) / step) * step;
-        const x2 = Math.round((cx - h2) / step) * step;
-        const y2 = Math.round((cy - h2) / step) * step;
-        c.fillStyle = rgba(b.color, (1 - t) * 0.35);
-        c.fillRect(x2, y2, s2, 2);
-        c.fillRect(x2, y2 + s2 - 2, s2, 2);
-        c.fillRect(x2, y2, 2, s2);
-        c.fillRect(x2 + s2 - 2, y2, 2, s2);
+      // a flash of the whole pad, then rings leaving it
+      if (t < 0.4) {
+        c.fillStyle = rgba(b.color, (1 - t / 0.4) ** 2 * 0.35);
+        c.fillRect(b.rect.x, b.rect.y, b.rect.w, b.rect.h);
+      }
+      const ring = (grow: number, alpha: number, thick: number) => {
+        const half = (b.rect.w / 2) * (0.55 + t * grow);
+        const step = 4;
+        const sx = Math.round((cx - half) / step) * step;
+        const sy = Math.round((cy - half) / step) * step;
+        const size = Math.round((half * 2) / step) * step;
+        c.fillStyle = rgba(b.color, alpha);
+        c.fillRect(sx, sy, size, thick);
+        c.fillRect(sx, sy + size - thick, size, thick);
+        c.fillRect(sx, sy, thick, size);
+        c.fillRect(sx + size - thick, sy, thick, size);
+      };
+      ring(1.1, (1 - t) * 1, t < 0.5 ? 6 : 3);
+      if (t > 0.12) {
+        ring(0.85, (1 - t) * 0.5, 3);
       }
       // pixel particles
-      const n = b.big ? 14 : 8;
+      const n = b.big ? 18 : 12;
       const [r, g, bl] = hexToRgb(b.color);
-      for (let k = 0; k < n; k++) {
+      for (let k = 0; k < n; k += 1) {
         const ang = ((k + (b.seed % 5) * 0.13) / n) * Math.PI * 2;
-        const dist = (b.rect.w * 0.3 + (k % 3) * 8) * (0.4 + t * 1.4);
+        const dist = (b.rect.w * 0.3 + (k % 3) * 10) * (0.5 + t * 1.7);
         const px = Math.round((cx + Math.cos(ang) * dist) / 3) * 3;
-        const py = Math.round((cy + Math.sin(ang) * dist + t * t * 18) / 3) * 3;
-        c.fillStyle = `rgba(${r},${g},${bl},${1 - t})`;
-        const sz = k % 2 ? 3 : 6;
+        const py = Math.round((cy + Math.sin(ang) * dist + t * t * 22) / 3) * 3;
+        c.fillStyle = `rgba(${r},${g},${bl},${Math.min(1, (1 - t) * 1.3)})`;
+        const sz = k % 2 ? 4 : 8;
         c.fillRect(px, py, sz, sz);
       }
     }
@@ -630,9 +673,11 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
         {
           class: "btn small",
           onclick: () =>
-            void project
-              .duplicate(doc)
-              .then((d) => app.toast(`Duplicated as ${d.id}`)),
+            fire(
+              project
+                .duplicate(doc)
+                .then((d) => app.toast(`Duplicated as ${d.id}`))
+            ),
         },
         "Duplicate"
       ),
@@ -649,7 +694,9 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
         {
           class: "btn small danger",
           onclick: () => {
-            void project.remove(doc).then(() => app.toast(`Deleted ${doc.id}`));
+            fire(
+              project.remove(doc).then(() => app.toast(`Deleted ${doc.id}`))
+            );
           },
         },
         "Delete"
@@ -708,6 +755,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
     removeEventListener("resize", onResize);
     burstSurface.dispose();
     bursts.length = 0;
+    sweeps.length = 0;
   });
   ctx.setChip(project.project.chip);
 
@@ -727,8 +775,6 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
       title: "Randomize the selected pad",
     },
   ];
-  void engine;
-  void clamp;
 
   return {
     chip: () => project.project.chip,

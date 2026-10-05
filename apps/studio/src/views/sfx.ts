@@ -50,6 +50,8 @@ import {
 } from "../visuals/waveform.ts";
 import { durationOf } from "./pads.ts";
 
+const LIST_SEPARATOR = /[\s,]+/;
+
 /** Which top level fields each lock group keeps while randomizing or mutating. */
 const GROUP_FIELDS: Record<string, readonly (keyof Sfx)[]> = {
   arpeggio: ["arpeggio"],
@@ -67,7 +69,7 @@ const GROUP_FIELDS: Record<string, readonly (keyof Sfx)[]> = {
 const ARP_TEXT = (steps: readonly number[]) => steps.join(" ");
 const parseArp = (s: string): number[] =>
   s
-    .split(/[\s,]+/)
+    .split(LIST_SEPARATOR)
     .filter(Boolean)
     .map((t) => Math.round(Number(t)))
     .filter((n) => Number.isFinite(n))
@@ -77,8 +79,11 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
   const { host, insp } = ctx;
   const doc = (): Doc<Sfx> => project.get<Sfx>("sfx", id) as Doc<Sfx>;
   const sfxNow = () => doc().value;
-  let seedN = ((project.project.seed || 1) * 7919 + (Date.now() % 100_000)) | 0;
-  const nextSeed = () => ++seedN;
+  let seedN = (project.project.seed || 1) * 7919 + (Date.now() % 100_000);
+  const nextSeed = () => {
+    seedN += 1;
+    return seedN;
+  };
   let playOnChange = prefs.get("sfx-play-change", true);
   let showSpec = prefs.get("sfx-spec", false);
   let render: RenderResult | null = null;
@@ -767,7 +772,7 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
 
     // Crush
     const gc = mk("crush", "Crush", { closed: true });
-    const bitsOn = toggleField(gc.body, {
+    toggleField(gc.body, {
       label: "Bit crush",
       onInput: (on) => {
         edit((d) => {
@@ -778,7 +783,6 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
       },
       value: s.bitcrush.bits !== null,
     });
-    void bitsOn;
     R(
       gc,
       "bits",
@@ -919,7 +923,7 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
       app.navigate("#/pads");
       return;
     }
-    if (e.type !== "doc" || e.path !== doc()?.path) {
+    if (e.type !== "doc" || e.path !== doc().path) {
       return;
     }
     syncHeader();

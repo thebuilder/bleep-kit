@@ -1,25 +1,32 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/performance/noNamespaceImport: chip tables are addressed by chip as nes.x, gb.x and so on
-// biome-ignore-all lint/style/noExportedImports: the module re-exports names it also uses itself
-// biome-ignore-all lint/style/noNestedTernary: clamps and branch selects in the audio path read best inline
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/style/useForOf: indexed loops over typed arrays in the audio path need the index
-// biome-ignore-all lint/suspicious/noUnnecessaryConditions: Biome types fields initialised with false or 0 as literals and flags mutable state as constant
 /* Voice: the DSP unit (section 3.2). One class runs every source model: oscillators, noise, wavetable, FM, SID and
    sample playback, then the envelope, chip volume quantization and (for sfx) the program and its effects.
    Nothing in render() allocates. */
 
-import * as c64 from "../chips/c64.ts";
-import * as gb from "../chips/gameboy.ts";
-import * as genesis from "../chips/genesis.ts";
-import { CHIPS } from "../chips/index.ts";
-import * as nes from "../chips/nes.ts";
-import type { ChipBus } from "../dsp/color.ts";
-import type { Envelope } from "../dsp/envelope.ts";
 import {
-  ENV_ATTACK,
+  C64_CLOCK_HZ,
+  hzToPeriod as c64HzToPeriod,
+  periodToHz as c64PeriodToHz,
+  quantizeHz as c64QuantizeHz,
+} from "../chips/c64.ts";
+import {
+  quantizeNoiseRate as gbQuantizeNoiseRate,
+  quantizePulseHz as gbQuantizePulseHz,
+  quantizeWaveHz as gbQuantizeWaveHz,
+} from "../chips/gameboy.ts";
+import {
+  quantizeHz as genesisQuantizeHz,
+  quantizeNoiseRate as genesisQuantizeNoiseRate,
+} from "../chips/genesis.ts";
+import { CHIPS } from "../chips/index.ts";
+import {
+  quantizeNoiseRate as nesQuantizeNoiseRate,
+  quantizePulseHz as nesQuantizePulseHz,
+  quantizeTriangleHz as nesQuantizeTriangleHz,
+} from "../chips/nes.ts";
+import type { ChipBus } from "../dsp/color.ts";
+import type { EnvelopeState } from "../dsp/envelope.ts";
+import {
   ENV_IDLE,
-  ENV_RELEASE,
   ENV_SUSTAIN,
   envelopeRelease,
   envelopeTrigger,
@@ -81,13 +88,14 @@ import {
   runPhaser,
 } from "../dsp/sfxfx.ts";
 import type { SidOsc } from "../dsp/sid.ts";
-import { newSidOsc, seedSid, sidSetRate } from "../dsp/sid.ts";
+import { newSidOsc, sidSetRate } from "../dsp/sid.ts";
 import {
   logQuantTable,
   nesTriangleTable,
   QUANT_RES,
   sineTable,
 } from "../dsp/tables.ts";
+import { nearest } from "../nearest.ts";
 import { noteToHz } from "../notes.ts";
 import type { ChipId, ChipProfile } from "../types.ts";
 import { CHIP_IDS } from "../types.ts";
@@ -116,14 +124,14 @@ export interface MixSinks {
   revR: Float32Array;
 }
 
-export const Q_NONE = 0;
-export const Q_LINEAR = 1;
-export const Q_LOG = 2;
+const Q_NONE = 0;
+const Q_LINEAR = 1;
+const Q_LOG = 2;
 
 /** Which NES mixer group a voice feeds. */
-export const GROUP_NONE = 0;
-export const GROUP_PULSE = 1;
-export const GROUP_TND = 2;
+const GROUP_NONE = 0;
+const GROUP_PULSE = 1;
+const GROUP_TND = 2;
 
 const CHIP_INDEX: Readonly<Record<ChipId, number>> = Object.fromEntries(
   CHIP_IDS.map((c, i) => [c, i])
@@ -153,7 +161,6 @@ export class Voice {
   readonly xbuf = new Float32Array(BLOCK);
   readonly gbuf = new Float32Array(BLOCK);
   readonly ebuf = new Float32Array(BLOCK);
-  readonly tmp = new Float32Array(BLOCK);
   private readonly wx = new Float32Array(BLOCK);
   private readonly wg = new Float32Array(BLOCK);
 
@@ -162,8 +169,6 @@ export class Voice {
   chipIdx = CI_NES;
   profile: ChipProfile = CHIPS.nes;
   isSfx = false;
-  /** Channel index for song voices, -1 for sfx. */
-  channel = -1;
   /** Bumped every time the voice is given a new sound; a stolen voice ignores a late release. */
   generation = 0;
 
@@ -183,7 +188,7 @@ export class Voice {
   sidRouted = false;
 
   // envelope and gain
-  readonly env: Envelope = newEnvelope();
+  readonly env: EnvelopeState = newEnvelope();
   ctl = 0;
   ctlTarget = 0;
   smooth: number;
@@ -228,7 +233,6 @@ export class Voice {
   wave: Float32Array = new Float32Array(32);
   noiseSeed = 1;
   noiseDirty = true;
-  sidCutoff = 0.5;
   fmReleasing = false;
 
   // sfx program state
@@ -398,10 +402,6 @@ export class Voice {
     bindMacroKeep(this.mPan, rt.macroPan, carry && this.active);
   }
 
-  setFmPatch(rt: FmRt | null): void {
-    this.fmRt = rt;
-  }
-
   noteOff(): void {
     if (!this.active) {
       return;
@@ -487,6 +487,40 @@ export class Voice {
     this.applyHz(noteToHz(note));
   }
 
+  /** The frequency a chip's period register can reach for a pulse, triangle or wave channel. */
+  private periodHz(hz: number): number {
+    switch (this.chipIdx) {
+      case CI_NES:
+        return this.src === SRC_TRI
+          ? nesQuantizeTriangleHz(hz)
+          : nesQuantizePulseHz(hz);
+      case CI_GB:
+        return this.src === SRC_WAVE
+          ? gbQuantizeWaveHz(hz)
+          : gbQuantizePulseHz(hz);
+      case CI_GENESIS:
+        return genesisQuantizeHz(hz);
+      case CI_C64:
+        return c64QuantizeHz(hz);
+      default:
+        return hz;
+    }
+  }
+
+  /** LFSR steps per second for a noise channel: the chip's own rate table where it has one. */
+  private noiseRate(hz: number, period: boolean): number {
+    if (period && this.chipIdx === CI_NES) {
+      return nesQuantizeNoiseRate(hz);
+    }
+    if (period && this.chipIdx === CI_GB) {
+      return gbQuantizeNoiseRate(hz);
+    }
+    if (period && this.chipIdx === CI_GENESIS) {
+      return genesisQuantizeNoiseRate(hz);
+    }
+    return Math.min(1_000_000, Math.max(1, hz) * 16);
+  }
+
   /** Quantize a requested frequency to what the chip can play and program the source. */
   applyHz(hz: number): void {
     const sr = this.sr;
@@ -496,50 +530,21 @@ export class Voice {
       case SRC_PULSE:
       case SRC_TRI:
       case SRC_WAVE:
-        if (period) {
-          if (this.chipIdx === CI_NES) {
-            h =
-              this.src === SRC_TRI
-                ? nes.quantizeTriangleHz(hz)
-                : nes.quantizePulseHz(hz);
-          } else if (this.chipIdx === CI_GB) {
-            h =
-              this.src === SRC_WAVE
-                ? gb.quantizeWaveHz(hz)
-                : gb.quantizePulseHz(hz);
-          } else if (this.chipIdx === CI_GENESIS) {
-            h = genesis.quantizeHz(hz);
-          } else if (this.chipIdx === CI_C64) {
-            h = c64.quantizeHz(hz);
-          }
-        }
+        h = period ? this.periodHz(hz) : hz;
         this.ph.dt = Math.min(MAX_DT, h / sr);
         break;
       case SRC_SAW:
       case SRC_SINE:
-        if (period && this.chipIdx === CI_C64) {
-          h = c64.quantizeHz(hz);
-        }
+        h = period && this.chipIdx === CI_C64 ? c64QuantizeHz(hz) : hz;
         this.ph.dt = Math.min(MAX_DT, h / sr);
         break;
-      case SRC_NOISE: {
-        let rate: number;
-        if (period && this.chipIdx === CI_NES) {
-          rate = nes.quantizeNoiseRate(hz);
-        } else if (period && this.chipIdx === CI_GB) {
-          rate = gb.quantizeNoiseRate(hz);
-        } else if (period && this.chipIdx === CI_GENESIS) {
-          rate = genesis.quantizeNoiseRate(hz);
-        } else {
-          rate = Math.min(1_000_000, Math.max(1, hz) * 16);
-        }
-        this.noise.stepsPerSample = rate / sr;
+      case SRC_NOISE:
+        this.noise.stepsPerSample = this.noiseRate(hz, period) / sr;
         break;
-      }
       case SRC_SID: {
-        const f = c64.hzToPeriod(hz);
-        sidSetRate(this.sid, f, c64.C64_CLOCK_HZ, sr);
-        h = c64.periodToHz(f);
+        const f = c64HzToPeriod(hz);
+        sidSetRate(this.sid, f, C64_CLOCK_HZ, sr);
+        h = c64PeriodToHz(f);
         break;
       }
       case SRC_FM:
@@ -608,10 +613,6 @@ export class Voice {
     if (this.fmRt) {
       fmSetAlgorithm(this.fm, this.fmRt, alg);
     }
-  }
-
-  seedSid(seed: number): void {
-    seedSid(this.sid, seed);
   }
 
   // ---------------------------------------------------------------- sfx
@@ -701,14 +702,8 @@ export class Voice {
     }
   }
 
-  /** Per-segment sfx program control: pitch, duty, filter coefficients, phaser. t is the repeat-relative time. */
-  private sfxControl(): void {
-    const p = this.prog;
-    if (!p) {
-      return;
-    }
-    const sr = this.sr;
-    const t = (this.sfxRepeatFrame + SFX_CTRL * 0.5) / sr;
+  /** The sfx pitch at repeat-relative time t: slide, pitch offset, vibrato and arpeggio. Ends the sound below `min`. */
+  private sfxHz(p: SfxProgram, t: number): number {
     const octaves = p.slide * t + 0.5 * p.deltaSlide * t * t;
     let hz = p.startHz * 2 ** (octaves + this.sfxPitch / 12);
     if (p.vibRate > 0 && p.vibDepth > 0) {
@@ -721,53 +716,55 @@ export class Voice {
     if (p.minHz > 0 && hz < p.minHz) {
       this.sfxFinished = true;
     }
-    hz = Math.min(20_000, Math.max(8, hz));
-    if (this.src === SRC_FM) {
-      // sfx FM: carrier at hz, modulator at hz * ratio, index decays
-      const f = this.fm;
-      const idx =
-        p.fmIndexDecay > 0
-          ? p.fmIndex * Math.max(0, 1 - t / p.fmIndexDecay)
-          : p.fmIndex;
-      this.fmIndexNow = idx;
-      f.inc[0] = Math.min(0.49, (hz * p.fmRatio) / sr);
-      f.inc[1] = Math.min(0.49, hz / sr);
-    } else {
+    return Math.min(20_000, Math.max(8, hz));
+  }
+
+  /** Program the source for an sfx pitch. FM sfx put the carrier at hz and the modulator at hz * ratio, index decaying. */
+  private applySfxPitch(p: SfxProgram, hz: number, t: number): void {
+    if (this.src !== SRC_FM) {
       this.applyHz(hz);
+      return;
     }
-    if (this.src === SRC_PULSE) {
-      const d = Math.min(1, Math.max(0, p.dutyStart + p.dutySweep * t));
-      const list = this.profile.constraints.dutyCycles;
-      if (list.length > 0) {
-        let best = list[0] ?? d;
-        for (const c of list) {
-          if (Math.abs(c - d) < Math.abs(best - d)) {
-            best = c;
-          }
-        }
-        this.setDuty(best);
-      } else {
-        this.setDuty(d);
-      }
-    }
-    if (p.lowpass > 0) {
-      const fc = Math.min(
-        20_000,
-        Math.max(50, p.lowpass * 2 ** (p.lowpassSweep * t))
-      );
-      this.lpCoef = onePoleCoef(fc, sr);
-    } else {
-      this.lpCoef = 0;
-    }
-    if (p.highpass > 0) {
-      const fc = Math.min(
-        10_000,
-        Math.max(20, p.highpass * 2 ** (p.highpassSweep * t))
-      );
-      this.hpCoef = onePoleCoef(fc, sr);
-    } else {
-      this.hpCoef = 0;
-    }
+    const sr = this.sr;
+    const f = this.fm;
+    this.fmIndexNow =
+      p.fmIndexDecay > 0
+        ? p.fmIndex * Math.max(0, 1 - t / p.fmIndexDecay)
+        : p.fmIndex;
+    f.inc[0] = Math.min(0.49, (hz * p.fmRatio) / sr);
+    f.inc[1] = Math.min(0.49, hz / sr);
+  }
+
+  /** The pulse width at time t, snapped to the chip's duty cycles when it has a fixed set. */
+  private applySfxDuty(p: SfxProgram, t: number): void {
+    const d = Math.min(1, Math.max(0, p.dutyStart + p.dutySweep * t));
+    const list = this.profile.constraints.dutyCycles;
+    this.setDuty(list.length > 0 ? nearest(list, d) : d);
+  }
+
+  /** One pole low pass and high pass coefficients (0 when the filter is off) and the phaser delay at time t. */
+  private applySfxFilters(p: SfxProgram, t: number): void {
+    const sr = this.sr;
+    this.lpCoef =
+      p.lowpass > 0
+        ? onePoleCoef(
+            Math.min(
+              20_000,
+              Math.max(50, p.lowpass * 2 ** (p.lowpassSweep * t))
+            ),
+            sr
+          )
+        : 0;
+    this.hpCoef =
+      p.highpass > 0
+        ? onePoleCoef(
+            Math.min(
+              10_000,
+              Math.max(20, p.highpass * 2 ** (p.highpassSweep * t))
+            ),
+            sr
+          )
+        : 0;
     if (p.phaserOffsetMs !== 0 || p.phaserSweep !== 0) {
       const ms = p.phaserOffsetMs + p.phaserSweep * t;
       this.phaserDelay = (Math.abs(ms) * sr) / 1000;
@@ -775,6 +772,20 @@ export class Voice {
     } else {
       this.phaserDelay = -1;
     }
+  }
+
+  /** Per-segment sfx program control: pitch, duty, filter coefficients, phaser. t is the repeat-relative time. */
+  private sfxControl(): void {
+    const p = this.prog;
+    if (!p) {
+      return;
+    }
+    const t = (this.sfxRepeatFrame + SFX_CTRL * 0.5) / this.sr;
+    this.applySfxPitch(p, this.sfxHz(p, t), t);
+    if (this.src === SRC_PULSE) {
+      this.applySfxDuty(p, t);
+    }
+    this.applySfxFilters(p, t);
   }
 
   /** Sfx envelope: attack, sustain with punch, linear decay. Writes the level per sample. */
@@ -1098,7 +1109,7 @@ export class Voice {
       }
       if (sidIn !== null) {
         sidIn[i] = (sidIn[i] ?? 0) + s;
-      } else if (group === GROUP_PULSE) {
+      } else if (group === GROUP_PULSE || group === GROUP_TND) {
         // NES groups: the declick offset lives in the 0..15 level units the mixer takes
         let u = (xv * 0.5 + 0.5) * gv * 15;
         if (pend) {
@@ -1108,18 +1119,10 @@ export class Voice {
         u += off;
         off = off < 1e-9 && off > -1e-9 ? 0 : off * decay;
         lastOut = u;
-        bus.pulse[i] = (bus.pulse[i] ?? 0) + u;
-        bus.pulseMid[i] = (bus.pulseMid[i] ?? 0) + this.duty * gv * 15;
-      } else if (group === GROUP_TND) {
-        let u = (xv * 0.5 + 0.5) * gv * 15;
-        if (pend) {
-          off = last - u;
-          pend = false;
-        }
-        u += off;
-        off = off < 1e-9 && off > -1e-9 ? 0 : off * decay;
-        lastOut = u;
-        if (triGroup) {
+        if (group === GROUP_PULSE) {
+          bus.pulse[i] = (bus.pulse[i] ?? 0) + u;
+          bus.pulseMid[i] = (bus.pulseMid[i] ?? 0) + this.duty * gv * 15;
+        } else if (triGroup) {
           bus.tri[i] = (bus.tri[i] ?? 0) + u;
           bus.triMid[i] = (bus.triMid[i] ?? 0) + gv * 7.5;
         } else {
@@ -1277,5 +1280,3 @@ function sineAt(table: Float32Array, phase: number): number {
   const b = table[i + 1] ?? 0;
   return a + (b - a) * (p - i);
 }
-
-export { ENV_ATTACK, ENV_RELEASE };

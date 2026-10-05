@@ -1,3 +1,4 @@
+import type { AudioManifest } from "@bleepkit/core";
 import { describe, expect, it } from "vitest";
 import {
   MP3_LOOP_WARNING,
@@ -8,7 +9,6 @@ import {
   tsLiteral,
 } from "../src/manifest.ts";
 import { MP3_ENCODER_DELAY_FRAMES } from "../src/render.ts";
-import type { AudioManifest } from "../src/stubs.ts";
 
 const manifest: AudioManifest = {
   base: "/audio/",
@@ -43,10 +43,12 @@ describe("manifest", () => {
     );
     expect(ts).toContain("export type SfxId = keyof typeof sfx;");
     expect(ts).toContain("export type SongId = keyof typeof songs;");
-    expect(ts).toContain("export const manifest: AudioManifest = {");
+    expect(ts).toContain("export const manifest = {");
+    expect(ts).toContain("} as const satisfies AudioManifest;");
+    expect(ts).not.toContain("manifest: AudioManifest");
     expect(ts).toContain('base: "/audio/"');
     expect(ts).toContain('"coin-2": {');
-    expect(ts.includes("—")).toBe(false);
+    expect(ts.includes("\u2014")).toBe(false);
   });
 
   it("writes an empty manifest as valid TypeScript", () => {

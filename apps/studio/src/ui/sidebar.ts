@@ -3,7 +3,7 @@
 import { app, type Route } from "../app.ts";
 import { categoryColor, KIND_HEX } from "../lib/chips.ts";
 import type { Instrument, Sfx, Song } from "../lib/contract.ts";
-import { h, prefs } from "../lib/dom.ts";
+import { fire, h, prefs } from "../lib/dom.ts";
 import { playDoc } from "../playback.ts";
 import { type Doc, type DocKind, project } from "../state/docs.ts";
 import { icon } from "./icons.ts";
@@ -79,7 +79,7 @@ function rowFor(doc: Doc, cur: boolean): HTMLElement {
 }
 
 export function createSidebar(host: HTMLElement): {
-  update(route: Route): void;
+  update: (route: Route) => void;
 } {
   const nav = h("nav", { class: "nav" });
   const links: [string, string, string][] = [
@@ -117,51 +117,74 @@ export function createSidebar(host: HTMLElement): {
   let route: Route = { view: "pads" };
   let queued = false;
 
+  const matches = (d: { id: string; value: unknown }, q: string) => {
+    const name = ((d.value as { name?: string }).name ?? "").toLowerCase();
+    return !q || d.id.includes(q) || name.includes(q);
+  };
+  const isCurrent = (kind: string, id: string) =>
+    (route.view === kind && (route as { id?: string }).id === id) ||
+    (route.view === "analysis" && route.ref.endsWith(`/${id}`));
+  const onAdd = (kind: string) => {
+    if (kind === "sfx") {
+      pickCategory((c) =>
+        fire(createSfx(c, { navigate: route.view !== "pads" }))
+      );
+    } else if (kind === "song") {
+      fire(createSong());
+    } else {
+      pickKind((k) => fire(createInstrument(k)));
+    }
+  };
+  const sectionHead = (
+    sec: (typeof SECTIONS)[number],
+    closed: boolean,
+    count: number
+  ) => {
+    const tw = h("button", {
+      "aria-expanded": closed ? "false" : "true",
+      class: "tw",
+    });
+    tw.innerHTML = `${icon(closed ? "right" : "down", 12)}<span class="pxh">${sec.title}</span><span class="count">${count}</span>`;
+    tw.addEventListener("click", () => {
+      if (collapsed.has(sec.kind)) {
+        collapsed.delete(sec.kind);
+      } else {
+        collapsed.add(sec.kind);
+      }
+      prefs.set("collapsed", [...collapsed]);
+      render();
+    });
+    const add = h("button", {
+      "aria-label": `New ${sec.title}`,
+      class: "btn small",
+      title: `New ${sec.title}`,
+    });
+    add.innerHTML = `${icon("plus", 12)}New`;
+    add.addEventListener("click", () => onAdd(sec.kind));
+    return h("div", { class: "tree-h" }, tw, add);
+  };
+  const syncNav = () => {
+    for (const a of nav.querySelectorAll<HTMLAnchorElement>("a[data-nav]")) {
+      const target = a.getAttribute("href") ?? "";
+      const on =
+        (route.view === "pads" && target === "#/pads") ||
+        (route.view === "project" && target === "#/project") ||
+        (route.view === "analysis" && target.startsWith("#/analysis"));
+      a.classList.toggle("cur", on);
+    }
+  };
+
   function render(): void {
     queued = false;
     const q = input.value.trim().toLowerCase();
     const out: HTMLElement[] = [];
     for (const sec of SECTIONS) {
-      const docs = project.list(sec.kind).filter((d) => {
-        const name = ((d.value as { name?: string }).name ?? "").toLowerCase();
-        return !q || d.id.includes(q) || name.includes(q);
-      });
+      const docs = project.list(sec.kind).filter((d) => matches(d, q));
       const closed = collapsed.has(sec.kind) && !q;
-      const tw = h("button", {
-        "aria-expanded": closed ? "false" : "true",
-        class: "tw",
-      });
-      tw.innerHTML = `${icon(closed ? "right" : "down", 12)}<span class="pxh">${sec.title}</span><span class="count">${docs.length}</span>`;
-      tw.addEventListener("click", () => {
-        if (collapsed.has(sec.kind)) {
-          collapsed.delete(sec.kind);
-        } else {
-          collapsed.add(sec.kind);
-        }
-        prefs.set("collapsed", [...collapsed]);
-        render();
-      });
-      const add = h("button", {
-        "aria-label": `New ${sec.title}`,
-        class: "btn small",
-        title: `New ${sec.title}`,
-      });
-      add.innerHTML = `${icon("plus", 12)}New`;
-      add.addEventListener("click", () => {
-        if (sec.kind === "sfx") {
-          pickCategory(
-            (c) => void createSfx(c, { navigate: route.view !== "pads" })
-          );
-        } else if (sec.kind === "song") {
-          void createSong();
-        } else {
-          pickKind((k) => void createInstrument(k));
-        }
-      });
       const secEl = h(
         "section",
         { class: "tree-sec" },
-        h("div", { class: "tree-h" }, tw, add)
+        sectionHead(sec, closed, docs.length)
       );
       if (!closed) {
         if (docs.length === 0) {
@@ -174,24 +197,13 @@ export function createSidebar(host: HTMLElement): {
           );
         }
         for (const d of docs) {
-          const cur =
-            (route.view === sec.kind &&
-              (route as { id?: string }).id === d.id) ||
-            (route.view === "analysis" && route.ref.endsWith(`/${d.id}`));
-          secEl.append(rowFor(d, cur));
+          secEl.append(rowFor(d, isCurrent(sec.kind, d.id)));
         }
       }
       out.push(secEl);
     }
     tree.replaceChildren(...out);
-    for (const a of nav.querySelectorAll<HTMLAnchorElement>("a[data-nav]")) {
-      const target = a.getAttribute("href") ?? "";
-      const on =
-        (route.view === "pads" && target === "#/pads") ||
-        (route.view === "project" && target === "#/project") ||
-        (route.view === "analysis" && target.startsWith("#/analysis"));
-      a.classList.toggle("cur", on);
-    }
+    syncNav();
   }
   const schedule = () => {
     if (!queued) {

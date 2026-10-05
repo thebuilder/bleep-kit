@@ -256,8 +256,20 @@
       padding-right: 4px;
     }
     input[type="number"] {
+      padding-right: 6px;
+      padding-left: 6px;
       font-family: var(--f-mono);
       font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      -moz-appearance: textfield;
+      appearance: textfield;
+    }
+    /* the stepper arrows eat a third of a narrow box and cut the value; sliders and arrow keys already step it */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      margin: 0;
+      -webkit-appearance: none;
     }
     input:hover,
     select:hover,
@@ -360,18 +372,18 @@
         transform var(--t) steps(2, end),
         background var(--t) ease-out;
     }
-    .tgl input:checked + span {
+    .tgl :where(input:checked) + span {
       background: color-mix(in srgb, var(--accent) 35%, #14131d);
     }
     .tgl input:checked + span::after {
       background: var(--accent);
       transform: translateX(16px);
     }
-    .tgl input:focus-visible + span {
+    .tgl :where(input:focus-visible) + span {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
-    .tgl input:disabled + span {
+    .tgl :where(input:disabled) + span {
       opacity: 0.35;
     }
     kbd {
@@ -534,11 +546,11 @@
       background: var(--ok);
       box-shadow: 0 0 6px var(--ok);
     }
-    .savestate.dirty i {
+    .savestate:where(.dirty) i {
       background: var(--accent);
       box-shadow: 0 0 6px var(--accent);
     }
-    .savestate.err i {
+    .savestate:where(.err) i {
       background: var(--danger);
       box-shadow: 0 0 6px var(--danger);
     }
@@ -588,6 +600,7 @@
       position: relative;
       display: grid;
       flex: none;
+      grid-template-rows: minmax(0, 1fr);
       grid-template-columns: 150px minmax(0, 1fr) 64px;
       gap: 0;
       height: 72px;
@@ -604,6 +617,7 @@
       display: block;
       width: 100%;
       height: 100%;
+      min-height: 0;
       image-rendering: pixelated;
     }
     .strip .sep {
@@ -752,7 +766,21 @@
       background: #14131d;
       border-left-color: var(--kc, var(--accent));
     }
-    .tree-item .ico:first-child {
+    /* the link holds icon and name: a fixed 16px icon column and a 10px gap keep every list on the same left edge */
+    .tree-item .tl {
+      display: flex;
+      flex: 1;
+      gap: 10px;
+      align-items: center;
+      align-self: stretch;
+      min-width: 0;
+      color: inherit;
+      text-decoration: none;
+    }
+    .tl .ico {
+      flex: none;
+      width: 16px;
+      height: 16px;
       color: var(--kc, var(--muted));
     }
     .tree-item .nm {
@@ -871,7 +899,7 @@
     }
     .grp-b {
       display: grid;
-      grid-template-columns: minmax(0, 92px) minmax(0, 1fr) 56px;
+      grid-template-columns: minmax(0, 92px) minmax(0, 1fr) max-content;
       gap: 7px 8px;
       align-items: center;
       padding: 2px 14px 12px;
@@ -891,6 +919,12 @@
       line-height: 1.2;
       color: var(--muted);
     }
+    /* each number box is as wide as the longest value its range can show (--nc characters), and the grid column
+       takes the widest one, so every slider in a group ends at the same x */
+    .fld input[type="number"] {
+      width: 100%;
+      min-width: calc(var(--nc, 5) * 1ch + 16px);
+    }
     .fld .val {
       font-family: var(--f-mono);
       font-size: 11px;
@@ -902,6 +936,10 @@
     }
     .fld.off > * {
       opacity: 0.35;
+    }
+    .num input {
+      width: 72px;
+      color: var(--fg);
     }
     .fld.off input {
       pointer-events: none;
@@ -1009,6 +1047,23 @@
       box-shadow:
         0 0 0 1px var(--line),
         8px 8px 0 rgba(0, 0, 0, 0.5);
+    }
+    .modal.narrow {
+      width: min(420px, 100%);
+    }
+    .confirm {
+      display: grid;
+      gap: 16px;
+      padding: 18px 18px 16px;
+    }
+    .confirm p {
+      margin: 0;
+      line-height: 1.5;
+    }
+    .confirm-btns {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
     }
     .modal input.big {
       width: 100%;
@@ -1245,9 +1300,12 @@
     }
     .fields .fld {
       display: grid;
-      grid-template-columns: minmax(0, 96px) minmax(0, 1fr) 56px;
+      grid-template-columns: minmax(0, 96px) minmax(0, 1fr) calc(6ch + 16px);
       gap: 8px;
       align-items: center;
+    }
+    .fields .fld input[type="number"] {
+      width: 100%;
     }
     .fields .span {
       grid-column: 1 / -1;
@@ -1343,9 +1401,6 @@
       text-transform: uppercase;
       letter-spacing: 0.08em;
     }
-    .num input {
-      width: 72px;
-    }
     .tgl-row {
       display: inline-flex;
       gap: 8px;
@@ -1386,9 +1441,6 @@
       font-size: 13px;
       color: var(--fg);
     }
-    .grp-b > .json {
-      grid-column: 1 / -1;
-    }
     .json {
       padding: 8px;
       margin: 0;
@@ -1401,6 +1453,9 @@
       white-space: pre-wrap;
       background: #0e0d14;
       border: 1px solid var(--line);
+    }
+    .grp-b > .json {
+      grid-column: 1 / -1;
     }
     @keyframes spin {
       to {
@@ -1960,7 +2015,7 @@
         0 0 0 1px #6b4a12,
         0 0 14px rgba(243, 178, 74, 0.4);
     }
-    .ochip.cur small {
+    .ochip:where(.cur) small {
       color: #6b4a12;
     }
     .ochip.loop::after {
@@ -2082,10 +2137,10 @@
       border-left: 1px solid #1f1d2c;
     }
     .tc.fx1 {
-      width: 128px;
+      width: 146px;
     }
     .tc.fx2 {
-      width: 158px;
+      width: 176px;
     }
     .tc span {
       display: inline-block;
@@ -2188,9 +2243,9 @@
       text-shadow: 0 0 8px color-mix(in srgb, var(--kc) 60%, transparent);
     }
     .tb {
-      min-width: 26px;
+      min-width: 22px;
       height: 22px;
-      padding: 0 6px;
+      padding: 0 4px;
       font-family: var(--f-display);
       font-size: 10px;
       line-height: 20px;
@@ -2701,13 +2756,13 @@
         0 0 0 1px var(--danger),
         0 0 18px rgba(226, 118, 111, 0.35);
     }
-    .stat.bad .val {
-      color: var(--danger);
-    }
     .stat .val {
       font-size: 22px;
       line-height: 1.15;
       color: var(--fg);
+    }
+    .stat.bad .val {
+      color: var(--danger);
     }
     .stat .sub {
       min-height: 15px;
@@ -2817,7 +2872,7 @@
       grid-template-columns: 1fr;
     }
     .proj-view .fields .fld {
-      grid-template-columns: minmax(0, 150px) minmax(0, 1fr) 56px;
+      grid-template-columns: minmax(0, 150px) minmax(0, 1fr) calc(6ch + 16px);
     }
     .export-card.spot {
       box-shadow:
@@ -2850,7 +2905,7 @@
       );
       transition: width calc(160ms * var(--motion)) steps(6, end);
     }
-    .progress.indeterminate i {
+    .progress:where(.indeterminate) i {
       width: 30% !important;
       animation: slide calc(1100ms * var(--motion)) steps(14, end) infinite;
     }
@@ -2877,8 +2932,8 @@
     .export-out .ok {
       color: var(--ok);
     }
-    .export-out .bad,
-    .bad {
+    .bad,
+    .export-out .bad {
       color: var(--danger);
     }
     .warnline {

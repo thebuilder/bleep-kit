@@ -1,4 +1,3 @@
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
 /* Oscillators: PolyBLEP pulse, and naive triangle, saw, sine and wavetable (aliasing is part of the sound, section 3.3).
    Each renderer fills out[0..n) and advances the shared phase state. Phase is in cycles. */
 

@@ -1,7 +1,3 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/noNestedTernary: clamps and branch selects in the audio path read best inline
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/suspicious/noUnnecessaryConditions: Biome types fields initialised with false or 0 as literals and flags mutable state as constant
 /* Chip output coloring (section 3.8). Each chip owns a bus: the synth sums its voices into it, then the bus applies the
    DAC curve, sample rate reduction, bit depth and the one-pole filters. NES voices feed two mixer groups (pulse and
    triangle/noise) because the real APU mixes them non-linearly. */
@@ -9,14 +5,14 @@
 import { CHIPS } from "../chips/index.ts";
 import type { ChipId, ChipProfile } from "../types.ts";
 
-export const BLOCK = 128;
+const BLOCK = 128;
 
 /** Linear gain applied after the NES mixer formula: the APU's output is tiny (about 0.26 for two full pulses). */
-export const NES_MIXER_SCALE = 4;
+const NES_MIXER_SCALE = 4;
 const SID_ASYMMETRY = 0.03;
 
 /** Linear gain of each chip's voice sum, so a typical single voice peaks around -12 dBFS before the master gain. */
-export const CHIP_GAIN: Readonly<Record<ChipId, number>> = {
+const CHIP_GAIN: Readonly<Record<ChipId, number>> = {
   adlib: 0.34,
   c64: 0.5,
   custom: 0.45,
@@ -29,7 +25,7 @@ export const CHIP_GAIN: Readonly<Record<ChipId, number>> = {
 const TAIL_SECONDS = 0.25;
 
 /** The standard NES APU mixer, from the nesdev wiki: pulse and tnd groups mix separately and add. */
-export function nesMix(pulse: number, tri: number, noise: number): number {
+function nesMix(pulse: number, tri: number, noise: number): number {
   const p = pulse > 0 ? 95.88 / (8128 / pulse + 100) : 0;
   const tnd = tri / 8227 + noise / 12_241;
   const t = tnd > 0 ? 159.79 / (1 / tnd + 100) : 0;
@@ -283,13 +279,5 @@ export class ChipBus {
     this.colorChannel(this.cl, oL, n);
     this.colorChannel(this.cr, oR, n);
     this.touched = false;
-  }
-
-  reset(): void {
-    resetChan(this.cl);
-    resetChan(this.cr);
-    this.touched = false;
-    this.running = false;
-    this.idle = 0;
   }
 }

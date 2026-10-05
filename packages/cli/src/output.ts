@@ -2,7 +2,7 @@
 // and small formatters shared by the commands.
 import path from "node:path";
 
-export const ERROR_EXIT = {
+const ERROR_EXIT = {
   bind: 6,
   encode: 5,
   invalid: 1,
@@ -37,6 +37,16 @@ export class CliError extends Error {
     this.code = code;
     this.hint = options.hint;
     this.details = options.details;
+  }
+
+  /** An error caused by another one: the caught error is kept as `cause` (BLEEPKIT_DEBUG=1 prints it). */
+  static because(
+    cause: unknown,
+    code: ErrorCode,
+    message: string,
+    options: Omit<ErrorOptions, "cause"> = {}
+  ): CliError {
+    return new CliError(code, message, { ...options, cause });
   }
 
   get exitCode(): number {
@@ -154,7 +164,7 @@ export function display(cwd: string, absolute: string): string {
     .join("/");
 }
 
-export function levenshtein(a: string, b: string): number {
+function levenshtein(a: string, b: string): number {
   const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i += 1) {
     let diag = prev[0] ?? 0;
@@ -209,14 +219,5 @@ export function table(rows: string[][], gap = 2): string {
         .join("")
         .trimEnd()
     )
-    .join("\n");
-}
-
-/** Indents every line of `text`. */
-export function indent(text: string, spaces = 2): string {
-  const pad = " ".repeat(spaces);
-  return text
-    .split("\n")
-    .map((line) => (line === "" ? line : pad + line))
     .join("\n");
 }

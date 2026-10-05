@@ -1,8 +1,3 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/noNestedTernary: clamps and branch selects in the audio path read best inline
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/style/useForOf: indexed loops over typed arrays in the audio path need the index
-// biome-ignore-all lint/suspicious/noUnnecessaryConditions: Biome types fields initialised with false or 0 as literals and flags mutable state as constant
 /* The fourteen sample generators (section 3.7). Each synthesizes a GeneratedSample deterministically from its params
    and a seed. Tonal generators are tuned to C-4 (MIDI 60) and loop seamlessly: the loop body holds a whole number of
    cycles of every partial, so the loop point never clicks. */
@@ -48,6 +43,24 @@ function normalize(buf: Float32Array, peak: number): void {
       buf[i] = (buf[i] ?? 0) * g;
     }
   }
+}
+
+/** Ramp the first `seconds` up from silence so the sound does not click. */
+function fadeIn(buf: Float32Array, sr: number, seconds: number): void {
+  const n = Math.round(seconds * sr);
+  for (let i = 0; i < n; i += 1) {
+    buf[i] = (buf[i] ?? 0) * (i / n);
+  }
+}
+
+/** One sample of the metallic cluster: the METAL square oscillators advance by `scale` and add up (not yet divided). */
+function metalSum(phases: Float64Array, scale: number, sr: number): number {
+  let s = 0;
+  for (let k = 0; k < METAL.length; k += 1) {
+    phases[k] = ((phases[k] ?? 0) + ((METAL[k] ?? 0) * scale) / sr) % 1;
+    s += (phases[k] ?? 0) < 0.5 ? 1 : -1;
+  }
+  return s;
 }
 
 /** Fade the last ms to zero so one-shots never end on a step. */
@@ -215,11 +228,7 @@ function hat(p: Params, seed: number, sr: number): GeneratedSample {
   const phases = new Float64Array(METAL.length);
   const scale = 3 + tone * 3;
   for (let i = 0; i < n; i += 1) {
-    let s = 0;
-    for (let k = 0; k < METAL.length; k += 1) {
-      phases[k] = ((phases[k] ?? 0) + ((METAL[k] ?? 0) * scale) / sr) % 1;
-      s += (phases[k] ?? 0) < 0.5 ? 1 : -1;
-    }
+    const s = metalSum(phases, scale, sr);
     const t = i / sr;
     out[i] = (s / METAL.length + noise(rng) * 0.5) * Math.exp(-t / (len / 4.6));
   }
@@ -286,11 +295,7 @@ function crash(p: Params, seed: number, sr: number): GeneratedSample {
   const out = new Float32Array(n);
   const phases = new Float64Array(METAL.length);
   for (let i = 0; i < n; i += 1) {
-    let s = 0;
-    for (let k = 0; k < METAL.length; k += 1) {
-      phases[k] = ((phases[k] ?? 0) + ((METAL[k] ?? 0) * 2.7) / sr) % 1;
-      s += (phases[k] ?? 0) < 0.5 ? 1 : -1;
-    }
+    const s = metalSum(phases, 2.7, sr);
     const t = i / sr;
     const env = Math.exp(-t / (decay / 4.6)) * (1 + 1.5 * Math.exp(-t / 0.03));
     out[i] = (noise(rng) * 0.8 + (s / METAL.length) * 0.4) * env;
@@ -348,12 +353,6 @@ function pluck(p: Params, seed: number, sr: number): GeneratedSample {
   fadeEnd(out, sr, 0.02);
   normalize(out, 0.85);
   return oneShot(out, sr);
-}
-
-interface Loop {
-  data: Float32Array;
-  loopEnd: number;
-  loopStart: number;
 }
 
 function withLoop(
@@ -482,10 +481,7 @@ function organ(p: Params, _seed: number, sr: number): GeneratedSample {
     out[i] = s;
   }
   // soft attack so the key does not click
-  const atk = Math.round(0.004 * sr);
-  for (let i = 0; i < atk; i += 1) {
-    out[i] = (out[i] ?? 0) * (i / atk);
-  }
+  fadeIn(out, sr, 0.004);
   normalize(out, 0.7);
   return withLoop(out, intro, sr);
 }
@@ -545,6 +541,78 @@ function strings(p: Params, _seed: number, sr: number): GeneratedSample {
   return withLoop(out, intro, sr);
 }
 
+/** Formant frequencies of the vowels a, e, i, o, u (three each). */
+const VOWEL_FORMANTS: readonly (readonly number[])[] = [
+  [800, 1150, 2900],
+  [400, 1700, 2600],
+  [270, 2150, 2900],
+  [450, 800, 2830],
+  [325, 700, 2530],
+];
+const FORMANT_WEIGHTS = [1, 0.7, 0.35] as const;
+
+/** Glottal-ish source: a narrow pulse train with a little vibrato whose period is the loop. */
+function glottalSource(
+  buf: Float32Array,
+  f: number,
+  start: number,
+  body: number,
+  sr: number
+): void {
+  for (let i = 0; i < buf.length; i += 1) {
+    const t = (i - start) / sr;
+    const ph = f * t + 0.004 * Math.sin((TWO_PI * (i - start)) / body);
+    const x = ph - Math.floor(ph);
+    buf[i] = x < 0.22 ? 1 - x / 0.22 : -0.2;
+  }
+}
+
+/** The source through three band passes at the vowel's formants (interpolated by `vowel` 0..1), weighted and added. */
+function formantMix(
+  source: Float32Array,
+  vowel: number,
+  sr: number
+): Float32Array {
+  const pos = vowel * (VOWEL_FORMANTS.length - 1);
+  const lo = Math.floor(pos);
+  const hi = Math.min(VOWEL_FORMANTS.length - 1, lo + 1);
+  const fr = pos - lo;
+  const mixOut = new Float32Array(source.length);
+  for (let b = 0; b < 3; b += 1) {
+    const hz =
+      (VOWEL_FORMANTS[lo]?.[b] ?? 500) * (1 - fr) +
+      (VOWEL_FORMANTS[hi]?.[b] ?? 500) * fr;
+    const band = source.slice();
+    svf(band, "bp", hz, 6 + b * 2, sr);
+    const w = FORMANT_WEIGHTS[b] ?? 0;
+    for (let i = 0; i < band.length; i += 1) {
+      mixOut[i] = (mixOut[i] ?? 0) + (band[i] ?? 0) * w;
+    }
+  }
+  return mixOut;
+}
+
+/** Add band passed noise at `amount` of the signal's peak. */
+function addBreath(
+  out: Float32Array,
+  rng: () => number,
+  amount: number,
+  sr: number
+): void {
+  const hiss = new Float32Array(out.length);
+  for (let i = 0; i < hiss.length; i += 1) {
+    hiss[i] = noise(rng);
+  }
+  svf(hiss, "bp", 2500, 0.8, sr);
+  let m = 0;
+  for (let i = 0; i < out.length; i += 1) {
+    m = Math.max(m, Math.abs(out[i] ?? 0));
+  }
+  for (let i = 0; i < out.length; i += 1) {
+    out[i] = (out[i] ?? 0) + (hiss[i] ?? 0) * amount * m * 0.25;
+  }
+}
+
 function choir(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "choir";
   const vowel = param(g, p, "vowel");
@@ -556,50 +624,9 @@ function choir(p: Params, seed: number, sr: number): GeneratedSample {
   const total = intro + body;
   const pre = Math.round(sr * 0.1);
   const buf = new Float32Array(total + pre);
-  const f = shape.f;
-  // glottal-ish source: narrow pulse train with a little vibrato whose period is the loop
-  for (let i = 0; i < buf.length; i += 1) {
-    const t = (i - pre - intro) / sr;
-    const ph = f * t + 0.004 * Math.sin((TWO_PI * (i - pre - intro)) / body);
-    const x = ph - Math.floor(ph);
-    buf[i] = x < 0.22 ? 1 - x / 0.22 : -0.2;
-  }
-  // formants: a, e, i, o, u interpolated by the vowel param
-  const formants: number[][] = [
-    [800, 1150, 2900],
-    [400, 1700, 2600],
-    [270, 2150, 2900],
-    [450, 800, 2830],
-    [325, 700, 2530],
-  ];
-  const pos = vowel * (formants.length - 1);
-  const lo = Math.floor(pos);
-  const hi = Math.min(formants.length - 1, lo + 1);
-  const fr = pos - lo;
-  const mixOut = new Float32Array(buf.length);
-  for (let b = 0; b < 3; b += 1) {
-    const hz =
-      (formants[lo]?.[b] ?? 500) * (1 - fr) + (formants[hi]?.[b] ?? 500) * fr;
-    const band = buf.slice();
-    svf(band, "bp", hz, 6 + b * 2, sr);
-    const w = b === 0 ? 1 : b === 1 ? 0.7 : 0.35;
-    for (let i = 0; i < band.length; i += 1) {
-      mixOut[i] = (mixOut[i] ?? 0) + (band[i] ?? 0) * w;
-    }
-  }
-  const out = mixOut.slice(pre);
-  const hiss = new Float32Array(out.length);
-  for (let i = 0; i < hiss.length; i += 1) {
-    hiss[i] = noise(rng);
-  }
-  svf(hiss, "bp", 2500, 0.8, sr);
-  let m = 0;
-  for (let i = 0; i < out.length; i += 1) {
-    m = Math.max(m, Math.abs(out[i] ?? 0));
-  }
-  for (let i = 0; i < out.length; i += 1) {
-    out[i] = (out[i] ?? 0) + (hiss[i] ?? 0) * breath * m * 0.25;
-  }
+  glottalSource(buf, shape.f, pre + intro, body, sr);
+  const out = formantMix(buf, vowel, sr).slice(pre);
+  addBreath(out, rng, breath, sr);
   // crossfade the loop seam, so the breath noise does not click
   const xf = Math.min(Math.round(0.02 * sr), Math.floor(body / 4), intro);
   for (let i = 0; i < xf; i += 1) {
@@ -608,9 +635,7 @@ function choir(p: Params, seed: number, sr: number): GeneratedSample {
     const b = out[intro - xf + i] ?? 0;
     out[total - xf + i] = a * (1 - w) + b * w;
   }
-  for (let i = 0; i < Math.round(0.02 * sr); i += 1) {
-    out[i] = (out[i] ?? 0) * (i / Math.round(0.02 * sr));
-  }
+  fadeIn(out, sr, 0.02);
   normalize(out, 0.75);
   return withLoop(out, intro, sr);
 }
@@ -641,10 +666,7 @@ function lead(_p: Params, _seed: number, sr: number): GeneratedSample {
     out[i] = (out[i] ?? 0) - mean;
   }
   svf(out, "lp", 6000, 0.7, sr);
-  const atk = Math.round(0.006 * sr);
-  for (let i = 0; i < atk; i += 1) {
-    out[i] = (out[i] ?? 0) * (i / atk);
-  }
+  fadeIn(out, sr, 0.006);
   normalize(out, 0.7);
   return withLoop(out, intro, sr);
 }
@@ -680,5 +702,3 @@ export function runGenerator(
   const fn = GENERATORS[gen];
   return fn(params, seed, sampleRate);
 }
-
-export type { Loop };

@@ -1,6 +1,3 @@
-// biome-ignore-all assist/source/useSortedKeys: the key order of a document is part of its file format (version first, then name and the rest as written in the architecture)
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
 import { CHIPS } from "../chips/index.ts";
 import { SAMPLE_SPECS } from "../samples/specs.ts";
 import type {
@@ -271,13 +268,61 @@ function readTable(ctx: Ctx, v: unknown, path: string): number[] {
   return out;
 }
 
+/** The SID waveform list: known names only, duplicates dropped, 1 to 4 entries, else the default list. */
+function readSidWaveforms(
+  ctx: Ctx,
+  raw: unknown,
+  def: SidPatch["waveforms"]
+): SidPatch["waveforms"] {
+  const path = "/sid/waveforms";
+  if (raw === undefined) {
+    return def;
+  }
+  if (!Array.isArray(raw)) {
+    error(ctx, path, `must be an array of waveforms (was ${show(raw)})`);
+    return def;
+  }
+  const list: SidPatch["waveforms"] = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    const w = SID_WAVES.find((x) => x === raw[i]);
+    if (w === undefined) {
+      error(
+        ctx,
+        ptr(path, i),
+        `must be one of ${SID_WAVES.join(", ")} (was ${show(raw[i])})`
+      );
+    } else if (list.includes(w)) {
+      warn(
+        ctx,
+        ptr(path, i),
+        `"${w}" is listed twice, the duplicate was dropped`
+      );
+    } else {
+      list.push(w);
+    }
+  }
+  if (list.length === 0) {
+    error(ctx, path, "must list 1 to 4 waveforms");
+    return def;
+  }
+  return list;
+}
+
+/** An optional block: absent is fine and reads as empty, anything else that is not an object is an error. */
+function optionalRec(ctx: Ctx, v: unknown, p: string): Rec {
+  if (isRec(v)) {
+    return v;
+  }
+  if (v !== undefined) {
+    error(ctx, p, `must be an object (was ${show(v)})`);
+  }
+  return {};
+}
+
 function readSid(ctx: Ctx, v: unknown): SidPatch {
   const def = defaultSidPatch();
   const p = "/sid";
-  const s = isRec(v) ? v : {};
-  if (v !== undefined && !isRec(v)) {
-    error(ctx, p, `must be an object (was ${show(v)})`);
-  }
+  const s = optionalRec(ctx, v, p);
   dropUnknown(ctx, s, p, [
     "waveforms",
     "pulseWidth",
@@ -287,42 +332,7 @@ function readSid(ctx: Ctx, v: unknown): SidPatch {
     "sync",
     "filter",
   ]);
-  let waveforms: SidPatch["waveforms"] = def.waveforms;
-  const raw = s.waveforms;
-  if (raw !== undefined) {
-    if (Array.isArray(raw)) {
-      const list: SidPatch["waveforms"] = [];
-      for (let i = 0; i < raw.length; i += 1) {
-        const w = SID_WAVES.find((x) => x === raw[i]);
-        if (w === undefined) {
-          error(
-            ctx,
-            ptr(ptr(p, "waveforms"), i),
-            `must be one of ${SID_WAVES.join(", ")} (was ${show(raw[i])})`
-          );
-        } else if (list.includes(w)) {
-          warn(
-            ctx,
-            ptr(ptr(p, "waveforms"), i),
-            `"${w}" is listed twice, the duplicate was dropped`
-          );
-        } else {
-          list.push(w);
-        }
-      }
-      if (list.length === 0) {
-        error(ctx, ptr(p, "waveforms"), "must list 1 to 4 waveforms");
-      } else {
-        waveforms = list;
-      }
-    } else {
-      error(
-        ctx,
-        ptr(p, "waveforms"),
-        `must be an array of waveforms (was ${show(raw)})`
-      );
-    }
-  }
+  const waveforms = readSidWaveforms(ctx, s.waveforms, def.waveforms);
   const f = section(ctx, s, "filter", p);
   dropUnknown(ctx, f, "/sid/filter", ["mode", "cutoff", "resonance", "sweep"]);
   return {
@@ -456,14 +466,14 @@ function readFm(ctx: Ctx, v: unknown, chip: ChipId | null): FmPatch {
   let ops: FmOperator[];
   const raw = v.ops;
   if (raw === undefined) {
-    ops = defaultFmPatch(wantOps).ops;
+    ({ ops } = defaultFmPatch(wantOps));
   } else if (!Array.isArray(raw) || (raw.length !== 2 && raw.length !== 4)) {
     error(
       ctx,
       ptr(p, "ops"),
       `must have 2 or 4 operators (was ${Array.isArray(raw) ? raw.length : show(raw)})`
     );
-    ops = defaultFmPatch(wantOps).ops;
+    ({ ops } = defaultFmPatch(wantOps));
   } else {
     ops = raw.map((o, i) => readOperator(ctx, o, ptr(ptr(p, "ops"), i)));
   }
@@ -521,10 +531,7 @@ function readFm(ctx: Ctx, v: unknown, chip: ChipId | null): FmPatch {
 
 function readSample(ctx: Ctx, v: unknown): SamplePatch {
   const p = "/sample";
-  const s = isRec(v) ? v : {};
-  if (v !== undefined && !isRec(v)) {
-    error(ctx, p, `must be an object (was ${show(v)})`);
-  }
+  const s = optionalRec(ctx, v, p);
   dropUnknown(ctx, s, p, ["generator", "params", "seed", "baseNote", "loop"]);
   const generator = enumField(
     ctx,

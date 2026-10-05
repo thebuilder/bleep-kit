@@ -13,9 +13,14 @@ import type {
 
 /** Loop-safe time for one frame (see createClock in renderer.ts). */
 export interface Clock {
-  cyc(perSec: number, tol?: number): number;
-  flow(p0: number, vel: number, span: number, phase?: number): [number, number];
-  flow2(
+  cyc: (perSec: number, tol?: number) => number;
+  flow: (
+    p0: number,
+    vel: number,
+    span: number,
+    phase?: number
+  ) => [number, number];
+  flow2: (
     x0: number,
     y0: number,
     vx: number,
@@ -23,39 +28,39 @@ export interface Clock {
     sx: number,
     sy: number,
     phase?: number
-  ): [number, number, number];
+  ) => [number, number, number];
   /** The issue raised since the last reset, or null. */
   issue: { need: number } | null;
-  lm(fn: (t: number) => number): number;
-  v(pxPerSec: number, span: number, tol?: number): number;
+  lm: (fn: (t: number) => number) => number;
+  v: (pxPerSec: number, span: number, tol?: number) => number;
   /** A rate nudged to a whole number of periods per loop, when that changes it by at most tol. */
-  w(radPerSec: number, tol?: number): number;
+  w: (radPerSec: number, tol?: number) => number;
 }
 
 /** What the renderer supplies for one strip of one layer. */
 export interface ContextBase {
   buf: Uint8ClampedArray;
-  clearance(x?: number): number;
+  clearance: (x?: number) => number;
   clock: Clock;
-  glow(x: number, y: number, col: Color, a?: number): void;
-  groundY(x: number): number;
+  glow: (x: number, y: number, col: Color, a?: number) => void;
+  groundY: (x: number) => number;
   H: number;
-  isWater(x: number, y: number): boolean;
+  isWater: (x: number, y: number) => boolean;
   left: number;
   loop: number;
   opacity: number;
   own: Uint8Array;
   p: unknown;
-  plot(x: number, y: number, col: Color, a?: number): void;
-  rng(): number;
+  plot: (x: number, y: number, col: Color, a?: number) => void;
+  rng: () => number;
   scene: { w: number; h: number };
   seed: number;
-  setGround(x: number, y: number): void;
+  setGround: (x: number, y: number) => void;
   style: unknown;
   t: number;
   taps: readonly LayerTap[];
   /** Called whenever render asks for the time (or the taps): such a layer moves, so it cannot be cached whole. */
-  touch(): void;
+  touch: () => void;
   view: { w: number; h: number; left: number };
   W: number;
 }

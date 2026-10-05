@@ -1,12 +1,15 @@
 {
-  "44100": {
-    "events": 1,
-    "frames": 13503,
-    "hash": "610a0505"
-  },
-  "48000": {
-    "events": 1,
-    "frames": 15351,
-    "hash": "8dc89785"
+  "engineVersion": "2",
+  "renders": {
+    "44100": {
+      "events": 1,
+      "frames": 13503,
+      "hash": "610a0505"
+    },
+    "48000": {
+      "events": 1,
+      "frames": 15351,
+      "hash": "8dc89785"
+    }
   }
 }

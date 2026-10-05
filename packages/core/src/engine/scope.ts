@@ -4,7 +4,7 @@
 import type { ScopeReader, ScopeRings } from "../types.ts";
 import { SCOPE_FRAMES } from "../types.ts";
 
-export const SCOPE_CHANNELS = 10;
+const SCOPE_CHANNELS = 10;
 
 /** Bytes a shared scope buffer needs for the given ring size. */
 export function scopeBufferBytes(
@@ -78,7 +78,11 @@ export function advanceScopeHead(rings: ScopeRings, n: number): void {
   rings.head[0] = ((rings.head[0] ?? 0) + n) % rings.frames;
 }
 
-/** Reads rings into one reused buffer. channel -1 and -2 are master left and right. */
+/**
+ * Reads rings into one reused buffer. channel -1 and -2 are master left and right. Absolute engine frame f lives at
+ * ring index f modulo the ring size: `at(channel, frame, frames)` copies the `frames` samples that start at `frame`
+ * (the start of the window, not its end), `latest` the newest `frames` samples.
+ */
 export function createScopeReader(
   rings: ScopeRings,
   _sampleRate: number
@@ -96,7 +100,7 @@ export function createScopeReader(
   };
   const copy = (
     ring: Float32Array | null,
-    end: number,
+    start: number,
     frames: number
   ): Float32Array => {
     const n = Math.max(0, Math.min(size, Math.floor(frames)));
@@ -105,7 +109,7 @@ export function createScopeReader(
       view.fill(0);
       return view;
     }
-    let pos = (((end - n) % size) + size) % size;
+    let pos = ((start % size) + size) % size;
     for (let i = 0; i < n; i += 1) {
       view[i] = ring[pos] ?? 0;
       pos += 1;
@@ -120,7 +124,8 @@ export function createScopeReader(
       return copy(ringFor(channel), Math.floor(frame), frames);
     },
     latest(channel, frames) {
-      return copy(ringFor(channel), rings.head[0] ?? 0, frames);
+      const n = Math.max(0, Math.min(size, Math.floor(frames)));
+      return copy(ringFor(channel), (rings.head[0] ?? 0) - n, n);
     },
   };
 }

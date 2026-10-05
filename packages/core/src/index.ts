@@ -1,4 +1,3 @@
-// biome-ignore-all lint/performance/noBarrelFile: this is the package entry point
 // documents and types
 
 // chips
@@ -65,3 +64,4 @@ export {
   SFX_CATEGORIES,
   SFX_WAVES,
 } from "./types.ts";
+export { ENGINE_VERSION } from "./version.ts";

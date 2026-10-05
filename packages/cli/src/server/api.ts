@@ -2,11 +2,11 @@
 import fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import path from "node:path";
+import { normalizeProject } from "@bleepkit/core";
 import { runExport } from "../exporter.ts";
 import { CliError, type ErrorCode } from "../output.ts";
 import {
   DOC_KINDS,
-  docRel,
   etagOf,
   KIND_DIRS,
   loadProjectFile,
@@ -17,7 +17,6 @@ import {
   writeFileAtomic,
 } from "../project.ts";
 import { type RenderOpts, renderDoc } from "../render.ts";
-import { normalizeProject } from "../stubs.ts";
 import type { Hub } from "./hub.ts";
 import {
   type Classified,
@@ -38,7 +37,7 @@ export interface ApiState {
   version: string;
 }
 
-export interface FileEntry {
+interface FileEntry {
   etag: string;
   kind: Classified["kind"];
   mtime: number;
@@ -72,6 +71,17 @@ export class HttpError extends Error {
     super(message, cause === undefined ? undefined : { cause });
     this.status = status;
     this.body = { error, message, ...extra };
+  }
+
+  /** An error caused by another one: the caught error is kept as `cause`. */
+  static because(
+    cause: unknown,
+    status: number,
+    error: string,
+    message: string,
+    extra: Record<string, unknown> = {}
+  ): HttpError {
+    return new HttpError(status, error, message, extra, cause);
   }
 }
 
@@ -111,12 +121,11 @@ async function readBody(req: IncomingMessage): Promise<unknown> {
   try {
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));
   } catch (error) {
-    throw new HttpError(
+    throw HttpError.because(
+      error,
       400,
       "bad-json",
-      `request body is not valid JSON: ${(error as Error).message}`,
-      {},
-      error
+      `request body is not valid JSON: ${(error as Error).message}`
     );
   }
 }
@@ -135,7 +144,7 @@ const etagCache = new Map<
   { etag: string; mtimeMs: number; size: number }
 >();
 
-export function fileEtag(abs: string, stat: fs.Stats): string {
+function fileEtag(abs: string, stat: fs.Stats): string {
   const hit = etagCache.get(abs);
   if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) {
     return hit.etag;
@@ -200,7 +209,7 @@ function walk(root: string, rel: string, out: FileEntry[]): void {
   }
 }
 
-export function listFiles(root: string): FileEntry[] {
+function listFiles(root: string): FileEntry[] {
   const out: FileEntry[] = [];
   const projectFile = path.join(root, "project.json");
   if (fs.existsSync(projectFile)) {
@@ -315,7 +324,7 @@ function getFile(
   try {
     stat = fs.statSync(abs);
   } catch (error) {
-    throw new HttpError(404, "not-found", `${rel} does not exist`, {}, error);
+    throw HttpError.because(error, 404, "not-found", `${rel} does not exist`);
   }
   if (!(stat.isFile() && insideRoot(state.root, abs))) {
     throw new HttpError(
@@ -331,12 +340,12 @@ function getFile(
     try {
       json = JSON.parse(fs.readFileSync(abs, "utf8"));
     } catch (error) {
-      throw new HttpError(
+      throw HttpError.because(
+        error,
         422,
         "invalid-json",
         `${rel} is not valid JSON: ${(error as Error).message}`,
-        { etag },
-        error
+        { etag }
       );
     }
     sendJson(res, 200, { etag, json, mtime: stat.mtimeMs, path: rel });
@@ -489,20 +498,28 @@ function failure(error: unknown): HttpError {
   return new HttpError(500, "internal", (error as Error).message);
 }
 
+/** The JSON body of a POST that names a document: `{ "ref": "sfx/coin", ...}`. `shape` is the example in the 400. */
+async function readRefBody(
+  req: IncomingMessage,
+  shape: string
+): Promise<{ body: Record<string, unknown>; refText: string }> {
+  const body = asObject(await readBody(req));
+  const refText = typeof body.ref === "string" ? body.ref : null;
+  if (!refText) {
+    throw new HttpError(400, "bad-request", `body must be ${shape}`);
+  }
+  return { body, refText };
+}
+
 async function postRender(
   state: ApiState,
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<void> {
-  const body = asObject(await readBody(req));
-  const refText = typeof body.ref === "string" ? body.ref : null;
-  if (!refText) {
-    throw new HttpError(
-      400,
-      "bad-request",
-      'body must be { "ref": "sfx/coin", "options"?: {...} }'
-    );
-  }
+  const { body, refText } = await readRefBody(
+    req,
+    '{ "ref": "sfx/coin", "options"?: {...} }'
+  );
   const pc = openProjectRoot(state.root);
   let ref: ReturnType<typeof resolveRef>;
   try {
@@ -543,15 +560,7 @@ async function postAnalyze(
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<void> {
-  const body = asObject(await readBody(req));
-  const refText = typeof body.ref === "string" ? body.ref : null;
-  if (!refText) {
-    throw new HttpError(
-      400,
-      "bad-request",
-      'body must be { "ref": "sfx/coin" }'
-    );
-  }
+  const { body, refText } = await readRefBody(req, '{ "ref": "sfx/coin" }');
   const pc = openProjectRoot(state.root);
   try {
     const ref = resolveRef(pc, refText, ["sfx", "song"]);
@@ -585,15 +594,10 @@ async function postPlay(
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<void> {
-  const body = asObject(await readBody(req));
-  const refText = typeof body.ref === "string" ? body.ref : null;
-  if (!refText) {
-    throw new HttpError(
-      400,
-      "bad-request",
-      'body must be { "ref": "sfx/coin", "visual"?: boolean }'
-    );
-  }
+  const { body, refText } = await readRefBody(
+    req,
+    '{ "ref": "sfx/coin", "visual"?: boolean }'
+  );
   let canonical: string;
   try {
     canonical = resolveRef(openProjectRoot(state.root), refText, [
@@ -612,79 +616,100 @@ async function postPlay(
 
 /* ---------- router ---------- */
 
+function sendHealth(state: ApiState, res: ServerResponse): void {
+  sendJson(res, 200, { ok: true, root: state.root, version: state.version });
+}
+
+function sendProject(state: ApiState, res: ServerResponse): void {
+  let loaded: ReturnType<typeof loadProjectFile>;
+  try {
+    loaded = loadProjectFile(state.root);
+  } catch (error) {
+    throw failure(error);
+  }
+  sendJson(res, 200, {
+    files: listFiles(state.root),
+    issues: loaded.issues,
+    project: loaded.project,
+    root: state.root,
+  });
+}
+
+/** `/api/file`: read, write or delete one project file, by method. */
+async function fileRoute(
+  state: ApiState,
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL
+): Promise<void> {
+  const method = req.method ?? "GET";
+  if (method === "GET") {
+    getFile(state, req, res, url);
+  } else if (method === "PUT") {
+    await putFile(state, req, res, url);
+  } else if (method === "DELETE") {
+    deleteFile(state, url, res);
+  } else {
+    throw new HttpError(
+      405,
+      "method-not-allowed",
+      `${method} is not supported on /api/file (use GET, PUT or DELETE)`
+    );
+  }
+}
+
+const POST_ROUTES: Readonly<
+  Record<
+    string,
+    (s: ApiState, q: IncomingMessage, r: ServerResponse) => Promise<void>
+  >
+> = {
+  "/api/analyze": postAnalyze,
+  "/api/export": postExport,
+  "/api/play": postPlay,
+  "/api/render": postRender,
+};
+
+async function route(
+  state: ApiState,
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL
+): Promise<void> {
+  const { pathname } = url;
+  const method = req.method ?? "GET";
+  if (pathname === "/api/health" && method === "GET") {
+    sendHealth(state, res);
+  } else if (pathname === "/api/project" && method === "GET") {
+    sendProject(state, res);
+  } else if (pathname === "/api/file") {
+    await fileRoute(state, req, res, url);
+  } else if (Object.hasOwn(POST_ROUTES, pathname)) {
+    if (method !== "POST") {
+      throw new HttpError(405, "method-not-allowed", `${pathname} takes POST`);
+    }
+    await (POST_ROUTES[pathname] as (typeof POST_ROUTES)[string])(
+      state,
+      req,
+      res
+    );
+  } else {
+    throw new HttpError(
+      404,
+      "not-found",
+      `no such API route: ${method} ${pathname}`
+    );
+  }
+}
+
 export async function handleApi(
   state: ApiState,
   req: IncomingMessage,
   res: ServerResponse,
   url: URL
 ): Promise<void> {
-  const route = url.pathname;
-  const method = req.method ?? "GET";
   try {
-    if (route === "/api/health" && method === "GET") {
-      sendJson(res, 200, {
-        ok: true,
-        root: state.root,
-        version: state.version,
-      });
-      return;
-    }
-    if (route === "/api/project" && method === "GET") {
-      let loaded: ReturnType<typeof loadProjectFile>;
-      try {
-        loaded = loadProjectFile(state.root);
-      } catch (error) {
-        throw failure(error);
-      }
-      sendJson(res, 200, {
-        files: listFiles(state.root),
-        issues: loaded.issues,
-        project: loaded.project,
-        root: state.root,
-      });
-      return;
-    }
-    if (route === "/api/file") {
-      if (method === "GET") {
-        getFile(state, req, res, url);
-        return;
-      }
-      if (method === "PUT") {
-        await putFile(state, req, res, url);
-        return;
-      }
-      if (method === "DELETE") {
-        deleteFile(state, url, res);
-        return;
-      }
-      throw new HttpError(
-        405,
-        "method-not-allowed",
-        `${method} is not supported on /api/file (use GET, PUT or DELETE)`
-      );
-    }
-    const posts: Record<
-      string,
-      (s: ApiState, q: IncomingMessage, r: ServerResponse) => Promise<void>
-    > = {
-      "/api/analyze": postAnalyze,
-      "/api/export": postExport,
-      "/api/play": postPlay,
-      "/api/render": postRender,
-    };
-    const post = posts[route];
-    if (post) {
-      if (method !== "POST") {
-        throw new HttpError(405, "method-not-allowed", `${route} takes POST`);
-      }
-      await post(state, req, res);
-      return;
-    }
-    throw new HttpError(
-      404,
-      "not-found",
-      `no such API route: ${method} ${route}`
-    );
+    await route(state, req, res, url);
   } catch (error) {
     const f = failure(error);
     if (res.headersSent) {
@@ -694,5 +719,3 @@ export async function handleApi(
     }
   }
 }
-
-export { docRel };

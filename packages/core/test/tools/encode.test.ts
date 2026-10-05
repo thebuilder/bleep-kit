@@ -1,4 +1,3 @@
-// biome-ignore-all lint/suspicious/noBitwiseOperators: the Ogg flag bits and MP3 header fields are bit fields
 import { describe, expect, it } from "vitest";
 import {
   encodeMp3,

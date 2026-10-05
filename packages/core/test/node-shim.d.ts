@@ -10,11 +10,24 @@ declare module "node:fs" {
     options?: { recursive?: boolean }
   ): void;
   export function readdirSync(path: string): string[];
-  export function statSync(path: string): { isDirectory: () => boolean };
+  export function statSync(path: string): {
+    isDirectory: () => boolean;
+    isFile: () => boolean;
+  };
+  export function mkdtempSync(prefix: string): string;
+  export function rmSync(
+    path: string,
+    options?: { force?: boolean; recursive?: boolean }
+  ): void;
+}
+
+declare module "node:os" {
+  export function tmpdir(): string;
 }
 
 declare module "node:path" {
   export function join(...parts: string[]): string;
+  export function dirname(path: string): string;
 }
 
 declare module "node:url" {

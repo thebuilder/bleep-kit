@@ -81,7 +81,8 @@ export function encodeAudio(
   if (!w) {
     return runEncode({ ...req, channels: r.channels, id: 0 });
   }
-  const id = nextId++;
+  nextId += 1;
+  const id = nextId;
   return new Promise((resolve, reject) => {
     pending.set(id, { reject, resolve });
     // copies, so the cached render stays usable

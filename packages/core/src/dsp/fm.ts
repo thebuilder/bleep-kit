@@ -1,14 +1,8 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/noExportedImports: the module re-exports names it also uses itself
-// biome-ignore-all lint/style/noNestedTernary: clamps and branch selects in the audio path read best inline
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/suspicious/noBitwiseOperators: DSP code: LFSR shifts, power-of-two ring masks, integer hashing and flag masks need bit operations
 /* FM synthesis (section 3.5): 2 or 4 operators with YM style rate envelopes in dB, OPL waveform select, feedback on
    operator 1 and the eight YM2612 algorithms. */
 
 import type { FmPatch } from "../types.ts";
 import {
-  DB_RES,
   dbAmpTable,
   dbToAmp,
   oplWave,
@@ -25,11 +19,11 @@ const FM_MAKEUP = 2.4;
 /** Sustain level 0 means this much attenuation. */
 const SUSTAIN_RANGE_DB = 48;
 
-export const OP_OFF = 0;
-export const OP_ATTACK = 1;
-export const OP_DECAY = 2;
-export const OP_SUSTAIN = 3;
-export const OP_RELEASE = 4;
+const OP_OFF = 0;
+const OP_ATTACK = 1;
+const OP_DECAY = 2;
+const OP_SUSTAIN = 3;
+const OP_RELEASE = 4;
 
 /** Seconds a rate takes to cover the full range: 10 * 2^(-rate / 2.5). Rate 0 never moves. */
 export function rateSeconds(rate: number): number {
@@ -244,11 +238,6 @@ export function fmSilent(s: FmState): boolean {
   return true;
 }
 
-/** True once every carrier is silent (used to free the voice after a release). */
-export function fmCarriersSilent(s: FmState): boolean {
-  return fmSilent(s);
-}
-
 /** Set the pitch (fundamental in Hz) for all operators. cents adds the LFO. */
 export function fmSetPitch(
   s: FmState,
@@ -418,6 +407,3 @@ export function renderFm(s: FmState, out: Float32Array, n: number): void {
     out[k] = y * scale;
   }
 }
-
-/** The 9-bit style step used by the YM DAC curve lives in color.ts; DB_RES is re-exported for tests. */
-export { DB_RES };

@@ -58,3 +58,15 @@ export function mixToMono(r: RenderResult): Float32Array {
   }
   return out;
 }
+
+/** The parts one after the other in a new buffer. */
+export function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
+}

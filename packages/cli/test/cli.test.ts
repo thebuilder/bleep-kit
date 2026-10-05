@@ -1,12 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { STUBBED } from "../src/stubs.ts";
 import { makeProject, readJson, run, tempDir, writeJson } from "./helpers.ts";
-
-const encodersReady = !(
-  STUBBED.includes("tools.encodeOgg") || STUBBED.includes("tools.encodeMp3")
-);
 
 describe("global behavior", () => {
   it("prints the overview and exits 0 with no arguments", async () => {
@@ -60,6 +55,7 @@ describe("global behavior", () => {
       "help",
     ];
     for (const name of names) {
+      // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, each run is a child process and the failing name is reported by the assertion
       const r = await run(tempDir(), [name, "--help"]);
       expect(r.code, name).toBe(0);
       expect(r.stdout, name).toContain("Examples:");
@@ -288,7 +284,7 @@ describe("init, new, list, validate", () => {
     const bad = await run(repo, ["validate", "sfx/coin", "--json"]);
     expect(bad.code).toBe(1);
     expect(bad.json.ok).toBe(false);
-    const doc = bad.json.documents[0];
+    const [doc] = bad.json.documents;
     expect(doc.ok).toBe(false);
     expect(
       doc.issues.some(
@@ -388,7 +384,7 @@ describe("render and analyze", () => {
     const r = await run(repo, ["render", "sfx/coin", "--json"]);
     expect(r.code).toBe(0);
     expect(r.json.ok).toBe(true);
-    const e = r.json.renders[0];
+    const [e] = r.json.renders;
     expect(e).toMatchObject({
       cached: false,
       clipped: false,
@@ -551,49 +547,43 @@ describe("render and analyze", () => {
     expect((await run(repo, ["analyze", "missing.wav"])).code).toBe(4);
   });
 
-  it.skipIf(STUBBED.includes("tools.encodePng"))(
-    "render --images writes the PNGs",
-    async () => {
-      const { project, repo } = await makeProject();
-      const r = await run(repo, ["render", "sfx/coin", "--images", "--json"]);
-      expect(r.code).toBe(0);
-      const images = r.json.renders[0].images;
-      for (const rel of [images.waveform, images.spectrogram]) {
-        const bytes = fs.readFileSync(path.join(project, rel));
-        expect([...bytes.subarray(0, 8)]).toEqual([
-          137, 80, 78, 71, 13, 10, 26, 10,
-        ]);
-      }
-    }
-  );
-
-  it.skipIf(STUBBED.includes("core.renderSong"))(
-    "renders a looping song with loop points, events and stems",
-    async () => {
-      const { project, repo } = await makeProject();
-      await run(repo, [
-        "new",
-        "song",
-        "title",
-        "--mml",
-        "pulse1=o4 l8 cdef L gabc",
-        "--mml",
-        "triangle=o2 l4 c g c g",
+  it("render --images writes the PNGs", async () => {
+    const { project, repo } = await makeProject();
+    const r = await run(repo, ["render", "sfx/coin", "--images", "--json"]);
+    expect(r.code).toBe(0);
+    const [{ images }] = r.json.renders;
+    for (const rel of [images.waveform, images.spectrogram]) {
+      const bytes = fs.readFileSync(path.join(project, rel));
+      expect([...bytes.subarray(0, 8)]).toEqual([
+        137, 80, 78, 71, 13, 10, 26, 10,
       ]);
-      const r = await run(repo, ["render", "song/title", "--stems", "--json"]);
-      expect(r.code).toBe(0);
-      const e = r.json.renders[0];
-      expect(e.duration).toBeGreaterThan(1);
-      expect(e.loopStart).toBeGreaterThan(0);
-      expect(e.loopEnd).toBeGreaterThan(e.loopStart);
-      expect(e.stems.length).toBeGreaterThan(0);
-      const events = readJson(
-        path.join(project, "out", "songs", "title.events.json")
-      ) as { events: unknown[]; sampleRate: number };
-      expect(events.sampleRate).toBe(48_000);
-      expect(events.events.length).toBeGreaterThan(0);
     }
-  );
+  });
+
+  it("renders a looping song with loop points, events and stems", async () => {
+    const { project, repo } = await makeProject();
+    await run(repo, [
+      "new",
+      "song",
+      "title",
+      "--mml",
+      "pulse1=o4 l8 cdef L gabc",
+      "--mml",
+      "triangle=o2 l4 c g c g",
+    ]);
+    const r = await run(repo, ["render", "song/title", "--stems", "--json"]);
+    expect(r.code).toBe(0);
+    const [e] = r.json.renders;
+    expect(e.duration).toBeGreaterThan(1);
+    expect(e.loopStart).toBeGreaterThan(0);
+    expect(e.loopEnd).toBeGreaterThan(e.loopStart);
+    expect(e.stems.length).toBeGreaterThan(0);
+    const events = readJson(
+      path.join(project, "out", "songs", "title.events.json")
+    ) as { events: unknown[]; sampleRate: number };
+    expect(events.sampleRate).toBe(48_000);
+    expect(events.events.length).toBeGreaterThan(0);
+  });
 });
 
 describe("export", () => {
@@ -771,7 +761,7 @@ describe("export", () => {
     ).toContain('category: "coin"');
   });
 
-  it.skipIf(!encodersReady)("encodes OGG by default", async () => {
+  it("encodes OGG by default", async () => {
     const { repo } = await makeProject();
     const r = await run(repo, ["export", "--json"]);
     expect(r.code, r.stderr).toBe(0);
@@ -782,44 +772,42 @@ describe("export", () => {
     expect(head).toBe("OggS");
   });
 
-  it.skipIf(!(encodersReady && !STUBBED.includes("core.renderSong")))(
-    "MP3 music shifts loop points by the encoder delay and warns",
-    async () => {
-      const { project, repo } = await makeProject();
-      await run(repo, [
-        "new",
-        "song",
-        "title",
-        "--mml",
-        "pulse1=o4 l8 cdef L gabc",
-      ]);
-      setExport(project, { musicFormat: "wav", sfxFormat: "wav" });
-      const wav = await run(repo, ["export", "--json"]);
-      expect(wav.code, wav.stderr).toBe(0);
-      const base = readJson(
-        path.join(repo, "public", "audio", "manifest.json")
-      ) as { songs: { title: { loopStart: number; loopEnd: number } } };
-      setExport(project, { musicFormat: "mp3", sfxFormat: "wav" });
-      const r = await run(repo, ["export", "--json"]);
-      expect(r.code, r.stderr).toBe(0);
-      expect(r.json.warnings).toContain(
-        "MP3 loop points are approximate; use OGG for seamless loops"
-      );
-      const mp3 = readJson(
-        path.join(repo, "public", "audio", "manifest.json")
-      ) as {
-        songs: { title: { file: string; loopStart: number; loopEnd: number } };
-      };
-      expect(mp3.songs.title.file).toBe("title.mp3");
-      expect(
-        mp3.songs.title.loopStart - base.songs.title.loopStart
-      ).toBeCloseTo(1105 / 48_000, 5);
-      expect(mp3.songs.title.loopEnd - base.songs.title.loopEnd).toBeCloseTo(
-        1105 / 48_000,
-        5
-      );
-    }
-  );
+  it("MP3 music shifts loop points by the encoder delay and warns", async () => {
+    const { project, repo } = await makeProject();
+    await run(repo, [
+      "new",
+      "song",
+      "title",
+      "--mml",
+      "pulse1=o4 l8 cdef L gabc",
+    ]);
+    setExport(project, { musicFormat: "wav", sfxFormat: "wav" });
+    const wav = await run(repo, ["export", "--json"]);
+    expect(wav.code, wav.stderr).toBe(0);
+    const base = readJson(
+      path.join(repo, "public", "audio", "manifest.json")
+    ) as { songs: { title: { loopStart: number; loopEnd: number } } };
+    setExport(project, { musicFormat: "mp3", sfxFormat: "wav" });
+    const r = await run(repo, ["export", "--json"]);
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.json.warnings).toContain(
+      "MP3 loop points are approximate; use OGG for seamless loops"
+    );
+    const mp3 = readJson(
+      path.join(repo, "public", "audio", "manifest.json")
+    ) as {
+      songs: { title: { file: string; loopStart: number; loopEnd: number } };
+    };
+    expect(mp3.songs.title.file).toBe("title.mp3");
+    expect(mp3.songs.title.loopStart - base.songs.title.loopStart).toBeCloseTo(
+      1105 / 48_000,
+      5
+    );
+    expect(mp3.songs.title.loopEnd - base.songs.title.loopEnd).toBeCloseTo(
+      1105 / 48_000,
+      5
+    );
+  });
 });
 
 describe("help and play", () => {
@@ -838,7 +826,7 @@ describe("help and play", () => {
     ]) {
       expect(r.stdout, needle).toContain(needle);
     }
-    expect(r.stdout).not.toContain("—");
+    expect(r.stdout).not.toContain("\u2014");
     const mml = await run(tempDir(), ["help", "formats", "mml", "--json"]);
     expect(mml.json).toMatchObject({
       ok: true,

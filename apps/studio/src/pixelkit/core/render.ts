@@ -24,13 +24,13 @@ export interface Renderer {
   /** RGBA pixels of the last frame, width * height * 4. The same array every frame (until resize), so new ImageData(r.pixels, r.width) can wrap it once. */
   readonly pixels: Uint8ClampedArray<ArrayBuffer>;
   /** Draw the frame at t seconds (wrapped into the loop when the scene loops) and return its pixels. */
-  render(t: number, opts?: FrameOptions): Uint8ClampedArray<ArrayBuffer>;
+  render: (t: number, opts?: FrameOptions) => Uint8ClampedArray<ArrayBuffer>;
   /** Change the view size (new pixel and hit arrays). Throws for a side larger than MAX_VIEW. */
-  resize(width: number, height: number): void;
+  resize: (width: number, height: number) => void;
   /** The scene it draws. Replace it with setScene. */
   readonly scene: RenderScene;
   /** Draw another scene. A renderer made without a size follows the new scene's size; one given a size keeps it. */
-  setScene(scene: RenderScene): void;
+  setScene: (scene: RenderScene) => void;
   readonly width: number;
 }
 

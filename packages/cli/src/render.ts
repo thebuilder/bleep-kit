@@ -4,6 +4,26 @@
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
+import {
+  ENGINE_VERSION,
+  type RenderResult,
+  renderSfx,
+  renderSong,
+  type Sfx,
+  type Song,
+} from "@bleepkit/core";
+import {
+  type Analysis,
+  analyze,
+  decodeWav,
+  encodeMp3,
+  encodeOgg,
+  encodePng,
+  encodeWav,
+  scopesImage,
+  spectrogramImage,
+  waveformImage,
+} from "@bleepkit/core/tools";
 import { CliError, round } from "./output.ts";
 import {
   type DocKind,
@@ -16,25 +36,12 @@ import {
   stableStringify,
   writeFileAtomic,
 } from "./project.ts";
-import {
-  type AnalysisLike,
-  analyze,
-  decodeWav,
-  encodeMp3,
-  encodeOgg,
-  encodePng,
-  encodeWav,
-  type RenderResult,
-  renderSfx,
-  renderSong,
-  type Sfx,
-  type Song,
-  scopesImage,
-  spectrogramImage,
-  waveformImage,
-} from "./stubs.ts";
+import { SOFTWARE } from "./version.ts";
 
-/** Bump when the pipeline's output changes for the same inputs (invalidates every sidecar hash). */
+/**
+ * Bump when the CLI's own pipeline changes its output for the same inputs (invalidates every sidecar hash). A change
+ * to the sound itself is core's `ENGINE_VERSION`, which the hash includes as well.
+ */
 const PIPELINE_VERSION = 1;
 
 /** Frames of silence an MP3 encoder adds at the start (LAME style); wasm-media-encoders does not report it. */
@@ -77,7 +84,7 @@ export interface Meta {
 }
 
 export interface RenderEntry {
-  analysis?: AnalysisLike;
+  analysis?: Analysis;
   /** True when the sidecar hash matched and nothing was re-rendered. */
   cached: boolean;
   clipped: boolean;
@@ -108,7 +115,7 @@ export function outBase(kind: DocKind, id: string): string {
   return `out/${KIND_DIRS[kind]}/${id}`;
 }
 
-export function metaRel(kind: DocKind, id: string): string {
+function metaRel(kind: DocKind, id: string): string {
   return `${outBase(kind, id)}.meta.json`;
 }
 
@@ -160,18 +167,14 @@ function writeMeta(
 
 /* ---------- effective options and the hash ---------- */
 
-export interface Effective {
+interface Effective {
   loops: number;
   rate: number;
   seed: number;
   tail: number;
 }
 
-export function effective(
-  pc: ProjectCtx,
-  kind: DocKind,
-  opts: RenderOpts
-): Effective {
+function effective(pc: ProjectCtx, kind: DocKind, opts: RenderOpts): Effective {
   const rate = opts.rate ?? pc.project.sampleRate;
   if (!(Number.isFinite(rate) && rate >= 22_050 && rate <= 96_000)) {
     throw new CliError("usage", `--rate must be 22050 to 96000 (got ${rate})`, {
@@ -192,7 +195,7 @@ export function effective(
   return { loops: kind === "song" ? loops : 1, rate, seed: pc.seed, tail };
 }
 
-export function renderHash(
+function renderHash(
   pc: ProjectCtx,
   kind: DocKind,
   value: Sfx | Song,
@@ -203,6 +206,7 @@ export function renderHash(
     stableStringify({
       doc: value,
       eff,
+      engine: ENGINE_VERSION,
       instruments,
       kind,
       master: pc.project.master,
@@ -237,7 +241,7 @@ export function freshness(
 
 /* ---------- levels ---------- */
 
-export function levels(r: RenderResult): {
+function levels(r: RenderResult): {
   clipped: boolean;
   clippedFrames: number;
   peakDb: number;
@@ -274,7 +278,7 @@ export function levels(r: RenderResult): {
 
 /* ---------- events file ---------- */
 
-export function eventsJson(r: RenderResult): string {
+function eventsJson(r: RenderResult): string {
   return `${JSON.stringify({
     duration: round(r.frames / r.sampleRate, 6),
     events: r.events,
@@ -310,7 +314,7 @@ export async function encodeAs(
 ): Promise<Uint8Array> {
   try {
     if (format === "wav") {
-      return encodeWav(r);
+      return encodeWav(r, { software: SOFTWARE });
     }
     if (format === "ogg") {
       return await encodeOgg(r, { quality: pc.project.export.oggQuality });
@@ -335,11 +339,11 @@ function readMaster(pc: ProjectCtx, rel: string): RenderResult {
   try {
     return decodeWav(new Uint8Array(fs.readFileSync(path.join(pc.root, rel))));
   } catch (error) {
-    throw new CliError(
+    throw CliError.because(
+      error,
       "invalid",
       `cannot read the render ${rel}: ${(error as Error).message}`,
       {
-        cause: error,
         hint: "Delete the out/ folder or re-run `bleepkit render --force`.",
       }
     );
@@ -367,11 +371,11 @@ function doRender(
     const song = doc.value as Song;
     return renderSong(song, instrumentsFor(pc, song), options);
   } catch (error) {
-    throw new CliError(
+    throw CliError.because(
+      error,
       "invalid",
       `rendering ${kind}/${doc.id} failed: ${(error as Error).message}`,
       {
-        cause: error,
         hint: `Run \`bleepkit validate ${kind}/${doc.id}\` and check the document for impossible values.`,
       }
     );
@@ -455,7 +459,10 @@ function produce(
   rc.log?.(`rendering ${kind}/${id} ...`);
   const result = doRender(pc, kind, doc, job.eff, needsStems);
   const files = [job.masterRel];
-  writeFileAtomic(path.join(pc.root, job.masterRel), encodeWav(result));
+  writeFileAtomic(
+    path.join(pc.root, job.masterRel),
+    encodeWav(result, { id, software: SOFTWARE })
+  );
   if (kind === "song") {
     const eventsRel = `${job.base}.events.json`;
     writeFileAtomic(path.join(pc.root, eventsRel), eventsJson(result));
@@ -500,13 +507,16 @@ function writeStems(job: Job, result: RenderResult): string[] {
       frames: stem.length,
       sampleRate: result.sampleRate,
     };
-    writeFileAtomic(path.join(job.pc.root, rel), encodeWav(mono));
+    writeFileAtomic(
+      path.join(job.pc.root, rel),
+      encodeWav(mono, { software: SOFTWARE })
+    );
     stems.push(rel);
   });
   return stems;
 }
 
-function analysisOf(job: Job, result: RenderResult): AnalysisLike {
+function analysisOf(job: Job, result: RenderResult): Analysis {
   const analysis = analyze(result, {
     file: job.masterRel,
     maxTrack: job.opts.pitch ? Number.POSITIVE_INFINITY : 200,

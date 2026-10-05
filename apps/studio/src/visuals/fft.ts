@@ -2,7 +2,7 @@
 
 export interface Spectrum {
   /** Fill `mag` (size / 2 magnitudes, 0..~1) from `samples` (size of them). */
-  magnitudes(samples: Float32Array, mag: Float32Array): void;
+  magnitudes: (samples: Float32Array, mag: Float32Array) => void;
   readonly size: number;
 }
 
@@ -14,21 +14,21 @@ export function createSpectrum(size = 1024): Spectrum {
   const cos = new Float32Array(size / 2);
   const sin = new Float32Array(size / 2);
   const bits = Math.log2(size);
-  for (let i = 0; i < size; i++) {
+  for (let i = 0; i < size; i += 1) {
     win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (size - 1));
     let r = 0;
-    for (let b = 0; b < bits; b++) {
+    for (let b = 0; b < bits; b += 1) {
       r |= ((i >> b) & 1) << (bits - 1 - b);
     }
     rev[i] = r;
   }
-  for (let i = 0; i < size / 2; i++) {
+  for (let i = 0; i < size / 2; i += 1) {
     cos[i] = Math.cos((2 * Math.PI * i) / size);
     sin[i] = -Math.sin((2 * Math.PI * i) / size);
   }
   return {
     magnitudes(samples, mag) {
-      for (let i = 0; i < size; i++) {
+      for (let i = 0; i < size; i += 1) {
         re[rev[i] as number] = (samples[i] ?? 0) * (win[i] as number);
         im[rev[i] as number] = 0;
       }
@@ -36,7 +36,7 @@ export function createSpectrum(size = 1024): Spectrum {
         const half = len >> 1;
         const step = size / len;
         for (let i = 0; i < size; i += len) {
-          for (let j = 0, k = 0; j < half; j++, k += step) {
+          for (let j = 0, k = 0; j < half; j += 1, k += step) {
             const a = i + j;
             const b = a + half;
             const tr =
@@ -53,7 +53,7 @@ export function createSpectrum(size = 1024): Spectrum {
         }
       }
       const norm = 4 / size;
-      for (let i = 0; i < size / 2; i++) {
+      for (let i = 0; i < size / 2; i += 1) {
         mag[i] = Math.hypot(re[i] as number, im[i] as number) * norm;
       }
     },

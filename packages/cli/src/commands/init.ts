@@ -1,17 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
-import { CliError, display } from "../output.ts";
-import { starterInstruments } from "../presets.ts";
-import { serializeDoc, toPosix, writeFileAtomic } from "../project.ts";
 import {
   CHIP_IDS,
   type ChipId,
   defaultProject,
   deriveSeed,
-  generateSfx,
   normalizeProject,
   normalizeSfx,
-} from "../stubs.ts";
+} from "@bleepkit/core";
+import { generateSfx } from "@bleepkit/sfx";
+import { CliError, display } from "../output.ts";
+import { starterInstruments } from "../presets.ts";
+import { serializeDoc, toPosix, writeFileAtomic } from "../project.ts";
 import type { CommandSpec } from "./types.ts";
 
 const SEPARATOR_RE = /[-_\s]+/;

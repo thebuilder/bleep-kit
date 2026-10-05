@@ -1,10 +1,11 @@
 // Compact human rendering of an Analysis object: a few lines of numbers and a 60 column ASCII envelope.
+
+import type { Analysis } from "@bleepkit/core/tools";
 import { fmtDb, fmtSeconds, round } from "./output.ts";
-import type { AnalysisLike } from "./stubs.ts";
 
 const RAMP = " .:-=+*#%@";
 
-export function asciiEnvelope(
+function asciiEnvelope(
   envelope: { time: number; db: number }[],
   columns = 60,
   floorDb = -60
@@ -29,7 +30,7 @@ export function asciiEnvelope(
     .join("");
 }
 
-export function analysisText(a: AnalysisLike, label?: string): string {
+export function analysisText(a: Analysis, label?: string): string {
   const lines: string[] = [];
   lines.push(
     `${label ?? a.file}: ${fmtSeconds(a.duration)}, ${a.sampleRate} Hz, ${a.channels} ch`

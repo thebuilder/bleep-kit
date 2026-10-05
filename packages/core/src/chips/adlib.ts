@@ -2,9 +2,7 @@
 
 import type { ChipProfile } from "../types.ts";
 
-export const ADLIB_CLOCK_HZ = 3_579_545;
-/** The OPL2 native output rate; above the usual host rates, so the coloring stage skips rate reduction. */
-export const ADLIB_NATIVE_RATE = 49_716;
+const ADLIB_CLOCK_HZ = 3_579_545;
 
 const channels = Array.from({ length: 9 }, (_, i) => ({
   fmOps: 2 as const,

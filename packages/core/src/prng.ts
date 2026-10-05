@@ -1,5 +1,3 @@
-// biome-ignore-all lint/suspicious/noBitwiseOperators: integer hashing needs bitwise operators
-// biome-ignore-all lint/style/useShorthandAssign: the mulberry32 mix is kept in its canonical form
 /* Seeded randomness. Everything random in Bleepkit goes through here: Math.random is banned in core, sfx and player. */
 
 /** mulberry32: a small, fast 32-bit PRNG. Returns floats in [0, 1). Identical to Pixelkit's. */
@@ -8,6 +6,7 @@ export function mulberry32(seed: number): () => number {
   return () => {
     a = (a + 0x6d_2b_79_f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    // biome-ignore lint/style/useShorthandAssign: the mulberry32 mix is kept in its canonical form, so it matches Pixelkit line by line
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
   };

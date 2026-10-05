@@ -1,4 +1,3 @@
-// biome-ignore-all lint/suspicious/noBitwiseOperators: binary file formats need bit fields and byte shifts
 import type { RenderResult } from "../types.ts";
 
 export interface WavOptions {

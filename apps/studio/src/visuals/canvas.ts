@@ -3,10 +3,10 @@
 export interface Surface {
   canvas: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
-  dispose(): void;
+  dispose: () => void;
   dpr: number;
   /** Resize now (called by the observer, and by tests). */
-  fit(): void;
+  fit: () => void;
   h: number;
   /** CSS size */
   w: number;
@@ -60,7 +60,7 @@ export function surface(
 /** Rising zero crossing: the start index for a scope that stands still. */
 export function triggerIndex(buf: Float32Array, window: number): number {
   const limit = buf.length - window;
-  for (let i = 1; i < limit; i++) {
+  for (let i = 1; i < limit; i += 1) {
     if ((buf[i - 1] ?? 0) <= 0 && (buf[i] ?? 0) > 0) {
       return i;
     }
@@ -70,8 +70,7 @@ export function triggerIndex(buf: Float32Array, window: number): number {
 
 export function rms(buf: Float32Array): number {
   let s = 0;
-  for (let i = 0; i < buf.length; i++) {
-    const v = buf[i] ?? 0;
+  for (const v of buf) {
     s += v * v;
   }
   return Math.sqrt(s / Math.max(1, buf.length));

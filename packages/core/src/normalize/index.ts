@@ -1,4 +1,3 @@
-// biome-ignore-all lint/performance/noBarrelFile: the module entry point
 export {
   defaultInstrument,
   defaultProject,

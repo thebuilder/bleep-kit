@@ -1,7 +1,3 @@
-// biome-ignore-all lint/performance/noNamespaceImport: chip tables are addressed by chip as nes.x, gb.x and so on
-// biome-ignore-all lint/style/noNestedTernary: clamps and branch selects in the audio path read best inline
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/suspicious/noBitwiseOperators: DSP code: LFSR shifts, power-of-two ring masks, integer hashing and flag masks need bit operations
 import { describe, expect, it } from "vitest";
 import * as nes from "../src/chips/nes.ts";
 import { Echo } from "../src/dsp/echo.ts";
@@ -39,7 +35,7 @@ import {
 } from "../src/dsp/osc.ts";
 import { setSidFilter } from "../src/dsp/sid-filter.ts";
 import { newSvf, svfProcess } from "../src/dsp/svf.ts";
-import { nesTriangleTable } from "../src/dsp/tables.ts";
+import { nesTriangleTable, oplWave, sineTable } from "../src/dsp/tables.ts";
 import type { ChannelKind, ChipId } from "../src/index.ts";
 import {
   defaultInstrument,
@@ -163,6 +159,61 @@ describe("NES period quantization", () => {
   it("clamps to the 11-bit register", () => {
     expect(nes.hzToPeriod(5)).toBe(2047);
     expect(nes.hzToPeriod(0.1)).toBe(2047);
+  });
+});
+
+describe("OPL waveform select", () => {
+  const table = sineTable();
+  const at = (w: number, phase: number) => oplWave(table, w, phase);
+
+  it("0 is a sine", () => {
+    expect(at(0, 0.25)).toBeCloseTo(1, 3);
+    expect(at(0, 0.75)).toBeCloseTo(-1, 3);
+  });
+
+  it("1 keeps the positive half and silences the negative one", () => {
+    expect(at(1, 0.25)).toBeCloseTo(1, 3);
+    expect(at(1, 0.75)).toBe(0);
+  });
+
+  it("2 is the absolute value, so both halves are positive", () => {
+    expect(at(2, 0.25)).toBeCloseTo(1, 3);
+    expect(at(2, 0.75)).toBeCloseTo(1, 3);
+  });
+
+  it("3 plays the rising quarter of each half and silences the other", () => {
+    expect(at(3, 0.125)).toBeGreaterThan(0.5);
+    expect(at(3, 0.375)).toBe(0);
+    expect(at(3, 0.625)).toBeGreaterThan(0.5);
+    expect(at(3, 0.875)).toBe(0);
+  });
+
+  it("4 is a double speed sine in the first half and silent in the second", () => {
+    expect(at(4, 0.125)).toBeCloseTo(1, 3);
+    expect(at(4, 0.375)).toBeCloseTo(-1, 3);
+    expect(at(4, 0.75)).toBe(0);
+  });
+
+  it("5 is the same with the absolute value", () => {
+    expect(at(5, 0.125)).toBeCloseTo(1, 3);
+    expect(at(5, 0.375)).toBeCloseTo(1, 3);
+    expect(at(5, 0.75)).toBe(0);
+  });
+
+  it("6 is a square wave", () => {
+    expect(at(6, 0.1)).toBe(1);
+    expect(at(6, 0.9)).toBe(-1);
+  });
+
+  it("7 is a fat, camel shaped wave, positive in the first half and negative in the second", () => {
+    expect(at(7, 0.25)).toBeCloseTo(1, 3);
+    expect(at(7, 0.75)).toBeCloseTo(-1, 3);
+    expect(at(7, 0.01)).toBeGreaterThan(0);
+    expect(at(7, 0.01)).toBeLessThan(at(7, 0.25));
+  });
+
+  it("anything else falls back to the sine", () => {
+    expect(at(9, 0.25)).toBe(at(0, 0.25));
   });
 });
 
@@ -420,18 +471,19 @@ describe("fm constants", () => {
       if (inst.fm) {
         inst.fm.algorithm = 0;
         inst.fm.feedback = 0;
-        const ops = inst.fm.ops;
+        const { ops } = inst.fm;
+        // operator 1 is the modulator, operator 4 the carrier, 2 and 3 stay silent
+        const levels = [modLevel, 0, 0, 1];
         ops.forEach((op, i) => {
           op.attack = 31;
           op.decay = 0;
           op.sustainLevel = 1;
-          op.level = i === 0 ? modLevel : i === 3 ? 1 : 0;
+          op.level = levels[i] ?? 0;
           op.mult = 1;
         });
         // 1 > 2 > 3 > 4 with operators 2 and 3 silent in level: use only 1 and 4 via algorithm 7 variant
         inst.fm.algorithm = 4;
-        const second = ops[1];
-        const third = ops[2];
+        const [, second, third] = ops;
         if (second) {
           second.level = 1;
         }

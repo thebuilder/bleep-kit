@@ -115,12 +115,12 @@ function pathOf(name: string): string {
       if (row[x] === "#") {
         let w = 1;
         while (row[x + w] === "#") {
-          w++;
+          w += 1;
         }
         d += `M${x} ${y}h${w}v1h-${w}z`;
         x += w;
       } else {
-        x++;
+        x += 1;
       }
     }
   }

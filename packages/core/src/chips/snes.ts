@@ -2,7 +2,7 @@
 
 import type { ChipProfile } from "../types.ts";
 
-export const SNES_RATE = 32_000;
+const SNES_RATE = 32_000;
 
 const channels = Array.from({ length: 8 }, (_, i) => ({
   id: `ch${i + 1}`,

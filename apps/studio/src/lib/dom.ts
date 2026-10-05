@@ -1,5 +1,9 @@
 /* Small DOM helpers the studio shares: element creation, escaping, debounce, number formatting. */
 
+const ON_PREFIX = /^on/;
+const TRAILING_DOT = /\.$/;
+const TRAILING_ZEROS = /0+$/;
+
 type Child =
   | Node
   | string
@@ -25,7 +29,7 @@ export function h<K extends keyof HTMLElementTagNameMap>(
       continue;
     }
     if (typeof v === "function") {
-      el.addEventListener(k.replace(/^on/, ""), v as EventListener);
+      el.addEventListener(k.replace(ON_PREFIX, ""), v as EventListener);
     } else if (k === "class") {
       el.className = String(v);
     } else if (v === true) {
@@ -83,10 +87,40 @@ export const clamp = (v: number, lo: number, hi: number): number =>
 export const lerp = (a: number, b: number, t: number): number =>
   a + (b - a) * t;
 
+/** The value of the first rule whose condition holds, else `otherwise`: `a ? x : b ? y : z` without the nesting.
+ * Every value is evaluated, so only pass cheap, side-effect free ones. */
+export function choose<T>(
+  rules: readonly (readonly [condition: boolean, value: T])[],
+  otherwise: T
+): T {
+  for (const [condition, value] of rules) {
+    if (condition) {
+      return value;
+    }
+  }
+  return otherwise;
+}
+
+/** Run a promise whose result nobody waits for: a failure is reported like any uncaught error instead of vanishing. */
+export function fire(task: Promise<unknown>): void {
+  task.catch((e: unknown) => {
+    if (typeof reportError === "function") {
+      reportError(e);
+    } else {
+      throw e;
+    }
+  });
+}
+
+/** Force the browser to lay the element out now, so a CSS animation class added next restarts from the beginning. */
+export function reflow(el: HTMLElement): number {
+  return el.offsetWidth;
+}
+
 export function debounce<A extends unknown[]>(
   fn: (...a: A) => void,
   ms: number
-): ((...a: A) => void) & { cancel(): void; flush(): void } {
+): ((...a: A) => void) & { cancel: () => void; flush: () => void } {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let last: A | null = null;
   const run = () => {
@@ -127,7 +161,9 @@ export function fmtNum(v: number, digits = 2): string {
     return "-";
   }
   const s = v.toFixed(digits);
-  return s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s;
+  return s.includes(".")
+    ? s.replace(TRAILING_ZEROS, "").replace(TRAILING_DOT, "")
+    : s;
 }
 
 export const reducedMotion = (): boolean =>

@@ -1,22 +1,21 @@
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
 /* Amplitude envelope: linear attack, exponential decay and release (coefficient per sample, precomputed when the
    stage starts). Tiny minimum times keep note starts and stops from clicking. */
 
 export const ENV_IDLE = 0;
-export const ENV_ATTACK = 1;
-export const ENV_DECAY = 2;
+const ENV_ATTACK = 1;
+const ENV_DECAY = 2;
 export const ENV_SUSTAIN = 3;
-export const ENV_RELEASE = 4;
+const ENV_RELEASE = 4;
 
 /** Shortest attack and release (seconds): a declick ramp. */
 export const MIN_ATTACK = 0.0006;
-export const MIN_RELEASE = 0.0012;
+const MIN_RELEASE = 0.0012;
 const MIN_DECAY = 0.001;
 const FLOOR = 1e-5;
 /** -60 dB: a decay or release time is when the level has fallen to this fraction. */
 const SIXTY_DB = 0.001;
 
-export interface Envelope {
+export interface EnvelopeState {
   attackInc: number;
   decayCoef: number;
   /** Frames of the last run up to and including the one where the envelope fell idle, or -1 when it did not. */
@@ -27,7 +26,7 @@ export interface Envelope {
   sustain: number;
 }
 
-export function newEnvelope(): Envelope {
+export function newEnvelope(): EnvelopeState {
   return {
     attackInc: 1,
     decayCoef: 0.99,
@@ -40,7 +39,7 @@ export function newEnvelope(): Envelope {
 }
 
 export function setEnvelopeParams(
-  e: Envelope,
+  e: EnvelopeState,
   attack: number,
   decay: number,
   sustain: number,
@@ -55,18 +54,22 @@ export function setEnvelopeParams(
 }
 
 /** Start a note. The level is kept, so a retrigger on a sounding voice ramps up from where it is. */
-export function envelopeTrigger(e: Envelope): void {
+export function envelopeTrigger(e: EnvelopeState): void {
   e.stage = ENV_ATTACK;
 }
 
-export function envelopeRelease(e: Envelope): void {
+export function envelopeRelease(e: EnvelopeState): void {
   if (e.stage !== ENV_IDLE) {
     e.stage = ENV_RELEASE;
   }
 }
 
 /** Write the level for each of n samples. Returns true while the envelope is still producing sound. */
-export function runEnvelope(e: Envelope, out: Float32Array, n: number): void {
+export function runEnvelope(
+  e: EnvelopeState,
+  out: Float32Array,
+  n: number
+): void {
   let level = e.level;
   let stage = e.stage;
   const sustain = e.sustain;

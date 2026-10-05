@@ -4,7 +4,7 @@ import type { CommandSpec } from "./types.ts";
 
 const TRAILING_SLASHES_RE = /\/+$/;
 
-export const DEFAULT_STUDIO = "http://localhost:5174";
+const DEFAULT_STUDIO = "http://localhost:5174";
 
 export const playCommand: CommandSpec = {
   description:
@@ -67,10 +67,14 @@ export const playCommand: CommandSpec = {
         signal: AbortSignal.timeout(4000),
       });
     } catch (error) {
-      throw new CliError("not-found", `no studio answered at ${studio}`, {
-        cause: error,
-        hint: "Start one with `bleepkit studio` (add --port to change the port), open the printed URL in a browser, then retry. Use --studio <url> if it runs elsewhere.",
-      });
+      throw CliError.because(
+        error,
+        "not-found",
+        `no studio answered at ${studio}`,
+        {
+          hint: "Start one with `bleepkit studio` (add --port to change the port), open the printed URL in a browser, then retry. Use --studio <url> if it runs elsewhere.",
+        }
+      );
     }
     let body: {
       clients?: number;

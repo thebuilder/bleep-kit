@@ -1,5 +1,3 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
 /* MML parser (section 2.7). Never throws: problems become issues with the character offset in the message. */
 
 import { effectFromByte, parseEffect } from "../normalize/effects.ts";
@@ -53,7 +51,7 @@ interface State {
 export function parseMml(src: string, opts: MmlOptions = {}): MmlParse {
   const lexed = lex(src, MML_PATH);
   const issues: Issue[] = [...lexed.issues];
-  const tokens = lexed.tokens;
+  const { tokens } = lexed;
   const events: MmlEvent[] = [];
   let loopPulse: number | null = null;
   let tempo: number | null = null;
@@ -296,6 +294,41 @@ export function parseMml(src: string, opts: MmlOptions = {}): MmlParse {
     return -1;
   };
 
+  /** `[body]n`: play the body n times (twice without a count). Nested repeats stop at MAX_DEPTH. */
+  const handleRepeat = (t: Token, depth: number): void => {
+    const close = findClose(i);
+    if (close < 0 || close >= end) {
+      err(`unclosed "[" at offset ${t.pos}`);
+      i += 1;
+      return;
+    }
+    const after = close + 1;
+    let count = 2;
+    let resume = after;
+    const nt = tokens[after];
+    if (after < end && nt && nt.kind === "num") {
+      count = Number(nt.text);
+      resume = after + 1;
+    }
+    if (count < 1 || count > 255) {
+      warnAt(
+        `repeat count ${count} must be 1 to 255, clamped, at offset ${t.pos}`
+      );
+      count = Math.min(255, Math.max(1, count));
+    }
+    if (depth >= MAX_DEPTH) {
+      err(
+        `repeats nest at most ${MAX_DEPTH} deep, the inner repeat plays once, at offset ${t.pos}`
+      );
+      count = 1;
+    }
+    const bodyFrom = i + 1;
+    for (let rep = 0; rep < count; rep += 1) {
+      run(bodyFrom, close, depth + 1);
+    }
+    i = resume;
+  };
+
   const run = (from: number, to: number, depth: number): void => {
     const savedEnd = end;
     i = from;
@@ -323,40 +356,9 @@ export function parseMml(src: string, opts: MmlOptions = {}): MmlParse {
           i += 1;
           handleFx(t);
           break;
-        case "lbr": {
-          const close = findClose(i);
-          if (close < 0 || close >= end) {
-            err(`unclosed "[" at offset ${t.pos}`);
-            i += 1;
-            break;
-          }
-          const after = close + 1;
-          let count = 2;
-          let resume = after;
-          const nt = tokens[after];
-          if (after < end && nt && nt.kind === "num") {
-            count = Number(nt.text);
-            resume = after + 1;
-          }
-          if (count < 1 || count > 255) {
-            warnAt(
-              `repeat count ${count} must be 1 to 255, clamped, at offset ${t.pos}`
-            );
-            count = Math.min(255, Math.max(1, count));
-          }
-          if (depth >= MAX_DEPTH) {
-            err(
-              `repeats nest at most ${MAX_DEPTH} deep, the inner repeat plays once, at offset ${t.pos}`
-            );
-            count = 1;
-          }
-          const bodyFrom = i + 1;
-          for (let rep = 0; rep < count; rep += 1) {
-            run(bodyFrom, close, depth + 1);
-          }
-          i = resume;
+        case "lbr":
+          handleRepeat(t, depth);
           break;
-        }
         case "rbr":
           err(`unexpected "]" at offset ${t.pos}`);
           i += 1;

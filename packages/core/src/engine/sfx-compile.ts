@@ -50,7 +50,7 @@ export interface SfxProgram {
   volume: number;
 }
 
-export function sfxSource(wave: SfxWave): number {
+function sfxSource(wave: SfxWave): number {
   switch (wave) {
     case "square":
       return SRC_PULSE;

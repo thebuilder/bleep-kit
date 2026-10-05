@@ -1,6 +1,3 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/useForOf: indexed loops over typed arrays in the audio path need the index
-// biome-ignore-all lint/suspicious/noBitwiseOperators: DSP code: LFSR shifts, power-of-two ring masks, integer hashing and flag masks need bit operations
 /* Shared helpers for the core engine tests (the tools tests have their own in tools/helpers.ts). */
 
 import { readFileSync } from "node:fs";
@@ -146,8 +143,8 @@ export function toDb(x: number): number {
   return 20 * Math.log10(Math.max(x, 1e-12));
 }
 
-/** In place radix-2 complex FFT (re, im lengths are a power of two). */
-export function fft(re: Float64Array, im: Float64Array): void {
+/** Reorder the samples by bit-reversed index, the first step of the in place FFT. */
+function bitReverse(re: Float64Array, im: Float64Array): void {
   const n = re.length;
   for (let i = 1, j = 0; i < n; i += 1) {
     let bit = n >> 1;
@@ -164,6 +161,12 @@ export function fft(re: Float64Array, im: Float64Array): void {
       im[j] = ti;
     }
   }
+}
+
+/** In place radix-2 complex FFT (re, im lengths are a power of two). */
+function fft(re: Float64Array, im: Float64Array): void {
+  const n = re.length;
+  bitReverse(re, im);
   for (let len = 2; len <= n; len <<= 1) {
     const ang = (-2 * Math.PI) / len;
     const wr = Math.cos(ang);
@@ -189,7 +192,7 @@ export function fft(re: Float64Array, im: Float64Array): void {
 }
 
 /** Magnitude spectrum of a Hann windowed segment, zero padded to a power of two. */
-export function spectrum(
+function spectrum(
   buf: Float32Array,
   from: number,
   length: number,

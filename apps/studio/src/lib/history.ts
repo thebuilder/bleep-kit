@@ -5,10 +5,10 @@ export interface History {
   readonly canRedo: boolean;
   readonly canUndo: boolean;
   readonly current: string | undefined;
-  push(state: string, coalesce?: string, now?: number): boolean;
-  redo(): string | null;
-  reset(state: string): void;
-  undo(): string | null;
+  push: (state: string, coalesce?: string, now?: number) => boolean;
+  redo: () => string | null;
+  reset: (state: string) => void;
+  undo: () => string | null;
 }
 
 const COALESCE_MS = 700;

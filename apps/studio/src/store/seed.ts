@@ -6,6 +6,7 @@ import type {
   ChipId,
   FmOperator,
   Instrument,
+  NoteValue,
   Project,
   Row,
   Sfx,
@@ -13,6 +14,7 @@ import type {
   Song,
 } from "../lib/contract.ts";
 import { defaultInstrument, defaultSfx, parseNoteName } from "../lib/core.ts";
+import { choose } from "../lib/dom.ts";
 
 type Deep<T> = {
   [K in keyof T]?: T[K] extends object
@@ -272,16 +274,22 @@ const INSTRUMENTS: [string, Instrument][] = [
 
 /** "row:NOTE[:inst[:vol]]" to a Row; NOTE may be OFF. */
 function rows(...specs: string[]): Row[] {
-  return specs.map((s) => {
-    const [row = "0", note = "", inst = "", vol = ""] = s.split(":");
-    const up = note.toUpperCase();
+  return specs.map((entry) => {
+    const [rowText = "0", noteText = "", instId = "", volText = ""] =
+      entry.split(":");
+    const up = noteText.toUpperCase();
     return {
       fx: [],
-      inst: inst || null,
-      note:
-        up === "OFF" ? "off" : up === "REL" ? "release" : parseNoteName(note),
-      row: Number(row),
-      vol: vol === "" ? null : Number.parseInt(vol, 16),
+      inst: instId || null,
+      note: choose<NoteValue | null>(
+        [
+          [up === "OFF", "off"],
+          [up === "REL", "release"],
+        ],
+        parseNoteName(noteText)
+      ),
+      row: Number(rowText),
+      vol: volText === "" ? null : Number.parseInt(volText, 16),
     };
   });
 }
@@ -319,7 +327,7 @@ const SONG: Song = {
       id: "noise",
       instrument: "drums",
       kind: "noise",
-      mml: "@drums o3 l8 L [c r d r c c d r]7 c r d r c d d d",
+      mml: "@drums o3 l8 c r d r c c d r L [c r d r c c d r]7 c r d r c d d d",
       muted: false,
       pan: 0,
       volume: 0.7,

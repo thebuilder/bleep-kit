@@ -39,15 +39,15 @@ export interface Frame {
   width: number;
 }
 
-export const DEFAULT_WIDTH = 1280;
+const DEFAULT_WIDTH = 1280;
 
 const MIN_TICK_SPACING = 110;
 
-export function fontScaleOf(opts: ImageOptions): number {
+function fontScaleOf(opts: ImageOptions): number {
   return Math.max(1, Math.min(4, Math.round(opts.fontScale ?? 2)));
 }
 
-export function frameMetrics(opts: ImageOptions): Omit<Frame, "cv"> {
+function frameMetrics(opts: ImageOptions): Omit<Frame, "cv"> {
   const scale = fontScaleOf(opts);
   const margin = cellWidth(scale);
   return {
@@ -146,8 +146,8 @@ export function drawTimeAxis(
   }
 }
 
-export const LOOP_START_COLOR: Rgb = PALETTE.triangle;
-export const LOOP_END_COLOR: Rgb = PALETTE.sid;
+const LOOP_START_COLOR: Rgb = PALETTE.triangle;
+const LOOP_END_COLOR: Rgb = PALETTE.sid;
 
 /** Dashed loop start and end lines through the panels, a faint tint between them and a flag on the first panel. */
 export function drawLoopMarkers(
@@ -192,7 +192,7 @@ export function drawLoopMarkers(
 }
 
 /** Peak, RMS and clipping of a render, for the header. */
-export function headerStats(r: RenderResult): {
+function headerStats(r: RenderResult): {
   peakDb: number;
   rmsDb: number;
   lufs: number;

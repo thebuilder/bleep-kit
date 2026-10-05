@@ -1,5 +1,6 @@
 import { analysisText } from "../analysis-text.ts";
-import { CliError, display, fmtDb, fmtSeconds } from "../output.ts";
+import type { Parsed } from "../args.ts";
+import { CliError, type Ctx, display, fmtDb, fmtSeconds } from "../output.ts";
 import {
   type DocKind,
   listIdsValid,
@@ -15,15 +16,15 @@ import {
 } from "../render.ts";
 import type { CommandSpec } from "./types.ts";
 
-export interface FailedEntry {
+interface FailedEntry {
   error: { code: string; hint?: string; issues?: unknown; message: string };
   ok: false;
   ref: string;
 }
 
-export type Entry = FailedEntry | RenderEntry;
+type Entry = FailedEntry | RenderEntry;
 
-export function resolveRenderRefs(
+function resolveRenderRefs(
   pc: ProjectCtx,
   refs: string[]
 ): { id: string; kind: "sfx" | "song"; ref: string }[] {
@@ -47,7 +48,7 @@ export function resolveRenderRefs(
   });
 }
 
-export async function renderMany(
+async function renderMany(
   pc: ProjectCtx,
   targets: { id: string; kind: DocKind; ref: string }[],
   opts: RenderOpts,
@@ -57,6 +58,7 @@ export async function renderMany(
   for (const t of targets) {
     try {
       entries.push(
+        // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, renders are CPU bound and the log reads in document order
         await renderDoc(
           pc,
           t.kind as "sfx" | "song",
@@ -85,12 +87,59 @@ export async function renderMany(
   return entries;
 }
 
-export function entryLine(cwd: string, e: RenderEntry): string {
+function entryLine(cwd: string, e: RenderEntry): string {
   const loop =
     e.loopStart !== null && e.loopEnd !== null
       ? `  loop ${fmtSeconds(e.loopStart)}..${fmtSeconds(e.loopEnd)}`
       : "";
   return `${e.ref.padEnd(18)} ${fmtSeconds(e.duration).padStart(7)}  peak ${fmtDb(e.peakDb).padStart(9)}  rms ${fmtDb(e.rmsDb).padStart(9)}${loop}  ${display(cwd, e.file)}${e.cached ? " (up to date)" : ""}${e.clipped ? "  CLIPPED" : ""}`;
+}
+
+/** The render options from the flags: the number flags are only set when given, so the project's values win. */
+function renderOptions(args: Parsed): RenderOpts {
+  const opts: RenderOpts = {
+    analyze: args.bool("analyze") ?? false,
+    force: args.bool("force") ?? false,
+    format: (args.str("format") ?? "wav") as AudioFormat,
+    images: args.bool("images") ?? false,
+    stems: args.bool("stems") ?? false,
+  };
+  const loops = args.num("loops");
+  const tail = args.num("tail");
+  const rate = args.num("rate");
+  if (loops !== undefined) {
+    opts.loops = loops;
+  }
+  if (tail !== undefined) {
+    opts.tail = tail;
+  }
+  if (rate !== undefined) {
+    opts.rate = rate;
+  }
+  return opts;
+}
+
+/** The human lines for one entry: the render line with its stems and analysis or images, or the failure. */
+function entryLines(ctx: Ctx, pc: ProjectCtx, e: Entry): string[] {
+  if (!e.ok) {
+    const lines = [`${e.ref}  FAILED: ${e.error.message}`];
+    if (e.error.hint) {
+      lines.push(`  fix: ${e.error.hint}`);
+    }
+    return lines;
+  }
+  const lines = [entryLine(ctx.cwd, e)];
+  if (e.stems) {
+    lines.push(
+      `  stems: ${e.stems.map((s) => display(ctx.cwd, `${pc.root}/${s}`)).join(", ")}`
+    );
+  }
+  if (e.analysis) {
+    lines.push(analysisText(e.analysis, `  analysis of ${e.ref}`));
+  } else if (e.images) {
+    lines.push(`  images: ${Object.values(e.images).join(", ")}`);
+  }
+  return lines;
 }
 
 export const renderCommand: CommandSpec = {
@@ -177,52 +226,14 @@ export const renderCommand: CommandSpec = {
         }
       );
     }
-    const opts: RenderOpts = {
-      analyze: args.bool("analyze") ?? false,
-      force: args.bool("force") ?? false,
-      format: (args.str("format") ?? "wav") as AudioFormat,
-      images: args.bool("images") ?? false,
-      stems: args.bool("stems") ?? false,
-    };
-    const loops = args.num("loops");
-    const tail = args.num("tail");
-    const rate = args.num("rate");
-    if (loops !== undefined) {
-      opts.loops = loops;
-    }
-    if (tail !== undefined) {
-      opts.tail = tail;
-    }
-    if (rate !== undefined) {
-      opts.rate = rate;
-    }
+    const opts = renderOptions(args);
     const entries = await renderMany(pc, targets, opts, (t) => ctx.progress(t));
     const failed = entries.filter((e): e is FailedEntry => !e.ok);
     const rendered = entries.filter((e): e is RenderEntry => e.ok);
     const clipped = rendered.filter((e) => e.clipped);
     const strict = args.bool("strict") ?? false;
     const ok = failed.length === 0 && !(strict && clipped.length > 0);
-    const lines: string[] = [];
-    for (const e of entries) {
-      if (e.ok) {
-        lines.push(entryLine(ctx.cwd, e));
-        if (e.stems) {
-          lines.push(
-            `  stems: ${e.stems.map((s) => display(ctx.cwd, `${pc.root}/${s}`)).join(", ")}`
-          );
-        }
-        if (e.analysis) {
-          lines.push(analysisText(e.analysis, `  analysis of ${e.ref}`));
-        } else if (e.images) {
-          lines.push(`  images: ${Object.values(e.images).join(", ")}`);
-        }
-      } else {
-        lines.push(`${e.ref}  FAILED: ${e.error.message}`);
-        if (e.error.hint) {
-          lines.push(`  fix: ${e.error.hint}`);
-        }
-      }
-    }
+    const lines = entries.flatMap((e) => entryLines(ctx, pc, e));
     if (clipped.length > 0) {
       lines.push(
         `warning: ${clipped.map((c) => c.ref).join(", ")} clip${clipped.length === 1 ? "s" : ""} (peak at full scale). Lower the document's "volume" (sfx) or channel volumes (song).`

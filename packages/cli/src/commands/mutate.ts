@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { deriveSeed, normalizeSfx, type Sfx } from "@bleepkit/core";
+import { describeSfx, mutateMany } from "@bleepkit/sfx";
 import { CliError } from "../output.ts";
 import {
   checkId,
@@ -11,13 +13,6 @@ import {
   resolveRef,
   writeDoc,
 } from "../project.ts";
-import {
-  deriveSeed,
-  describeSfx,
-  mutateMany,
-  normalizeSfx,
-  type Sfx,
-} from "../stubs.ts";
 import type { CommandSpec } from "./types.ts";
 
 function freeIds(pc: ProjectCtx, base: string, count: number): string[] {

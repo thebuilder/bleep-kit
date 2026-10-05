@@ -1,9 +1,7 @@
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/style/useForOf: indexed loops over typed arrays in the audio path need the index
 /* The realtime Synth API (section 4.1): transport, sfx voices, manual notes, mute and solo, master, scopes, events. */
 
 import { describe, expect, it } from "vitest";
-import { scopeBufferBytes } from "../src/engine/scope.ts";
+import { createScopeRings, scopeBufferBytes } from "../src/engine/scope.ts";
 import type { Instrument, Sfx, Synth } from "../src/index.ts";
 import {
   createScopeReader,
@@ -554,14 +552,34 @@ describe("scopes", () => {
     expect(any).toBe(true);
   });
 
-  it("latest equals at(head)", () => {
+  it("latest equals at(head - frames): at takes the start of the window", () => {
     const s = songSynth();
     s.play();
     runSynth(s, 8000);
     const reader = createScopeReader(s.scopes, SR);
+    const head = s.scopes.head[0] ?? 0;
     const a = reader.latest(-1, 256).slice();
-    const b = reader.at(-1, s.scopes.head[0] ?? 0, 256).slice();
+    const b = reader.at(-1, head - 256, 256).slice();
     expect(Array.from(a)).toEqual(Array.from(b));
+  });
+
+  it("at(channel, frame, frames) copies the frames that start at frame, wrapping around the ring", () => {
+    const rings = createScopeRings(64, null);
+    const [ring] = rings.channels;
+    for (let i = 0; i < 64; i += 1) {
+      if (ring) {
+        ring[i] = i;
+      }
+    }
+    rings.head[0] = 20;
+    const reader = createScopeReader(rings, SR);
+    expect(Array.from(reader.at(0, 10, 5))).toEqual([10, 11, 12, 13, 14]);
+    // absolute frame f lives at ring index f modulo the ring size
+    expect(Array.from(reader.at(0, 62, 4))).toEqual([62, 63, 0, 1]);
+    expect(Array.from(reader.at(0, 64 + 7, 3))).toEqual([7, 8, 9]);
+    expect(Array.from(reader.at(0, -2, 3))).toEqual([62, 63, 0]);
+    // the newest frames end at the head
+    expect(Array.from(reader.latest(0, 4))).toEqual([16, 17, 18, 19]);
   });
 
   it("an unknown channel reads as silence", () => {
@@ -602,7 +620,7 @@ describe("sample rates", () => {
       expect(finite(out.left)).toBe(true);
       expect(peak([out.left, out.right])).toBeGreaterThan(0.05);
       expect(peak([out.left, out.right])).toBeLessThan(1);
-      const row = out.events.filter((e) => e.type === "row")[1];
+      const [, row] = out.events.filter((e) => e.type === "row");
       // a row at tempo 150 and 4 rows per beat is 0.1 s
       expect((row?.frame ?? 0) / rate).toBeCloseTo(0.1, 2);
     });

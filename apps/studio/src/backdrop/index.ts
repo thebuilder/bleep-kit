@@ -60,10 +60,10 @@ function registerAll(): void {
 export interface Backdrop {
   readonly chip: ChipId | null;
   /** Feed engine events (the loop does this by itself; tests call it). */
-  handle(events: readonly EngineEvent[], now: number): void;
+  handle: (events: readonly EngineEvent[], now: number) => void;
   /** Scene layer types in order, for tests. */
-  layerTypes(): string[];
-  setChip(chip: ChipId): void;
+  layerTypes: () => string[];
+  setChip: (chip: ChipId) => void;
 }
 
 const FPS = 12;
@@ -219,7 +219,7 @@ export function createBackdrop(canvas: HTMLCanvasElement): Backdrop {
       return;
     }
     for (const e of events) {
-      seedN++;
+      seedN += 1;
       if (e.type === "trigger") {
         const cat = e.channelId || "custom";
         const x = 0.15 + ((seedN * 0.618_033_9) % 0.7);
@@ -274,7 +274,7 @@ export function createBackdrop(canvas: HTMLCanvasElement): Backdrop {
   }
 
   addVisual((f: Frame) => {
-    const reduced = f.reduced;
+    const { reduced } = f;
     if (!reduced) {
       time += f.dt;
     }

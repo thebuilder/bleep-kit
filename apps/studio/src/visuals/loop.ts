@@ -69,8 +69,8 @@ function tick(now: number): void {
     }
   }
   let peak = 0;
-  for (let i = 0; i < master.length; i++) {
-    const v = Math.abs(master[i] ?? 0);
+  for (const sample of master) {
+    const v = Math.abs(sample);
     if (v > peak) {
       peak = v;
     }

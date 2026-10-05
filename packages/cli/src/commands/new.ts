@@ -1,5 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
+import {
+  CHANNEL_KINDS,
+  CHIP_IDS,
+  type ChannelKind,
+  type ChipId,
+  deriveSeed,
+  normalizeInstrument,
+  normalizeSfx,
+  normalizeSong,
+  parseMml,
+  SFX_CATEGORIES,
+  type SfxCategory,
+} from "@bleepkit/core";
+import { describeSfx, generateSfx } from "@bleepkit/sfx";
 import { CliError } from "../output.ts";
 import {
   DEFAULT_KIND,
@@ -19,21 +33,6 @@ import {
   requireOk,
   writeDoc,
 } from "../project.ts";
-import {
-  CHANNEL_KINDS,
-  CHIP_IDS,
-  type ChannelKind,
-  type ChipId,
-  deriveSeed,
-  describeSfx,
-  generateSfx,
-  normalizeInstrument,
-  normalizeSfx,
-  normalizeSong,
-  parseMml,
-  SFX_CATEGORIES,
-  type SfxCategory,
-} from "../stubs.ts";
 import { describeInstrument, describeSong } from "./describe.ts";
 import type { CommandSpec } from "./types.ts";
 

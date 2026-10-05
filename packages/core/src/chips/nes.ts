@@ -2,8 +2,8 @@
 
 import type { ChipProfile } from "../types.ts";
 
-export const NES_CLOCK_HZ = 1_789_773;
-export const NES_DUTIES = [0.125, 0.25, 0.5, 0.75] as const;
+const NES_CLOCK_HZ = 1_789_773;
+const NES_DUTIES = [0.125, 0.25, 0.5, 0.75] as const;
 
 export const NES: ChipProfile = {
   channels: [
@@ -40,7 +40,7 @@ export const NES: ChipProfile = {
 };
 
 /** Noise timer periods in CPU cycles (NTSC). The LFSR is clocked once per period. */
-export const NES_NOISE_PERIODS = [
+const NES_NOISE_PERIODS = [
   4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068,
 ] as const;
 

@@ -8,11 +8,30 @@
     "transit": {
       "dependsOn": ["^transit"]
     },
+    // The AudioWorklet bundle (packages/player/worklet/bleepkit-worklet.js, gitignored): one self-contained file with
+    // @bleepkit/core inlined, which the studio loads as `@bleepkit/player/worklet?url`. It is generated, so a clean
+    // clone has none. Every task that reads it lists `^build:worklet`, which resolves to the packages this one depends
+    // on (only @bleepkit/player has the script), so the studio's dev, build, test and typecheck wait for it and the
+    // other packages do not.
+    "build:worklet": {
+      "dependsOn": ["^transit"],
+      "inputs": [
+        "src/**",
+        "build-worklet.ts",
+        "worklet-build-options.ts",
+        "tsconfig*.json",
+        "package.json",
+        "$TURBO_ROOT$/tsconfig.base.json"
+      ],
+      "outputs": ["worklet/**"]
+    },
     "build": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build", "^build:worklet"],
       "inputs": [
         "src/**",
         "build.ts",
+        "build-worklet.ts",
+        "worklet-build-options.ts",
         "index.html",
         "vite.config.ts",
         "tsconfig*.json",
@@ -20,10 +39,11 @@
         "$TURBO_ROOT$/tsconfig.base.json",
         "$TURBO_ROOT$/apps/studio/vite.config.ts"
       ],
-      "outputs": ["dist/**"]
+      // the player's build also writes the worklet bundle (`build:worklet` is its last step), so a cache hit restores it
+      "outputs": ["dist/**", "worklet/**"]
     },
     "typecheck": {
-      "dependsOn": ["transit"],
+      "dependsOn": ["transit", "^build:worklet"],
       "inputs": [
         "src/**",
         "test/**",
@@ -35,7 +55,7 @@
       "outputs": []
     },
     "test": {
-      "dependsOn": ["transit"],
+      "dependsOn": ["transit", "^build:worklet"],
       "inputs": [
         "src/**",
         "test/**",
@@ -82,6 +102,7 @@
       "outputs": []
     },
     "dev": {
+      "dependsOn": ["^build:worklet"],
       "cache": false,
       "persistent": true
     },

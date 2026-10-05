@@ -1,4 +1,5 @@
-// biome-ignore-all lint/suspicious/noBitwiseOperators: CRC-32, Adler-32 and the PNG block lengths need bitwise operators
+import { concatBytes } from "./buffers.ts";
+
 /** An RGBA image: data holds width * height * 4 bytes, row by row, top row first. */
 export interface PngImage {
   data: Uint8Array;
@@ -127,12 +128,5 @@ export function encodePng(img: PngImage, deflate?: Deflate): Uint8Array {
   writeChunk(parts, "IDAT", idat);
   writeChunk(parts, "IEND", new Uint8Array(0));
 
-  const total = parts.reduce((n, p) => n + p.length, 0);
-  const out = new Uint8Array(total);
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
-  }
-  return out;
+  return concatBytes(parts);
 }

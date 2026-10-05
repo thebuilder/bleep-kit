@@ -12,7 +12,7 @@ import { type Backdrop, createBackdrop } from "./backdrop/index.ts";
 import { engine } from "./engine/engine.ts";
 import { chipTheme } from "./lib/chips.ts";
 import type { ChipId } from "./lib/contract.ts";
-import { formatTime, h, prefs } from "./lib/dom.ts";
+import { choose, fire, formatTime, h, prefs } from "./lib/dom.ts";
 import { playRef, stopEverything } from "./playback.ts";
 import { type Doc, project } from "./state/docs.ts";
 import { LocalStore } from "./store/local.ts";
@@ -41,15 +41,50 @@ import { createStrip, type Strip } from "./visuals/strip.ts";
 
 export interface ViewCtx {
   /** Run when the view is unmounted. */
-  cleanup(fn: () => void): void;
+  cleanup: (fn: () => void) => void;
   host: HTMLElement;
   insp: HTMLElement;
   route: Route;
   /** Set the chip the badge and backdrop follow. */
-  setChip(chip: ChipId): void;
+  setChip: (chip: ChipId) => void;
 }
 
 const LOGO = `<svg class="logo" viewBox="0 0 8 8" shape-rendering="crispEdges" aria-hidden="true"><rect width="8" height="8" fill="#0b0a10"/><rect data-b="0" x="1" y="4" width="1" height="3" fill="#7d97dc"/><rect data-b="1" x="3" y="2" width="1" height="5" fill="#f3b24a"/><rect data-b="2" x="5" y="3" width="1" height="4" fill="#74c08f"/><rect data-b="3" x="7" y="1" width="1" height="1" fill="#ece7da"/></svg>`;
+
+const KIND_GROUP = {
+  instrument: "Instrument",
+  sfx: "SFX",
+  song: "Song",
+} as const;
+const KIND_ICON = {
+  instrument: "instrument",
+  sfx: "blip",
+  song: "song",
+} as const;
+
+/** The browser tab title for a route. */
+function titleOf(r: Route): string {
+  return choose(
+    [
+      [r.view === "pads", "Pads"],
+      [r.view === "project", "Project"],
+      ["id" in r, "id" in r ? r.id : ""],
+    ],
+    "Analysis"
+  );
+}
+
+const LOGO_AMP = [5, 6, 5, 4];
+const logoBarHeight = (level: number, i: number, time: number): number =>
+  Math.max(
+    1,
+    Math.round(
+      1 +
+        level *
+          (LOGO_AMP[i] ?? 4) *
+          (0.6 + 0.4 * Math.sin(time / 140 + i * 1.7))
+    )
+  );
 
 export async function boot(root: HTMLElement): Promise<void> {
   root.innerHTML = `
@@ -126,6 +161,21 @@ export async function boot(root: HTMLElement): Promise<void> {
   const tCpu = q("tCpu");
   const tLat = q("tLat");
   const tPlay = q("tPlay");
+  const animateLogo = (f: {
+    level: number;
+    reduced: boolean;
+    time: number;
+  }) => {
+    // the logo bars breathe with the level
+    const lv = Math.min(1, f.level * 3.5);
+    for (const [i, b] of bars.entries()) {
+      const hgt = f.reduced
+        ? ([3, 5, 4, 1][i] ?? 2)
+        : logoBarHeight(lv, i, f.time);
+      b.setAttribute("height", String(hgt));
+      b.setAttribute("y", String(7 - hgt));
+    }
+  };
   let lastText = "";
   let lastPlay = "";
   addVisual((f) => {
@@ -140,12 +190,13 @@ export async function boot(root: HTMLElement): Promise<void> {
       tPos.textContent = b;
     }
     lcdTime.classList.toggle("dim", !active);
-    const cpu =
-      engine.cpu > 0
-        ? `CPU ${Math.round(engine.cpu * 100)}%`
-        : engine.fake
-          ? "FAKE ENGINE"
-          : "CPU --";
+    const cpu = choose(
+      [
+        [engine.cpu > 0, `CPU ${Math.round(engine.cpu * 100)}%`],
+        [engine.fake, "FAKE ENGINE"],
+      ],
+      "CPU --"
+    );
     if (tCpu.textContent !== cpu) {
       tCpu.textContent = cpu;
     }
@@ -158,37 +209,28 @@ export async function boot(root: HTMLElement): Promise<void> {
       lastPlay = playIcon;
       tPlay.innerHTML = icon(playIcon, 16);
     }
-    // the logo bars breathe with the level
-    const lv = Math.min(1, f.level * 3.5);
-    for (const [i, b] of bars.entries()) {
-      const hgt = f.reduced
-        ? ([3, 5, 4, 1][i] ?? 2)
-        : Math.max(
-            1,
-            Math.round(
-              1 +
-                lv *
-                  ([5, 6, 5, 4][i] ?? 4) *
-                  (0.6 + 0.4 * Math.sin(f.time / 140 + i * 1.7))
-            )
-          );
-      b.setAttribute("height", String(hgt));
-      b.setAttribute("y", String(7 - hgt));
-    }
+    animateLogo(f);
   });
   const syncStatus = () => {
     const el = q("saveState");
     const d = app.currentDoc();
     const errs = d?.issues.filter((i) => i.severity === "error").length ?? 0;
     const dirty = project.dirtyCount > 0;
-    el.className = `savestate${errs ? " err" : dirty ? " dirty" : ""}`;
-    (el.querySelector("span") as HTMLElement).textContent = errs
-      ? `${errs} error${errs > 1 ? "s" : ""}`
-      : dirty
-        ? project.autosave
-          ? "Saving soon"
-          : "Unsaved"
-        : "Saved";
+    el.className = `savestate${choose(
+      [
+        [errs > 0, " err"],
+        [dirty, " dirty"],
+      ],
+      ""
+    )}`;
+    (el.querySelector("span") as HTMLElement).textContent = choose(
+      [
+        [errs > 0, `${errs} error${errs > 1 ? "s" : ""}`],
+        [dirty && project.autosave, "Saving soon"],
+        [dirty, "Unsaved"],
+      ],
+      "Saved"
+    );
     const undoBtn = q<HTMLButtonElement>("bUndo");
     const redoBtn = q<HTMLButtonElement>("bRedo");
     undoBtn.disabled = !d?.history.canUndo;
@@ -212,7 +254,10 @@ export async function boot(root: HTMLElement): Promise<void> {
       ),
       h(
         "button",
-        { class: "btn small primary", onclick: () => void project.keepMine(d) },
+        {
+          class: "btn small primary",
+          onclick: () => fire(project.keepMine(d)),
+        },
         "Keep mine"
       )
     );
@@ -248,11 +293,11 @@ export async function boot(root: HTMLElement): Promise<void> {
   };
   engine.onChange(syncPill);
   syncPill();
-  pill.addEventListener("click", () => void engine.unlock());
-  document.addEventListener("pointerdown", () => void engine.unlock(), {
+  pill.addEventListener("click", () => fire(engine.unlock()));
+  document.addEventListener("pointerdown", () => fire(engine.unlock()), {
     capture: true,
   });
-  document.addEventListener("keydown", () => void engine.unlock(), {
+  document.addEventListener("keydown", () => fire(engine.unlock()), {
     capture: true,
   });
 
@@ -328,7 +373,7 @@ export async function boot(root: HTMLElement): Promise<void> {
         icon: "save",
         id: "save",
         keys: "Ctrl S",
-        run: () => void app.save(),
+        run: () => fire(app.save()),
         title: "Save",
       },
       {
@@ -398,8 +443,8 @@ export async function boot(root: HTMLElement): Promise<void> {
         icon: "plus",
         id: "new-sfx",
         run: () =>
-          pickCategory(
-            (c) => void createSfx(c, { navigate: app.route.view !== "pads" })
+          pickCategory((c) =>
+            fire(createSfx(c, { navigate: app.route.view !== "pads" }))
           ),
         title: "New sound effect",
       },
@@ -407,14 +452,14 @@ export async function boot(root: HTMLElement): Promise<void> {
         group: "New",
         icon: "plus",
         id: "new-song",
-        run: () => void createSong(),
+        run: () => fire(createSong()),
         title: "New song",
       },
       {
         group: "New",
         icon: "plus",
         id: "new-inst",
-        run: () => pickKind((k) => void createInstrument(k)),
+        run: () => pickKind((k) => fire(createInstrument(k))),
         title: "New instrument",
       },
       {
@@ -440,9 +485,11 @@ export async function boot(root: HTMLElement): Promise<void> {
         run: () => {
           const d = app.currentDoc();
           if (d) {
-            void project
-              .duplicate(d)
-              .then((c) => app.navigate(`#/${c.kind}/${c.id}`));
+            fire(
+              project
+                .duplicate(d)
+                .then((c) => app.navigate(`#/${c.kind}/${c.id}`))
+            );
           }
         },
         title: "Duplicate the current document",
@@ -455,10 +502,12 @@ export async function boot(root: HTMLElement): Promise<void> {
         run: () => {
           const d = app.currentDoc();
           if (d) {
-            void project.remove(d).then(() => {
-              app.navigate("#/pads");
-              app.toast(`Deleted ${d.id}`);
-            });
+            fire(
+              project.remove(d).then(() => {
+                app.navigate("#/pads");
+                app.toast(`Deleted ${d.id}`);
+              })
+            );
           }
         },
         title: "Delete the current document",
@@ -467,10 +516,8 @@ export async function boot(root: HTMLElement): Promise<void> {
     for (const kind of ["sfx", "song", "instrument"] as const) {
       for (const d of project.list(kind)) {
         cmds.push({
-          group:
-            kind === "sfx" ? "SFX" : kind === "song" ? "Song" : "Instrument",
-          icon:
-            kind === "sfx" ? "blip" : kind === "song" ? "song" : "instrument",
+          group: KIND_GROUP[kind],
+          icon: KIND_ICON[kind],
           id: `open:${d.path}`,
           run: () => app.navigate(`#/${kind}/${d.id}`),
           title: `${(d.value as { name?: string }).name || d.id}`,
@@ -493,77 +540,67 @@ export async function boot(root: HTMLElement): Promise<void> {
       return true;
     }
     if (t.tagName === "INPUT") {
-      const type = (t as HTMLInputElement).type;
+      const { type } = t as HTMLInputElement;
       return !["range", "checkbox", "radio", "button"].includes(type);
     }
     return false;
+  };
+  const modShortcut = (e: KeyboardEvent, isTyping: boolean): boolean => {
+    const key = e.key.toLowerCase();
+    if (key === "k") {
+      app.openPalette();
+    } else if (key === "s") {
+      fire(app.save());
+    } else if (key === "e") {
+      app.navigate("#/project?export=1");
+    } else if (key === "a" && e.shiftKey) {
+      openAnalysis();
+    } else if ((key === "z" || key === "y") && !isTyping) {
+      if (key === "y" || e.shiftKey) {
+        app.redo();
+      } else {
+        app.undo();
+      }
+    } else {
+      return false;
+    }
+    e.preventDefault();
+    return true;
+  };
+  const onEscape = (e: KeyboardEvent, isTyping: boolean) => {
+    if (document.body.classList.contains("menu-open")) {
+      app.openMenu(false);
+    } else if (!isTyping || (e.target as HTMLElement).tagName !== "TEXTAREA") {
+      stopEverything();
+    }
+  };
+  const plainKey = (e: KeyboardEvent) => {
+    if (app.hooks.onKey?.(e)) {
+      e.preventDefault();
+    } else if (e.key === " ") {
+      e.preventDefault();
+      togglePlay();
+    } else if (e.key === "?") {
+      openHelp();
+    } else if (e.key === "[") {
+      docNeighbors(-1);
+    } else if (e.key === "]") {
+      docNeighbors(1);
+    }
   };
   document.addEventListener("keydown", (e) => {
     if (modalOpen()) {
       return;
     }
     const mod = e.ctrlKey || e.metaKey;
-    const key = e.key;
     const isTyping = typing(e.target);
-    if (mod && key.toLowerCase() === "k") {
-      e.preventDefault();
-      app.openPalette();
+    if (mod && modShortcut(e, isTyping)) {
       return;
     }
-    if (mod && key.toLowerCase() === "s") {
-      e.preventDefault();
-      void app.save();
-      return;
-    }
-    if (mod && key.toLowerCase() === "e") {
-      e.preventDefault();
-      app.navigate("#/project?export=1");
-      return;
-    }
-    if (mod && e.shiftKey && key.toLowerCase() === "a") {
-      e.preventDefault();
-      openAnalysis();
-      return;
-    }
-    if (
-      mod &&
-      (key.toLowerCase() === "z" || key.toLowerCase() === "y") &&
-      !isTyping
-    ) {
-      e.preventDefault();
-      if (key.toLowerCase() === "y" || e.shiftKey) {
-        app.redo();
-      } else {
-        app.undo();
-      }
-      return;
-    }
-    if (key === "Escape") {
-      if (document.body.classList.contains("menu-open")) {
-        app.openMenu(false);
-        return;
-      }
-      if (!isTyping || (e.target as HTMLElement).tagName !== "TEXTAREA") {
-        stopEverything();
-      }
-      return;
-    }
-    if (isTyping || mod || e.altKey) {
-      return;
-    }
-    if (app.hooks.onKey?.(e)) {
-      e.preventDefault();
-      return;
-    }
-    if (key === " ") {
-      e.preventDefault();
-      togglePlay();
-    } else if (key === "?") {
-      openHelp();
-    } else if (key === "[") {
-      docNeighbors(-1);
-    } else if (key === "]") {
-      docNeighbors(1);
+    if (e.key === "Escape") {
+      onEscape(e, isTyping);
+    } else if (!(isTyping || mod || e.altKey)) {
+      plainKey(e);
     }
   });
 
@@ -572,9 +609,10 @@ export async function boot(root: HTMLElement): Promise<void> {
   const host = q("view");
   const insp = q("insp");
   let mountToken = 0;
-  async function route(): Promise<void> {
+  function route(): void {
     const r = parseRoute(location.hash);
-    const token = ++mountToken;
+    mountToken += 1;
+    const token = mountToken;
     for (const fn of cleanups.splice(0)) {
       fn();
     }
@@ -597,23 +635,26 @@ export async function boot(root: HTMLElement): Promise<void> {
       app.toast(`There is no ${kind} named ${id}`);
       app.navigate("#/pads");
     };
-    let hooks: ViewHooks | void;
+    let hooks: ViewHooks | undefined;
     switch (r.view) {
       case "sfx":
         if (!project.get("sfx", r.id)) {
-          return missing("sfx", r.id);
+          missing("sfx", r.id);
+          return;
         }
         hooks = mountSfx(ctx, r.id);
         break;
       case "song":
         if (!project.get("song", r.id)) {
-          return missing("song", r.id);
+          missing("song", r.id);
+          return;
         }
         hooks = mountSong(ctx, r.id);
         break;
       case "instrument":
         if (!project.get("instrument", r.id)) {
-          return missing("instrument", r.id);
+          missing("instrument", r.id);
+          return;
         }
         hooks = mountInstrument(ctx, r.id);
         break;
@@ -634,15 +675,15 @@ export async function boot(root: HTMLElement): Promise<void> {
     sidebar.update(r);
     syncStatus();
     app.openMenu(false);
-    document.title = `${r.view === "pads" ? "Pads" : r.view === "project" ? "Project" : "id" in r ? r.id : "Analysis"} - Bleepkit Studio`;
+    document.title = `${titleOf(r)} - Bleepkit Studio`;
     host.scrollTop = 0;
   }
-  addEventListener("hashchange", () => void route());
+  addEventListener("hashchange", route);
   if (!location.hash) {
     history.replaceState(null, "", routeHash({ view: "pads" }));
   }
   renderBadge(currentChip());
-  await route();
+  route();
   syncStatus();
   tickOnce();
   prefs.set("last-open", Date.now());
@@ -658,5 +699,3 @@ async function openStore(): Promise<ProjectStore> {
   }
   return LocalStore.create();
 }
-
-export type { Backdrop };

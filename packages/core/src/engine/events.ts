@@ -3,7 +3,7 @@
 
 import type { EngineEvent, EngineEventType } from "../types.ts";
 
-export const EVENT_RING = 512;
+const EVENT_RING = 512;
 
 export class EventRing {
   private readonly ring: EngineEvent[] = [];
@@ -69,10 +69,6 @@ export class EventRing {
       }
       idx = (idx + 1) % EVENT_RING;
     }
-    this.pending = 0;
-  }
-
-  clear(): void {
     this.pending = 0;
   }
 }

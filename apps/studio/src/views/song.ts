@@ -26,7 +26,7 @@ import {
   parseMml,
   patternToMml,
 } from "../lib/core.ts";
-import { clamp, debounce, h, prefs } from "../lib/dom.ts";
+import { choose, clamp, debounce, h, prefs, reflow } from "../lib/dom.ts";
 import {
   loadSongDoc,
   playInstrumentDoc,
@@ -48,9 +48,22 @@ import { createPiano, keyToOffset } from "../ui/piano.ts";
 import { surface, triggerIndex } from "../visuals/canvas.ts";
 import { addVisual } from "../visuals/loop.ts";
 
+const ALNUM_KEY = /^[0-9a-z]$/;
+const TRAILING_NUMBER = /-\d+$/;
+/** Extra CSS class of a tracker note cell by note value (note off and release have their own colors). */
+const NOTE_CLASS: Partial<Record<string, string>> = {
+  off: " off",
+  release: " rel",
+};
+const HEX_KEY = /^[0-9a-f]$/;
+const MML_COMMAND_CHAR = /[olvpqktw<>]/;
+const MML_INST_TOKEN = /^@[A-Za-z0-9-]*/;
+const NUM_CHAR = /[0-9.]/;
+const OFFSET_IN_MESSAGE = /offset (\d+)/;
+
 const hex = (n: number, d = 1) => n.toString(16).toUpperCase().padStart(d, "0");
-const SCOPE_W = 96;
-const SCOPE_H = 32;
+/** Height of a tracker row in CSS pixels (.trow). */
+const ROW_H = 20;
 const KEY_LO = 36;
 const KEY_HI = 83;
 
@@ -170,11 +183,11 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return `<span class="n mml-cell">MML</span>`;
     }
     const il = instList();
-    const instTxt = r?.inst
-      ? il.indexOf(r.inst) >= 0
-        ? hex(il.indexOf(r.inst), 2)
-        : "??"
-      : "--";
+    const instAt = r?.inst ? il.indexOf(r.inst) : -1;
+    let instTxt = "--";
+    if (r?.inst) {
+      instTxt = instAt >= 0 ? hex(instAt, 2) : "??";
+    }
     const instKind = r?.inst
       ? (project.instruments()[r.inst]?.kind ?? c.kind)
       : c.kind;
@@ -182,10 +195,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       const e = r?.fx[i];
       return e ? formatEffect(e).padEnd(3, "0").slice(0, 3) : "---";
     };
-    let out = `<span class="n${r?.note === "off" ? " off" : r?.note === "release" ? " rel" : ""}" data-f="0">${noteText(r?.note ?? null)}</span>`;
+    let out = `<span class="n${NOTE_CLASS[String(r?.note)] ?? ""}" data-f="0">${noteText(r?.note ?? null)}</span>`;
     out += `<span class="i${r?.inst ? "" : " e"}" data-f="1"${r?.inst ? ` title="${r.inst}" style="--ik:${KIND_HEX[instKind]}"` : ""}>${instTxt}</span>`;
     out += `<span class="v${r?.vol === null || r?.vol === undefined ? " e" : ""}" data-f="2">${r?.vol === null || r?.vol === undefined ? "-" : hex(r.vol)}</span>`;
-    for (let k = 0; k < fxCount(c.id); k++) {
+    for (let k = 0; k < fxCount(c.id); k += 1) {
       out += `<span class="f${r?.fx[k] ? "" : " e"}" data-f="${3 + k}">${fx(k)}</span>`;
     }
     return out;
@@ -211,7 +224,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     const len = pattern()?.length ?? 0;
     const maps = s.channels.map((c) => rowsOf(c.id));
     let out = "";
-    for (let r = 0; r < len; r++) {
+    for (let r = 0; r < len; r += 1) {
       out += rowHtml(r, maps);
     }
     body.innerHTML =
@@ -300,20 +313,20 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     });
   }
 
+  /* The sticky header covers the top of the scroll box, so rows are scrolled in whole row steps: scrollTop is always
+     a multiple of the row height and a row is either fully below the header or fully scrolled away, never half hidden. */
+  const snapRow = (n: number) => Math.max(0, Math.round(n)) * ROW_H;
   function scrollToCursor(): void {
-    const el = rowEls[cur.row];
-    if (!el) {
+    if (!rowEls[cur.row]) {
       return;
     }
-    const top = el.offsetTop;
-    const view = tracker.clientHeight - head.offsetHeight;
-    if (top < tracker.scrollTop + head.offsetHeight) {
-      tracker.scrollTop = Math.max(0, top - head.offsetHeight);
-    } else if (
-      top + el.offsetHeight >
-      tracker.scrollTop + head.offsetHeight + view
-    ) {
-      tracker.scrollTop = top - view + el.offsetHeight;
+    const top = cur.row * ROW_H;
+    const bottom = head.offsetHeight + (cur.row + 1) * ROW_H;
+    if (tracker.scrollTop > top) {
+      tracker.scrollTop = top;
+    } else if (bottom - tracker.scrollTop > tracker.clientHeight) {
+      tracker.scrollTop =
+        Math.ceil((bottom - tracker.clientHeight) / ROW_H) * ROW_H;
     }
   }
 
@@ -433,7 +446,8 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     let n = Object.keys(s.patterns).length + 1;
     let pid = base;
     while (s.patterns[pid]) {
-      pid = `${base.replace(/-\d+$/, "")}-${n++}`;
+      n += 1;
+      pid = `${base.replace(TRAILING_NUMBER, "")}-${n}`;
     }
     return pid;
   }
@@ -505,7 +519,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     // the nearest earlier row that names an instrument, else the channel's, else the first of its kind
     const map = rowsOf(c.id);
     let inst: string | null = r?.inst ?? null;
-    for (let i = cur.row; inst === null && i >= 0; i--) {
+    for (let i = cur.row; inst === null && i >= 0; i -= 1) {
       inst = map.get(i)?.inst ?? null;
     }
     inst ??= c.instrument;
@@ -535,7 +549,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     }
     if (dField) {
       let f = cur.field + dField;
-      let ch = cur.ch;
+      let { ch } = cur;
       const n = s.channels.length;
       if (f < 0) {
         ch = (ch - 1 + n) % n;
@@ -687,15 +701,15 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return false;
     }
     if (f === 1) {
-      if (/^[0-9a-f]$/.test(kl)) {
+      if (HEX_KEY.test(kl)) {
         entry += kl;
         if (entry.length >= 2) {
           const idx = Number.parseInt(entry, 16);
           entry = "";
-          const id = instList()[idx];
-          if (id) {
+          const instId = instList()[idx];
+          if (instId) {
             editRow(cur.ch, cur.row, (r) => {
-              r.inst = id;
+              r.inst = instId;
             });
             advance();
           } else {
@@ -711,7 +725,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return false;
     }
     if (f === 2) {
-      if (/^[0-9a-f]$/.test(kl)) {
+      if (HEX_KEY.test(kl)) {
         const v = Number.parseInt(kl, 16);
         editRow(cur.ch, cur.row, (r) => {
           r.vol = v;
@@ -721,7 +735,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       }
       return false;
     }
-    if (/^[0-9a-z]$/.test(kl)) {
+    if (ALNUM_KEY.test(kl)) {
       entry += kl;
       if (entry.length >= 3) {
         const eff: Effect | null = parseEffect(entry.toUpperCase());
@@ -837,10 +851,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   }
   function syncSolo(): void {
     const any = solo.size > 0;
-    head.querySelectorAll<HTMLElement>(".tch").forEach((el) => {
+    for (const el of head.querySelectorAll<HTMLElement>(".tch")) {
       const c = song().channels[Number(el.dataset.ch)];
       el.classList.toggle("dimmed", any && !!c && !solo.has(c.id));
-    });
+    }
   }
 
   /* ----- MML ----- */
@@ -889,7 +903,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return;
     }
     const res = mmlToTrack(c.mml, song().rowsPerBeat);
-    const rows = res.rows;
+    const { rows } = res;
     project.edit<Song>(doc(), (d) => {
       const ch = d.channels[ci];
       if (!ch) {
@@ -943,22 +957,24 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
           src.indexOf("\n", i) < 0 ? src.length - i : src.indexOf("\n", i) - i;
         cls = "c";
       } else if (ch === "@") {
-        const m = /^@[A-Za-z0-9-]*/.exec(src.slice(i));
+        const m = MML_INST_TOKEN.exec(src.slice(i));
         len = m ? m[0].length : 1;
         cls = "i";
       } else if (ch === "[" || ch === "]" || ch === "L" || ch === "|") {
         cls = "k";
-      } else if (/[0-9.]/.test(ch)) {
+      } else if (NUM_CHAR.test(ch)) {
         cls = "d";
-      } else if (/[olvpqktw<>]/.test(ch)) {
+      } else if (MML_COMMAND_CHAR.test(ch)) {
         cls = "o";
       }
       const piece = esc(src.slice(i, i + len));
-      out += bad
-        ? `<u class="bad">${piece}</u>`
-        : cls
-          ? `<i class="${cls}">${piece}</i>`
-          : piece;
+      out += choose(
+        [
+          [bad, `<u class="bad">${piece}</u>`],
+          [!!cls, `<i class="${cls}">${piece}</i>`],
+        ],
+        piece
+      );
       i += len;
     }
     return `${out}\n`;
@@ -1006,7 +1022,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         const res = parseMml(ta.value);
         const errs: number[] = [];
         for (const iss of res.issues) {
-          const m = /offset (\d+)/.exec(iss.message);
+          const m = OFFSET_IN_MESSAGE.exec(iss.message);
           if (m && iss.severity === "error") {
             errs.push(Number(m[1]));
           }
@@ -1106,7 +1122,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         if (p) {
           p.length = clamp(Math.round(Number(lenIn.value) || 32), 1, 256);
           for (const list of Object.values(p.tracks)) {
-            for (let i = list.length - 1; i >= 0; i--) {
+            for (let i = list.length - 1; i >= 0; i -= 1) {
               if ((list[i]?.row ?? 0) >= p.length) {
                 list.splice(i, 1);
               }
@@ -1183,7 +1199,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     selectField<ChipId>(gs.body, {
       label: "Chip",
       onInput: (v) => retarget(v),
-      options: CHIP_IDS.map((c) => ({ label: CHIP_THEME[c].short, value: c })),
+      options: CHIP_IDS.map((chip) => ({
+        label: CHIP_THEME[chip].short,
+        value: chip,
+      })),
       value: s.chip,
     });
     selectField<"50" | "60">(gs.body, {
@@ -1623,9 +1642,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       );
     }
     if (follow) {
-      const top = el.offsetTop;
-      const view = tracker.clientHeight - head.offsetHeight;
-      tracker.scrollTop = Math.max(0, top - head.offsetHeight - view * 0.35);
+      const visible = Math.floor(
+        (tracker.clientHeight - head.offsetHeight) / ROW_H
+      );
+      tracker.scrollTop = snapRow(row - Math.floor(visible * 0.35));
     }
   }
   function pulseCell(chId: string): void {
@@ -1638,13 +1658,11 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     );
     if (tc) {
       tc.classList.remove("pulse");
-      void tc.offsetWidth;
+      reflow(tc);
       tc.classList.add("pulse");
     }
   }
 
-  const scopeBuf = new Float32Array(0);
-  void scopeBuf;
   function drawScopes(f: Parameters<Parameters<typeof addVisual>[0]>[0]): void {
     const reader = engine.scopes;
     for (const e of scopeSurfs) {
@@ -1674,7 +1692,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       const t = triggerIndex(data, win);
       let prevY = mid;
       let peak = 0;
-      for (let x = 0; x < w; x++) {
+      for (let x = 0; x < w; x += 1) {
         const i = t + Math.floor((x / w) * win);
         const v = clamp(data[i] ?? 0, -1, 1);
         peak = Math.max(peak, Math.abs(v));
@@ -1695,13 +1713,17 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   }
 
   /* ----- start ----- */
+  // scroll snapping lines rows up under the sticky header, whose height follows its content
+  const headWatch = new ResizeObserver(() =>
+    tracker.style.setProperty("--head-h", `${head.offsetHeight}px`)
+  );
+  headWatch.observe(head);
   rebuildAll();
   keys.draw();
-  void SCOPE_W;
-  void SCOPE_H;
   ctx.cleanup(() => {
     offVisual();
     unsub();
+    headWatch.disconnect();
     reloadSong.cancel();
     for (const e of scopeSurfs) {
       e.s.dispose();

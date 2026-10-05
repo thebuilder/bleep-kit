@@ -29,31 +29,35 @@ export interface RenderContext<V = Record<string, unknown>, S = unknown> {
    * A soft round shape made of circles, with a flat bottom: lit on top (L), body color (M), shade low and to the right
    * (Sd). For canopies, bushes, clouds and boulders. Returns inside(x, y).
    */
-  blob(
+  blob: (
     circles: readonly Circle[],
     bottom: number,
     L: Color,
     M: Color,
     Sd: Color,
     opts?: BlobOptions
-  ): (x: number, y: number) => boolean;
+  ) => (x: number, y: number) => boolean;
 
   // Filters (generators with filter: true) read and write the frame directly.
   /** RGBA frame so far. */
   readonly buf: Uint8ClampedArray;
   /** For a layer with avoid set: the row just below the keep-out zones (text over the scene) at world x, or anywhere with no x; 0 when nothing is kept out. */
-  clearance(x?: number): number;
+  clearance: (x?: number) => number;
   /** A count of scattered things (rain drops, stars) scaled to the area this layer covers, so a wide page keeps the density. */
-  density(n: number): number;
+  density: (n: number) => number;
   /**
    * Something that happens every period seconds (a lightning strike, a wave, a shooting star). fn runs for each event
    * under way, 0 <= age < duration: age is the seconds since it started, index identifies it (the same event every
    * loop), rng is seeded for that event. In a loop the period becomes the nearest that fits a whole number of times,
    * when its rate changes by at most tol (25%).
    */
-  every(period: number, fn: (e: TimedEvent) => void, opts?: EveryOptions): void;
+  every: (
+    period: number,
+    fn: (e: TimedEvent) => void,
+    opts?: EveryOptions
+  ) => void;
   /** Add light to a pixel, whatever the layer's blend. */
-  glow(x: number, y: number, col: Color, a?: number): void;
+  glow: (x: number, y: number, col: Color, a?: number) => void;
 
   // The world so far.
   /**
@@ -61,14 +65,14 @@ export interface RenderContext<V = Record<string, unknown>, S = unknown> {
    * them, so something wide never floats over a dip. undefined when there is no ground, or when the layer's "Sit on
    * ground" param (param.snap) is off: stand at your own height then, c.ground(x) ?? fallback.
    */
-  ground(x: number, x1?: number): number | undefined;
+  ground: (x: number, x1?: number) => number | undefined;
   readonly H: number;
   /** True when the pixel at (x, y) was last covered by water. */
-  isWater(x: number, y: number): boolean;
+  isWater: (x: number, y: number) => boolean;
   /** World x of the layer's left edge. */
   readonly left: number;
   /** A line, th pixels thick (thickness grows to the right). */
-  line(
+  line: (
     x0: number,
     y0: number,
     x1: number,
@@ -76,11 +80,11 @@ export interface RenderContext<V = Record<string, unknown>, S = unknown> {
     col: Color,
     a?: number,
     th?: number
-  ): void;
+  ) => void;
   /** Loop length in seconds, 0 when the scene does not loop. */
   readonly loop: number;
   /** fn(t) cross-faded with fn(t - loop), so noise scrolled by time loops. */
-  loopBlend(fn: (t: number) => number): number;
+  loopBlend: (fn: (t: number) => number) => number;
   /**
    * Something moving at speed pixels a second through a span that wraps (a raindrop, a bird): [position, alpha]. Alpha
    * fades it out and back in at the loop's seam when a lap does not fit the loop. In two directions at once, pass
@@ -106,47 +110,47 @@ export interface RenderContext<V = Record<string, unknown>, S = unknown> {
   /** The layer's params, defaults filled in. Colors arrive as [r, g, b]. */
   readonly p: V;
   /** A sawtooth from 0 to 1, rate times a second, starting at offset. For anything that cycles: frames, life of a particle. */
-  phase(rate: number, offset?: number, tol?: number): number;
+  phase: (rate: number, offset?: number, tol?: number) => number;
 
   // Drawing.
   /** Draw a pixel: blended normally, or added for a layer set to blend "add". a is 0 to 1. */
-  plot(x: number, y: number, col: Color, a?: number): void;
+  plot: (x: number, y: number, col: Color, a?: number) => void;
   /**
    * A soft, dithered round puff (smoke, dust, steam) of radius r around (x, y). fill 0 to 1 is how full it is; it thins
    * toward the edge.
    */
-  puff(
+  puff: (
     x: number,
     y: number,
     r: number,
     fill: number,
     col: Color,
     a?: number
-  ): void;
+  ) => void;
   /** A filled rectangle. */
-  rect(
+  rect: (
     x: number,
     y: number,
     w: number,
     h: number,
     col: Color,
     a?: number
-  ): void;
+  ) => void;
   /** A single thing at world x (a sun, a fire), repeated every layer width so it comes back around while panning. */
-  repeatX(x: number, margin: number, fn: (x: number) => void): void;
+  repeatX: (x: number, margin: number, fn: (x: number) => void) => void;
   /**
    * Seeded random numbers in [0, 1), the same sequence every frame: call it in the same order every frame. render and
    * renderStatic each get their own stream.
    */
-  rng(): number;
+  rng: () => number;
   /** World x of screen column x, for things that cover the screen and do not move with the camera. */
-  screenX(x: number): number;
+  screenX: (x: number) => number;
   readonly seed: number;
   /**
    * Publish y as the ground at world x for later layers. A solid layer that calls this publishes only these columns
    * (grass publishes its fill line, not its blade tips); otherwise the top of its opaque pixels is used.
    */
-  setGround(x: number, y: number): void;
+  setGround: (x: number, y: number) => void;
   /** The active style, for a generator with styles. */
   readonly style: S;
 
@@ -159,11 +163,11 @@ export interface RenderContext<V = Record<string, unknown>, S = unknown> {
    * runs for every tile that can show: place things at tileLeft + rng() * c.W. margin is how far a thing reaches past
    * its tile. drift moves the whole pattern that many pixels a second (drifting clouds), loop-safe.
    */
-  tiles(
+  tiles: (
     margin: number,
     fn: (rng: () => number, tileLeft: number, index: number) => void,
     drift?: number
-  ): void;
+  ) => void;
   /** The whole view: its size, and the world x at its left edge (c.left unless the layer is pinned or split). */
   readonly view: {
     readonly w: number;
@@ -175,7 +179,7 @@ export interface RenderContext<V = Record<string, unknown>, S = unknown> {
   /** Width and height this layer draws across (see LayerFit for how a layer fills a view larger than the scene). */
   readonly W: number;
   /** Math.sin(t * speed + phase), speed in radians per second. For sway, bobbing, flicker. */
-  wave(speed: number, phase?: number, tol?: number): number;
+  wave: (speed: number, phase?: number, tol?: number) => number;
 }
 
 /** A circle of a blob. */
@@ -212,7 +216,7 @@ export interface TimedEvent {
   /** 0 to 1: how far through its duration it is (age / duration). */
   readonly progress: number;
   /** Random numbers seeded for this event (after the draw jitter used, if any). */
-  rng(): number;
+  rng: () => number;
 }
 export interface EveryOptions {
   /** How long an event lasts, in seconds (default: one period). Overlapping events are each called back, up to a loop's worth. */
@@ -278,12 +282,12 @@ export interface GeneratorBase<V, S = unknown> {
   live?: boolean;
   /** Default parallax depth for new layers (0 fixed, 1 moves with the camera). 1 when left out. */
   parallax?: number;
-  render(c: RenderContext<V, S>): void;
+  render: (c: RenderContext<V, S>) => void;
   /**
    * Optional: the part that never changes, drawn before render and cached. Only worth it for a layer that moves but has
    * a large still part (a sky's gradient under twinkling stars): a layer that never asks for the time is cached anyway.
    */
-  renderStatic?(c: RenderContext<V, S>): void;
+  renderStatic?: (c: RenderContext<V, S>) => void;
   /** Publishes its top edge as ground for later layers. */
   solid?: boolean | ((p: V) => boolean);
   /** Marks its opaque pixels as water for c.isWater(). */

@@ -1,4 +1,3 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
 /* Tracker effects: the string form ("A0F") and the typed form ({ type, x, y }), and the compact row string
    ("C-4 lead vF A0F") used in song JSON. */
 
@@ -7,7 +6,7 @@ import type { Effect, EffectType, Issue, NoteValue, Row } from "../types.ts";
 import { EFFECT_TYPES } from "../types.ts";
 
 /** Effect code letter per type (section 2.6). */
-export const EFFECT_LETTERS: Readonly<Record<EffectType, string>> = {
+const EFFECT_LETTERS: Readonly<Record<EffectType, string>> = {
   arp: "0",
   cut: "S",
   delay: "G",
@@ -112,6 +111,90 @@ function looksLikeNote(tok: string): boolean {
   );
 }
 
+function rowIssue(
+  issues: Issue[],
+  message: string,
+  severity: Issue["severity"] = "error"
+) {
+  issues.push({ message, path: "/s", severity });
+}
+
+/** The first token of a row string is the note: a name, a number, OFF, REL or an empty marker. */
+function readNoteToken(tok: string, out: Row, issues: Issue[]) {
+  if (!looksLikeNote(tok)) {
+    rowIssue(
+      issues,
+      `"${tok}" is not a note (use C-4, C#4, n60, OFF, REL or ...)`
+    );
+    return;
+  }
+  const n = parseNoteField(tok);
+  if (n !== undefined) {
+    out.note = n;
+  } else if (!isEmptyToken(tok)) {
+    rowIssue(issues, `note "${tok}" must be 0 to 127`);
+  }
+}
+
+/** A trailing field: an effect code, or an empty marker that skips the slot. */
+function readEffectToken(tok: string, out: Row, issues: Issue[]) {
+  if (isEmptyToken(tok)) {
+    return;
+  }
+  const fx = parseEffect(tok);
+  if (!fx) {
+    rowIssue(
+      issues,
+      `"${tok}" is not an effect code (letter then two hex digits, like A0F)`
+    );
+  } else if (out.fx.length >= MAX_FX) {
+    rowIssue(
+      issues,
+      `a row holds at most ${MAX_FX} effects, "${tok}" was dropped`,
+      "warning"
+    );
+  } else {
+    out.fx.push(fx);
+  }
+}
+
+type RowStage = "inst" | "vol" | "fx";
+
+/**
+ * One field after the note: instrument, then volume, then effects. The instrument slot is skipped when the token is
+ * a volume or an effect, and so is the volume slot when the token is an effect. Returns the stage of the next field.
+ */
+function readFieldToken(
+  tok: string,
+  stage: RowStage,
+  out: Row,
+  issues: Issue[]
+): RowStage {
+  let at = stage;
+  if (at === "inst") {
+    if (isEmptyToken(tok)) {
+      return "vol";
+    }
+    if (!(VOL_RE.test(tok) || STRICT_CODE_RE.test(tok))) {
+      out.inst = tok;
+      return "vol";
+    }
+    at = "vol";
+  }
+  if (at === "vol") {
+    if (isEmptyToken(tok)) {
+      return "fx";
+    }
+    const v = VOL_RE.exec(tok);
+    if (v) {
+      out.vol = Number.parseInt(v[1] ?? "0", 16);
+      return "fx";
+    }
+  }
+  readEffectToken(tok, out, issues);
+  return "fx";
+}
+
 /** Parse "C-4 lead vF A0F" into a Row. Issue paths are relative to the row ("/s" for the string itself). */
 export function parseRowString(
   s: string,
@@ -124,85 +207,13 @@ export function parseRowString(
     .split(WHITESPACE)
     .filter((t) => t.length > 0);
   if (toks.length === 0) {
-    issues.push({
-      message: "must not be empty",
-      path: "/s",
-      severity: "error",
-    });
+    rowIssue(issues, "must not be empty");
     return { issues, row: out };
   }
-  let i = 0;
-  const first = toks[0] ?? "";
-  if (looksLikeNote(first)) {
-    const n = parseNoteField(first);
-    if (n !== undefined) {
-      out.note = n;
-    } else if (!isEmptyToken(first)) {
-      issues.push({
-        message: `note "${first}" must be 0 to 127`,
-        path: "/s",
-        severity: "error",
-      });
-    }
-    i = 1;
-  } else {
-    issues.push({
-      message: `"${first}" is not a note (use C-4, C#4, n60, OFF, REL or ...)`,
-      path: "/s",
-      severity: "error",
-    });
-    i = 1;
-  }
-  // Remaining fields: instrument, volume, then effects. The instrument slot is skipped when the token is a volume or effect.
-  let stage: "inst" | "vol" | "fx" = "inst";
-  for (; i < toks.length; i += 1) {
-    const tok = toks[i] ?? "";
-    if (stage === "inst") {
-      if (isEmptyToken(tok)) {
-        stage = "vol";
-        continue;
-      }
-      if (VOL_RE.test(tok) || STRICT_CODE_RE.test(tok)) {
-        stage = "vol";
-      } else {
-        out.inst = tok;
-        stage = "vol";
-        continue;
-      }
-    }
-    if (stage === "vol") {
-      if (isEmptyToken(tok)) {
-        stage = "fx";
-        continue;
-      }
-      const v = VOL_RE.exec(tok);
-      stage = "fx";
-      if (v) {
-        out.vol = Number.parseInt(v[1] ?? "0", 16);
-        continue;
-      }
-    }
-    if (isEmptyToken(tok)) {
-      continue;
-    }
-    const fx = parseEffect(tok);
-    if (!fx) {
-      issues.push({
-        message: `"${tok}" is not an effect code (letter then two hex digits, like A0F)`,
-        path: "/s",
-        severity: "error",
-      });
-      continue;
-    }
-    if (out.fx.length >= MAX_FX) {
-      issues.push({
-        message: `a row holds at most ${MAX_FX} effects, "${tok}" was dropped`,
-        path: "/s",
-        severity: "warning",
-      });
-      continue;
-    }
-    out.fx.push(fx);
+  readNoteToken(toks[0] ?? "", out, issues);
+  let stage: RowStage = "inst";
+  for (const tok of toks.slice(1)) {
+    stage = readFieldToken(tok, stage, out, issues);
   }
   return { issues, row: out };
 }

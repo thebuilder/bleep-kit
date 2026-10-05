@@ -1,16 +1,12 @@
-// biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: audio hot paths and long effect switches stay in one function: no call overhead and the order reads like the signal flow
-// biome-ignore-all lint/style/noNestedTernary: clamps and branch selects in the audio path read best inline
-// biome-ignore-all lint/style/useDestructuring: per-sample loops copy fields into locals on purpose, destructuring adds nothing there
-// biome-ignore-all lint/suspicious/noBitwiseOperators: DSP code: LFSR shifts, power-of-two ring masks, integer hashing and flag masks need bit operations
 /* SID oscillators (section 3.3): 24-bit phase accumulators, tri, saw, pulse and 23-bit LFSR noise, waveform combining
    by AND of the 12-bit outputs, ring modulation and hard sync between neighbouring voices. */
 
 import { polyBlep } from "./osc.ts";
 
-export const SID_TRI = 1;
-export const SID_SAW = 2;
-export const SID_PULSE = 4;
-export const SID_NOISE = 8;
+const SID_TRI = 1;
+const SID_SAW = 2;
+const SID_PULSE = 4;
+const SID_NOISE = 8;
 
 const ACC = 16_777_216;
 const MSB = 8_388_608;
@@ -43,13 +39,6 @@ export function newSidOsc(): SidOsc {
     step: 0,
     sync: false,
   };
-}
-
-export function seedSid(o: SidOsc, seed: number): void {
-  o.lfsr = ((Math.abs(seed | 0) % 0x7f_ff_ff) | 0x1) & 0x7f_ff_ff;
-  if (o.lfsr === 0) {
-    o.lfsr = 0x7f_ff_f8;
-  }
 }
 
 function clockNoise(o: SidOsc): void {

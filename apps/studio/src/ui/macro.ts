@@ -1,7 +1,7 @@
 /* A macro bar editor: one bar per tick, drawn with the mouse, with loop and release flags you can drag. Used for the
    volume, arpeggio, pitch, duty and pan macros of an instrument. */
 import type { Macro } from "../lib/contract.ts";
-import { clamp, h } from "../lib/dom.ts";
+import { choose, clamp, h } from "../lib/dom.ts";
 import { rgba, type Surface, surface } from "../visuals/canvas.ts";
 
 export type MacroScale = "unit" | "semi" | "cents" | "index" | "pan";
@@ -67,23 +67,23 @@ const PRESETS: Record<MacroScale, Record<string, (n: number) => number[]>> = {
 };
 
 export interface MacroEditor {
-  dispose(): void;
-  draw(): void;
+  dispose: () => void;
+  draw: () => void;
   el: HTMLElement;
   /** a 0-based tick to mark as "playing now", or -1 */
-  mark(tick: number): void;
-  set(m: Macro | undefined): void;
+  mark: (tick: number) => void;
+  set: (m: Macro | undefined) => void;
 }
 
 export interface MacroOpts {
   color: string;
   /** text of a bar value, for the readout */
-  format?(v: number): string;
+  format?: (v: number) => string;
   hint?: string;
   macro: Macro | undefined;
   /** greyed with this reason */
   off?: string | false;
-  onChange(m: Macro | undefined): void;
+  onChange: (m: Macro | undefined) => void;
   spec: MacroSpec;
   title: string;
 }
@@ -267,13 +267,7 @@ export function macroEditor(o: MacroOpts): MacroEditor {
     canvas.setPointerCapture(e.pointerId);
     const { i, y, g } = colOf(e);
     if (y < g.top) {
-      const which = e.shiftKey
-        ? "release"
-        : macro.release === i
-          ? "release"
-          : macro.loop === i
-            ? "loop"
-            : "loop";
+      const which = e.shiftKey || macro.release === i ? "release" : "loop";
       dragFlag = which;
       commit({
         ...macro,
@@ -294,7 +288,7 @@ export function macroEditor(o: MacroOpts): MacroEditor {
     if (last >= 0 && last !== i) {
       const a = Math.min(last, i);
       const b = Math.max(last, i);
-      for (let k = a; k <= b; k++) {
+      for (let k = a; k <= b; k += 1) {
         const t = clamp((k - last) / (i - last), 0, 1);
         vals[k] = clamp(
           Math.round((lastV + (v - lastV) * t) / r.step) * r.step,
@@ -362,10 +356,10 @@ export function macroEditor(o: MacroOpts): MacroEditor {
     const zeroY = g.top + g.ph * (1 - (r.neutral - r.lo) / (r.hi - r.lo));
     // grid
     ctx.fillStyle = "rgba(255,255,255,0.05)";
-    for (let k = 1; k < 4; k++) {
+    for (let k = 1; k < 4; k += 1) {
       ctx.fillRect(0, Math.floor(g.top + (g.ph * k) / 4), w, 1);
     }
-    for (let i = 0; i < g.n; i++) {
+    for (let i = 0; i < g.n; i += 1) {
       const v = clamp(macro.values[i] ?? 0, r.lo, r.hi);
       const x0 = Math.floor(i * g.cw);
       const x1 = Math.max(
@@ -378,11 +372,13 @@ export function macroEditor(o: MacroOpts): MacroEditor {
       const from = r.lo < 0 ? zeroY : barBottom;
       const top = Math.min(y, from);
       const bot = Math.max(y, from);
-      ctx.fillStyle = isMark
-        ? "#ece7da"
-        : inLoop
-          ? o.color
-          : rgba(o.color, 0.78);
+      ctx.fillStyle = choose(
+        [
+          [isMark, "#ece7da"],
+          [inLoop, o.color],
+        ],
+        rgba(o.color, 0.78)
+      );
       ctx.fillRect(x0, top, x1 - x0, Math.max(2, bot - top));
       ctx.fillStyle = "rgba(255,255,255,0.4)";
       ctx.fillRect(x0, y, x1 - x0, 1);
@@ -397,7 +393,14 @@ export function macroEditor(o: MacroOpts): MacroEditor {
     ctx.font = '9px "JetBrains Mono", monospace';
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
-    const every = g.cw >= 18 ? 1 : g.cw >= 8 ? 4 : g.cw >= 4 ? 8 : 16;
+    const every = choose(
+      [
+        [g.cw >= 18, 1],
+        [g.cw >= 8, 4],
+        [g.cw >= 4, 8],
+      ],
+      16
+    );
     for (let i = 0; i < g.n; i += every) {
       ctx.fillStyle = "#5b566a";
       ctx.fillText(String(i + 1), Math.floor(i * g.cw) + 2, 6);

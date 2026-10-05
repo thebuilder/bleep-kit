@@ -2,16 +2,86 @@
   "$schema": "./node_modules/fallow/schema.json",
   // docs/ is prose, not code.
   "ignorePatterns": ["docs/**"],
-  // The packages are empty skeletons for now: their declared dependencies are the ones the real code will import, but
-  // nothing imports them yet, so Fallow reports every one as unused. Exempt exactly those, no more. Delete an entry as
-  // soon as code imports it, so each one goes back under the unused-dependency check.
-  "ignoreDependencies": ["@bleepkit/*", "wasm-media-encoders", "ws"],
+  // Class members are reached through typed arrays and fields (`this.channelList[i]?.tick(frame)`, `bus.process(n)`).
+  // The syntactic pass cannot see through those and calls the methods unused, so Fallow reads the packages' types.
+  "typeAware": {
+    "enabled": true,
+    "projects": [
+      "packages/core/tsconfig.json",
+      "packages/sfx/tsconfig.json",
+      "packages/player/tsconfig.json",
+      "packages/cli/tsconfig.json"
+    ]
+  },
+  "rules": {
+    // The semantic pass above also reports an exported signature that names a type its module does not export (a
+    // helper's `Frequency = Sfx["frequency"]` alias, a test fake's node type). tsc already checks every signature, and
+    // only the packages' entry points are public API, so a module-private name in an internal signature is no leak.
+    "private-type-leak": "off"
+  },
+  "ignoreExports": [
+    {
+      // Every chip module exposes the same tuning functions for its own hardware (a period register, a noise table,
+      // pulse widths), and the voice imports them by chip with an alias. Same names, different silicon.
+      "file": "packages/core/src/chips/*.ts",
+      "exports": [
+        "hzToPeriod",
+        "periodToHz",
+        "quantizeHz",
+        "quantizeNoiseRate",
+        "quantizePulseHz"
+      ]
+    }
+  ],
+  "duplicates": {
+    // Tests restate the oracle on purpose: a Hann window or a zip writer in a helper is a second, independent
+    // implementation, and sharing it with the code under test would make the test agree with the bug.
+    "ignore": ["**/test/**"]
+  },
   // Coverage for exact CRAP scores is passed on the command line: `pnpm fallow` runs the tests first, CI passes the
   // coverage it just wrote. Without coverage, Fallow estimates the scores.
   "health": {
     // The same ceiling as Biome's noExcessiveCognitiveComplexity in the Ultracite preset, so one standard applies.
     "maxCognitive": 20,
     // Test files are not production code: their complexity and coverage say nothing about risk.
-    "ignore": ["**/test/**"]
+    "ignore": ["**/test/**"],
+    // The per-sample audio path. Each of these is one pass over the signal: a loop that runs 48000 times a second per
+    // voice, where the branches are the signal flow (which chip's mixer, which stage of an envelope, which filter
+    // mode). Splitting them into a helper per branch hides that flow and adds call overhead to the hottest code in the
+    // engine, so Biome's complexity rule is off for these directories too. The ceilings sit just above today's values,
+    // so these functions cannot grow, and the golden hashes pin what they compute. Fully tested code scores a CRAP
+    // equal to its cyclomatic complexity, which is why the engine entries allow 45.
+    "thresholdOverrides": [
+      {
+        "files": ["packages/core/src/dsp/**"],
+        "functions": [
+          "colorChannel",
+          "process",
+          "opStep",
+          "renderNoise",
+          "side",
+          "renderSidGroup"
+        ],
+        "maxCognitive": 52,
+        "maxCyclomatic": 26,
+        "reason": "Per-sample DSP loops: chip coloring, FM operators, the limiter, LFSR noise, the reverb comb filters and the SID voice group."
+      },
+      {
+        "files": ["packages/core/src/engine/voice.ts"],
+        "functions": ["mixTo", "renderChunk", "amplitude", "sfxEnvelope"],
+        "maxCognitive": 69,
+        "maxCrap": 45,
+        "maxCyclomatic": 41,
+        "reason": "A voice's per-sample mixing, source rendering, amplitude stage and sfx envelope."
+      },
+      {
+        "files": ["packages/core/src/engine/synth.ts"],
+        "functions": ["renderSegment"],
+        "maxCognitive": 51,
+        "maxCrap": 45,
+        "maxCyclomatic": 43,
+        "reason": "The synth's inner render loop: it walks the voices of a segment and mixes them into the chip buses."
+      }
+    ]
   }
 }

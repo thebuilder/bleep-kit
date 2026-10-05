@@ -1,4 +1,3 @@
-// biome-ignore-all lint/performance/useTopLevelRegex: assertions read better with the pattern inline
 import { CHIP_IDS } from "@bleepkit/core";
 import { describe, expect, it } from "vitest";
 import {

@@ -1,4 +1,3 @@
-// biome-ignore-all lint/performance/noBarrelFile: this is the @bleepkit/core/tools entry point
 /* @bleepkit/core/tools: WAV, OGG and MP3 encoding, analysis, PNG writing and the analysis images (architecture
    section 1.2). Nothing here touches Node: the PNG writer takes a deflate function, and wasm-media-encoders is
    loaded lazily, so importing this module for analysis never loads WASM. */

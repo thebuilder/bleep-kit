@@ -1,12 +1,12 @@
 /* Inspector building blocks: collapsible groups (with an optional lock) and fields laid out as label, control, value.
    Every field is a plain <label> with a range input, number input, select or toggle. */
-import { clamp, fmtNum, h, prefs } from "../lib/dom.ts";
+import { choose, clamp, fmtNum, h, prefs } from "../lib/dom.ts";
 import { icon } from "./icons.ts";
 
 export interface Group {
   body: HTMLElement;
   el: HTMLElement;
-  locked(): boolean;
+  locked: () => boolean;
 }
 
 export function group(
@@ -64,7 +64,7 @@ export interface RangeOpts {
   min: number;
   /** greyed out, with a tooltip saying why */
   off?: string | false;
-  onInput(v: number): void;
+  onInput: (v: number) => void;
   /** "log" maps the slider logarithmically (min must be above 0) */
   scale?: "linear" | "log";
   step?: number;
@@ -74,8 +74,8 @@ export interface RangeOpts {
 
 export interface FieldHandle {
   el: HTMLElement[];
-  set(v: number): void;
-  setOff(off: string | false): void;
+  set: (v: number) => void;
+  setOff: (off: string | false) => void;
 }
 
 function mark(
@@ -106,7 +106,15 @@ export function rangeField(body: HTMLElement, o: RangeOpts): FieldHandle {
     log ? o.min * (o.max / o.min) ** (p / 1000) : p;
   const step = o.step ?? (o.max - o.min > 20 ? 1 : 0.01);
   const digits =
-    o.digits ?? (step >= 1 ? 0 : step >= 0.1 ? 1 : step >= 0.01 ? 2 : 3);
+    o.digits ??
+    choose(
+      [
+        [step >= 1, 0],
+        [step >= 0.1, 1],
+        [step >= 0.01, 2],
+      ],
+      3
+    );
   const range = h("input", {
     id,
     max: log ? 1000 : o.max,
@@ -122,6 +130,12 @@ export function rangeField(body: HTMLElement, o: RangeOpts): FieldHandle {
     step,
     type: "number",
   }) as HTMLInputElement;
+  // the longest text the box can hold, so the full range always fits
+  const chars = Math.min(
+    8,
+    Math.max(6, o.min.toFixed(digits).length, o.max.toFixed(digits).length)
+  );
+  num.style.setProperty("--nc", String(chars));
   const lab = h("label", { for: id }, o.label);
   const setP = () => {
     const span = Number(range.max) - Number(range.min);
@@ -164,7 +178,7 @@ export function rangeField(body: HTMLElement, o: RangeOpts): FieldHandle {
 export interface SelectOpts<T extends string> {
   label: string;
   off?: string | false;
-  onInput(v: T): void;
+  onInput: (v: T) => void;
   options: readonly (T | { value: T; label: string; disabled?: boolean })[];
   value: T;
 }
@@ -203,7 +217,7 @@ export function selectField<T extends string>(
 export interface ToggleOpts {
   label: string;
   off?: string | false;
-  onInput(v: boolean): void;
+  onInput: (v: boolean) => void;
   value: boolean;
 }
 
@@ -246,7 +260,7 @@ export function textField(
   o: {
     label: string;
     value: string;
-    onInput(v: string): void;
+    onInput: (v: string) => void;
     placeholder?: string;
   }
 ): HTMLInputElement {

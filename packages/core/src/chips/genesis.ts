@@ -2,9 +2,7 @@
 
 import type { ChipProfile } from "../types.ts";
 
-export const GENESIS_CLOCK_HZ = 3_579_545;
-/** The FM channels attenuate in 128 steps, the PSG in 16. */
-export const GENESIS_FM_VOLUME_STEPS = 128;
+const GENESIS_CLOCK_HZ = 3_579_545;
 
 export const GENESIS: ChipProfile = {
   channels: [
@@ -49,14 +47,14 @@ export const GENESIS: ChipProfile = {
 const PSG_MAX = 1023;
 
 /** PSG tone divider: f = clock / (32 * N), N 1..1023. */
-export function hzToPeriod(hz: number): number {
+function hzToPeriod(hz: number): number {
   return Math.min(
     PSG_MAX,
     Math.max(1, Math.round(GENESIS_CLOCK_HZ / (32 * Math.max(hz, 1))))
   );
 }
 
-export function periodToHz(n: number): number {
+function periodToHz(n: number): number {
   return GENESIS_CLOCK_HZ / (32 * n);
 }
 
@@ -65,7 +63,7 @@ export function quantizeHz(hz: number): number {
 }
 
 /** The three fixed noise shift rates of the PSG (clock / 512, 1024, 2048). */
-export const PSG_NOISE_RATES = [
+const PSG_NOISE_RATES = [
   GENESIS_CLOCK_HZ / 512,
   GENESIS_CLOCK_HZ / 1024,
   GENESIS_CLOCK_HZ / 2048,

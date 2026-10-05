@@ -16,11 +16,12 @@
     "fix": "ultracite fix",
     "preview": "turbo run preview --filter=@bleepkit/studio",
     "test": "turbo run test",
-    "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest",
+    "test:coverage": "pnpm worklet && vitest run --coverage",
+    "test:watch": "pnpm worklet && vitest",
     "typecheck": "turbo run typecheck //#typecheck:root",
     "typecheck:root": "tsc -p .",
-    "verify": "pnpm typecheck && pnpm check && pnpm test:coverage && pnpm fallow:check && pnpm build && pnpm check:packages"
+    "verify": "pnpm typecheck && pnpm check && pnpm test:coverage && pnpm fallow:check && pnpm build && pnpm check:packages",
+    "worklet": "turbo run build:worklet"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

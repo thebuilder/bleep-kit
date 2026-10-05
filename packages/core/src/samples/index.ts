@@ -1,4 +1,3 @@
-// biome-ignore-all lint/performance/noBarrelFile: public entry of the sample generators
 import type { GeneratedSample, SampleGeneratorId } from "../types.ts";
 import { runGenerator } from "./generators.ts";
 import { SAMPLE_SPECS } from "./specs.ts";
