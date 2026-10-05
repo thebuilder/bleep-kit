@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "name": "FM Bass",
+  "kind": "fm",
+  "chip": "genesis",
+  "volume": 0.9,
+  "pan": 0,
+  "transpose": 0,
+  "finetune": 0,
+  "envelope": {
+    "attack": 0.005,
+    "decay": 0.1,
+    "sustain": 0.7,
+    "release": 0.08
+  },
+  "macros": {},
+  "send": { "echo": 0, "reverb": 0 },
+  "pulse": null,
+  "wave": null,
+  "noise": null,
+  "sid": null,
+  "fm": {
+    "algorithm": 4,
+    "feedback": 3,
+    "ops": [
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.72,
+        "attack": 31,
+        "decay": 16,
+        "sustainLevel": 0.3,
+        "sustainRate": 8,
+        "release": 9,
+        "keyScale": 1,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 1,
+        "attack": 31,
+        "decay": 10,
+        "sustainLevel": 0.6,
+        "sustainRate": 3,
+        "release": 9,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 2,
+        "detune": 1,
+        "level": 0.5,
+        "attack": 31,
+        "decay": 18,
+        "sustainLevel": 0.2,
+        "sustainRate": 10,
+        "release": 10,
+        "keyScale": 1,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": -1,
+        "level": 0.9,
+        "attack": 31,
+        "decay": 8,
+        "sustainLevel": 0.7,
+        "sustainRate": 3,
+        "release": 9,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      }
+    ],
+    "lfo": null
+  },
+  "sample": null
+}

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "SNES Pluck",
+  "kind": "sample",
+  "chip": "snes",
+  "volume": 0.9,
+  "pan": 0,
+  "transpose": 0,
+  "finetune": 0,
+  "envelope": { "attack": 0, "decay": 0.3, "sustain": 0.6, "release": 0.2 },
+  "macros": {},
+  "send": { "echo": 0.3, "reverb": 0.15 },
+  "pulse": null,
+  "wave": null,
+  "noise": null,
+  "sid": null,
+  "fm": null,
+  "sample": {
+    "generator": "pluck",
+    "params": { "brightness": 0.6, "damp": 0.3 },
+    "seed": 3,
+    "baseNote": 60,
+    "loop": false
+  }
+}

@@ -1,9 +1,10 @@
-// Placeholder: renders a heading and whether the page is cross-origin isolated (SharedArrayBuffer needs it).
-const app = document.querySelector("#app");
-if (app) {
-  const title = document.createElement("h1");
-  title.textContent = "Bleepkit Studio";
-  const isolated = document.createElement("p");
-  isolated.textContent = `cross-origin isolated: ${globalThis.crossOriginIsolated ? "yes" : "no"}`;
-  app.replaceChildren(title, isolated);
+/* Entry point: boot the studio into #app. */
+import { boot } from "./shell.ts";
+
+const root = document.getElementById("app");
+if (root) {
+  boot(root).catch((err: unknown) => {
+    console.error(err);
+    root.textContent = `The studio could not start: ${(err as Error).message}`;
+  });
 }

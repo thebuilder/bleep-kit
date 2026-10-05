@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "name": "Bass",
+  "kind": "triangle",
+  "chip": "nes",
+  "volume": 1,
+  "pan": 0,
+  "transpose": 0,
+  "finetune": 0,
+  "envelope": { "attack": 0, "decay": 0.1, "sustain": 1, "release": 0.03 },
+  "macros": {},
+  "send": { "echo": 0, "reverb": 0 },
+  "pulse": null,
+  "wave": null,
+  "noise": null,
+  "sid": null,
+  "fm": null,
+  "sample": null
+}

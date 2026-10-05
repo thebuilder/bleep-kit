@@ -1,0 +1,40 @@
+{
+  "$schema": "../../node_modules/@biomejs/biome/configuration_schema.json",
+  "root": false,
+  "extends": "//",
+  "linter": {
+    "rules": {
+      // The studio is a canvas and pixel-art app: bit twiddling, tight loops and `i++` are the clearest way to write
+      // that code, and `void promise` marks a deliberately unawaited call.
+      "style": {
+        "noIncrementDecrement": "off",
+        "noNestedTernary": "off",
+        "useDestructuring": "off",
+        "noDescendingSpecificity": "off",
+        "useConsistentMethodSignatures": "off",
+        "noExportedImports": "off",
+        "useForOf": "off",
+        "useConsistentTypeDefinitions": "off"
+      },
+      // noUnnecessaryConditions: defensive checks on data that arrives from disk, the server and a worker are kept on purpose.
+      "suspicious": {
+        "noBitwiseOperators": "off",
+        "noShadow": "off",
+        "noUnnecessaryConditions": "off",
+        "noConfusingVoidType": "off",
+        "useAwait": "off",
+        "noAlert": "off"
+      },
+      "complexity": {
+        "noVoid": "off",
+        "noExcessiveCognitiveComplexity": "off",
+        "noForEach": "off"
+      },
+      "performance": {
+        "useTopLevelRegex": "off",
+        "noAwaitInLoops": "off",
+        "noNamespaceImport": "off"
+      }
+    }
+  }
+}

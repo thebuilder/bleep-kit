@@ -1,0 +1,729 @@
+{
+  "song": {
+    "version": 1,
+    "name": "Demo genesis",
+    "chip": "genesis",
+    "tempo": 140,
+    "rowsPerBeat": 4,
+    "tickRate": 60,
+    "channels": [
+      {
+        "id": "fm1",
+        "kind": "fm",
+        "instrument": "fmbass",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm2",
+        "kind": "fm",
+        "instrument": "fmlead",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm3",
+        "kind": "fm",
+        "instrument": "fmpad",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm4",
+        "kind": "fm",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm5",
+        "kind": "fm",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm6",
+        "kind": "fm",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "psg1",
+        "kind": "pulse",
+        "instrument": "psgpulse",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "psg2",
+        "kind": "pulse",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "psg3",
+        "kind": "pulse",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "psgNoise",
+        "kind": "noise",
+        "instrument": "psgdrum",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      }
+    ],
+    "patterns": {
+      "a": {
+        "length": 32,
+        "tracks": {
+          "fm1": [
+            {
+              "row": 0,
+              "s": "C-2 fmbass"
+            },
+            {
+              "row": 6,
+              "s": "C-2 ."
+            },
+            {
+              "row": 8,
+              "s": "C-2 ."
+            },
+            {
+              "row": 14,
+              "s": "OFF ."
+            },
+            {
+              "row": 16,
+              "s": "G-1 ."
+            },
+            {
+              "row": 22,
+              "s": "G-1 ."
+            },
+            {
+              "row": 24,
+              "s": "A#1 ."
+            },
+            {
+              "row": 30,
+              "s": "OFF ."
+            }
+          ],
+          "fm2": [
+            {
+              "row": 0,
+              "s": "C-5 fmlead"
+            },
+            {
+              "row": 2,
+              "s": "D#5 ."
+            },
+            {
+              "row": 4,
+              "s": "G-5 ."
+            },
+            {
+              "row": 6,
+              "s": "D#5 ."
+            },
+            {
+              "row": 8,
+              "s": "C-5 ."
+            },
+            {
+              "row": 10,
+              "s": "D-5 ."
+            },
+            {
+              "row": 12,
+              "s": "D#5 ."
+            },
+            {
+              "row": 14,
+              "s": "OFF ."
+            },
+            {
+              "row": 16,
+              "s": "G-4 ."
+            },
+            {
+              "row": 18,
+              "s": "A#4 ."
+            },
+            {
+              "row": 20,
+              "s": "C-5 ."
+            },
+            {
+              "row": 22,
+              "s": "D-5 ."
+            },
+            {
+              "row": 24,
+              "s": "D#5 ."
+            },
+            {
+              "row": 28,
+              "s": "D-5 ."
+            },
+            {
+              "row": 30,
+              "s": "OFF ."
+            }
+          ],
+          "fm3": [
+            {
+              "row": 0,
+              "s": "C-4 fmpad"
+            },
+            {
+              "row": 14,
+              "s": "OFF"
+            },
+            {
+              "row": 16,
+              "s": "G-3"
+            },
+            {
+              "row": 30,
+              "s": "OFF"
+            }
+          ],
+          "psg1": [
+            {
+              "row": 0,
+              "s": "C-5 psgpulse"
+            },
+            {
+              "row": 1,
+              "s": "OFF ."
+            },
+            {
+              "row": 4,
+              "s": "C-5 ."
+            },
+            {
+              "row": 5,
+              "s": "OFF ."
+            },
+            {
+              "row": 8,
+              "s": "C-5 ."
+            },
+            {
+              "row": 9,
+              "s": "OFF ."
+            },
+            {
+              "row": 16,
+              "s": "G-4 ."
+            },
+            {
+              "row": 17,
+              "s": "OFF ."
+            },
+            {
+              "row": 20,
+              "s": "G-4 ."
+            },
+            {
+              "row": 21,
+              "s": "OFF ."
+            },
+            {
+              "row": 24,
+              "s": "G-4 ."
+            },
+            {
+              "row": 25,
+              "s": "OFF ."
+            }
+          ],
+          "psgNoise": [
+            {
+              "row": 0,
+              "s": "C-3 psgdrum"
+            },
+            {
+              "row": 2,
+              "s": "C-6 ."
+            },
+            {
+              "row": 4,
+              "s": "C-6 ."
+            },
+            {
+              "row": 6,
+              "s": "C-6 ."
+            },
+            {
+              "row": 8,
+              "s": "C-5 ."
+            },
+            {
+              "row": 10,
+              "s": "C-6 ."
+            },
+            {
+              "row": 12,
+              "s": "C-6 ."
+            },
+            {
+              "row": 14,
+              "s": "C-6 ."
+            },
+            {
+              "row": 16,
+              "s": "C-3 ."
+            },
+            {
+              "row": 18,
+              "s": "C-6 ."
+            },
+            {
+              "row": 20,
+              "s": "C-6 ."
+            },
+            {
+              "row": 22,
+              "s": "C-6 ."
+            },
+            {
+              "row": 24,
+              "s": "C-5 ."
+            },
+            {
+              "row": 26,
+              "s": "C-6 ."
+            },
+            {
+              "row": 28,
+              "s": "C-6 ."
+            },
+            {
+              "row": 30,
+              "s": "C-6 ."
+            }
+          ]
+        }
+      }
+    },
+    "order": ["a", "a"],
+    "loop": 0,
+    "master": {
+      "volume": 0.8,
+      "echo": null,
+      "reverb": null
+    }
+  },
+  "instruments": {
+    "fmbass": {
+      "version": 1,
+      "name": "FM Bass",
+      "kind": "fm",
+      "chip": "genesis",
+      "volume": 0.9,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.2,
+        "sustain": 0.7,
+        "release": 0.1
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": {
+        "algorithm": 4,
+        "feedback": 3,
+        "lfo": null,
+        "ops": [
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 0.72,
+            "attack": 31,
+            "decay": 16,
+            "sustainLevel": 0.8,
+            "sustainRate": 6,
+            "release": 8,
+            "keyScale": 1,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 1,
+            "attack": 31,
+            "decay": 10,
+            "sustainLevel": 0.85,
+            "sustainRate": 2,
+            "release": 8,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 2,
+            "detune": 1,
+            "level": 0.5,
+            "attack": 31,
+            "decay": 18,
+            "sustainLevel": 0.6,
+            "sustainRate": 10,
+            "release": 8,
+            "keyScale": 1,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 1,
+            "detune": -1,
+            "level": 0.9,
+            "attack": 31,
+            "decay": 8,
+            "sustainLevel": 0.9,
+            "sustainRate": 2,
+            "release": 8,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          }
+        ]
+      },
+      "sample": null
+    },
+    "fmlead": {
+      "version": 1,
+      "name": "FM Lead",
+      "kind": "fm",
+      "chip": "genesis",
+      "volume": 0.8,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.2,
+        "sustain": 0.7,
+        "release": 0.1
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": {
+        "algorithm": 5,
+        "feedback": 5,
+        "lfo": {
+          "rate": 5.5,
+          "pitchDepth": 12,
+          "ampDepth": 0
+        },
+        "ops": [
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 0.55,
+            "attack": 31,
+            "decay": 12,
+            "sustainLevel": 0.7,
+            "sustainRate": 4,
+            "release": 8,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 2,
+            "detune": 0,
+            "level": 0.9,
+            "attack": 31,
+            "decay": 6,
+            "sustainLevel": 0.9,
+            "sustainRate": 0,
+            "release": 8,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 1,
+            "detune": 1,
+            "level": 0.85,
+            "attack": 31,
+            "decay": 6,
+            "sustainLevel": 0.9,
+            "sustainRate": 0,
+            "release": 8,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 4,
+            "detune": 0,
+            "level": 0.6,
+            "attack": 31,
+            "decay": 14,
+            "sustainLevel": 0.5,
+            "sustainRate": 8,
+            "release": 8,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          }
+        ]
+      },
+      "sample": null
+    },
+    "fmpad": {
+      "version": 1,
+      "name": "FM Pad",
+      "kind": "fm",
+      "chip": "genesis",
+      "volume": 0.7,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.2,
+        "sustain": 0.7,
+        "release": 0.3
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": {
+        "algorithm": 7,
+        "feedback": 1,
+        "lfo": {
+          "rate": 3,
+          "pitchDepth": 8,
+          "ampDepth": 0.2
+        },
+        "ops": [
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 0.7,
+            "attack": 18,
+            "decay": 4,
+            "sustainLevel": 0.9,
+            "sustainRate": 0,
+            "release": 5,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 2,
+            "detune": -2,
+            "level": 0.6,
+            "attack": 16,
+            "decay": 4,
+            "sustainLevel": 0.9,
+            "sustainRate": 0,
+            "release": 5,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 1,
+            "detune": 2,
+            "level": 0.6,
+            "attack": 17,
+            "decay": 4,
+            "sustainLevel": 0.9,
+            "sustainRate": 0,
+            "release": 5,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 4,
+            "detune": 0,
+            "level": 0.4,
+            "attack": 15,
+            "decay": 4,
+            "sustainLevel": 0.9,
+            "sustainRate": 0,
+            "release": 5,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          }
+        ]
+      },
+      "sample": null
+    },
+    "psgpulse": {
+      "version": 1,
+      "name": "PSG Pulse",
+      "kind": "pulse",
+      "chip": "genesis",
+      "volume": 0.8,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.15,
+        "sustain": 0.6,
+        "release": 0.05
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": {
+        "duty": 0.5
+      },
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": null,
+      "sample": null
+    },
+    "psgdrum": {
+      "version": 1,
+      "name": "PSG Noise",
+      "kind": "noise",
+      "chip": "genesis",
+      "volume": 0.8,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.06,
+        "sustain": 0,
+        "release": 0.03
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": {
+        "mode": "long"
+      },
+      "sid": null,
+      "fm": null,
+      "sample": null
+    }
+  },
+  "sfx": {
+    "version": 1,
+    "name": "Coin genesis",
+    "category": "coin",
+    "chip": "genesis",
+    "seed": 1234,
+    "wave": "fm",
+    "volume": 0.7,
+    "frequency": {
+      "start": 1046.5,
+      "min": 0,
+      "slide": 0,
+      "deltaSlide": 0
+    },
+    "vibrato": {
+      "depth": 0,
+      "rate": 0
+    },
+    "arpeggio": {
+      "steps": [7],
+      "rate": 14
+    },
+    "envelope": {
+      "attack": 0,
+      "sustain": 0.06,
+      "punch": 0.4,
+      "decay": 0.25
+    },
+    "duty": {
+      "start": 0.5,
+      "sweep": 0
+    },
+    "repeat": {
+      "rate": 0
+    },
+    "phaser": {
+      "offset": 0,
+      "sweep": 0
+    },
+    "filter": {
+      "lowpass": null,
+      "lowpassSweep": 0,
+      "resonance": 0,
+      "highpass": null,
+      "highpassSweep": 0
+    },
+    "bitcrush": {
+      "bits": null,
+      "rateDivide": 1
+    },
+    "noise": {
+      "mode": "long"
+    },
+    "fm": {
+      "ratio": 2,
+      "index": 2,
+      "indexDecay": 0.3
+    },
+    "table": null
+  }
+}

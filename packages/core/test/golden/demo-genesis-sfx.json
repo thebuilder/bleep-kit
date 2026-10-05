@@ -1,0 +1,12 @@
+{
+  "44100": {
+    "events": 1,
+    "frames": 14004,
+    "hash": "c24e7f95"
+  },
+  "48000": {
+    "events": 1,
+    "frames": 15230,
+    "hash": "cfdb86cd"
+  }
+}

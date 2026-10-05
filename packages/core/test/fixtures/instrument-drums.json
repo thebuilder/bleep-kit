@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "name": "Drums",
+  "kind": "noise",
+  "chip": "nes",
+  "volume": 0.9,
+  "pan": 0,
+  "transpose": 0,
+  "finetune": 0,
+  "envelope": { "attack": 0, "decay": 0.08, "sustain": 0, "release": 0.02 },
+  "macros": {
+    "volume": {
+      "values": [1, 0.7, 0.45, 0.25, 0.1, 0],
+      "loop": -1,
+      "release": -1
+    }
+  },
+  "send": { "echo": 0, "reverb": 0 },
+  "pulse": null,
+  "wave": null,
+  "noise": { "mode": "long" },
+  "sid": null,
+  "fm": null,
+  "sample": null
+}

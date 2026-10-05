@@ -1,0 +1,393 @@
+{
+  "song": {
+    "version": 1,
+    "name": "Demo c64",
+    "chip": "c64",
+    "tempo": 140,
+    "rowsPerBeat": 4,
+    "tickRate": 60,
+    "channels": [
+      {
+        "id": "voice1",
+        "kind": "sid",
+        "instrument": "sidlead",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "voice2",
+        "kind": "sid",
+        "instrument": "sidbass",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "voice3",
+        "kind": "sid",
+        "instrument": "siddrum",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      }
+    ],
+    "patterns": {
+      "a": {
+        "length": 32,
+        "tracks": {
+          "voice1": [
+            {
+              "row": 0,
+              "s": "C-5 sidlead"
+            },
+            {
+              "row": 2,
+              "s": "D#5 ."
+            },
+            {
+              "row": 4,
+              "s": "G-5 ."
+            },
+            {
+              "row": 6,
+              "s": "D#5 ."
+            },
+            {
+              "row": 8,
+              "s": "C-5 ."
+            },
+            {
+              "row": 10,
+              "s": "D-5 ."
+            },
+            {
+              "row": 12,
+              "s": "D#5 ."
+            },
+            {
+              "row": 14,
+              "s": "OFF ."
+            },
+            {
+              "row": 16,
+              "s": "G-4 ."
+            },
+            {
+              "row": 18,
+              "s": "A#4 ."
+            },
+            {
+              "row": 20,
+              "s": "C-5 ."
+            },
+            {
+              "row": 22,
+              "s": "D-5 ."
+            },
+            {
+              "row": 24,
+              "s": "D#5 ."
+            },
+            {
+              "row": 28,
+              "s": "D-5 ."
+            },
+            {
+              "row": 30,
+              "s": "OFF ."
+            }
+          ],
+          "voice2": [
+            {
+              "row": 0,
+              "s": "C-2 sidbass"
+            },
+            {
+              "row": 6,
+              "s": "C-2 ."
+            },
+            {
+              "row": 8,
+              "s": "C-2 ."
+            },
+            {
+              "row": 14,
+              "s": "OFF ."
+            },
+            {
+              "row": 16,
+              "s": "G-1 ."
+            },
+            {
+              "row": 22,
+              "s": "G-1 ."
+            },
+            {
+              "row": 24,
+              "s": "A#1 ."
+            },
+            {
+              "row": 30,
+              "s": "OFF ."
+            }
+          ],
+          "voice3": [
+            {
+              "row": 0,
+              "s": "C-3 siddrum"
+            },
+            {
+              "row": 2,
+              "s": "C-6 ."
+            },
+            {
+              "row": 4,
+              "s": "C-6 ."
+            },
+            {
+              "row": 6,
+              "s": "C-6 ."
+            },
+            {
+              "row": 8,
+              "s": "C-5 ."
+            },
+            {
+              "row": 10,
+              "s": "C-6 ."
+            },
+            {
+              "row": 12,
+              "s": "C-6 ."
+            },
+            {
+              "row": 14,
+              "s": "C-6 ."
+            },
+            {
+              "row": 16,
+              "s": "C-3 ."
+            },
+            {
+              "row": 18,
+              "s": "C-6 ."
+            },
+            {
+              "row": 20,
+              "s": "C-6 ."
+            },
+            {
+              "row": 22,
+              "s": "C-6 ."
+            },
+            {
+              "row": 24,
+              "s": "C-5 ."
+            },
+            {
+              "row": 26,
+              "s": "C-6 ."
+            },
+            {
+              "row": 28,
+              "s": "C-6 ."
+            },
+            {
+              "row": 30,
+              "s": "C-6 ."
+            }
+          ]
+        }
+      }
+    },
+    "order": ["a", "a"],
+    "loop": 0,
+    "master": {
+      "volume": 0.8,
+      "echo": null,
+      "reverb": null
+    }
+  },
+  "instruments": {
+    "sidlead": {
+      "version": 1,
+      "name": "SID Lead",
+      "kind": "sid",
+      "chip": "c64",
+      "volume": 0.8,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0.004,
+        "decay": 0.25,
+        "sustain": 0.55,
+        "release": 0.12
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": {
+        "waveforms": ["pulse"],
+        "pulseWidth": 0.4,
+        "pwmRate": 3,
+        "pwmDepth": 0.5,
+        "ring": false,
+        "sync": false,
+        "filter": {
+          "mode": "off",
+          "cutoff": 0.5,
+          "resonance": 0,
+          "sweep": 0
+        }
+      },
+      "fm": null,
+      "sample": null
+    },
+    "sidbass": {
+      "version": 1,
+      "name": "SID Bass",
+      "kind": "sid",
+      "chip": "c64",
+      "volume": 0.9,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0.002,
+        "decay": 0.2,
+        "sustain": 0.7,
+        "release": 0.06
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": {
+        "waveforms": ["saw"],
+        "pulseWidth": 0.5,
+        "pwmRate": 0,
+        "pwmDepth": 0,
+        "ring": false,
+        "sync": false,
+        "filter": {
+          "mode": "lp",
+          "cutoff": 0.45,
+          "resonance": 0.55,
+          "sweep": -0.004
+        }
+      },
+      "fm": null,
+      "sample": null
+    },
+    "siddrum": {
+      "version": 1,
+      "name": "SID Drum",
+      "kind": "sid",
+      "chip": "c64",
+      "volume": 0.8,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.07,
+        "sustain": 0,
+        "release": 0.03
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": {
+        "waveforms": ["noise"],
+        "pulseWidth": 0.5,
+        "pwmRate": 0,
+        "pwmDepth": 0,
+        "ring": false,
+        "sync": false,
+        "filter": {
+          "mode": "off",
+          "cutoff": 0.5,
+          "resonance": 0,
+          "sweep": 0
+        }
+      },
+      "fm": null,
+      "sample": null
+    }
+  },
+  "sfx": {
+    "version": 1,
+    "name": "Coin c64",
+    "category": "coin",
+    "chip": "c64",
+    "seed": 1234,
+    "wave": "saw",
+    "volume": 0.7,
+    "frequency": {
+      "start": 1046.5,
+      "min": 0,
+      "slide": 0,
+      "deltaSlide": 0
+    },
+    "vibrato": {
+      "depth": 0,
+      "rate": 0
+    },
+    "arpeggio": {
+      "steps": [7],
+      "rate": 14
+    },
+    "envelope": {
+      "attack": 0,
+      "sustain": 0.06,
+      "punch": 0.4,
+      "decay": 0.25
+    },
+    "duty": {
+      "start": 0.5,
+      "sweep": 0
+    },
+    "repeat": {
+      "rate": 0
+    },
+    "phaser": {
+      "offset": 0,
+      "sweep": 0
+    },
+    "filter": {
+      "lowpass": null,
+      "lowpassSweep": 0,
+      "resonance": 0,
+      "highpass": null,
+      "highpassSweep": 0
+    },
+    "bitcrush": {
+      "bits": null,
+      "rateDivide": 1
+    },
+    "noise": {
+      "mode": "long"
+    },
+    "fm": null,
+    "table": null
+  }
+}

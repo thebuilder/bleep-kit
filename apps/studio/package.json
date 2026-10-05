@@ -6,9 +6,9 @@
   "license": "ISC",
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "pnpm --filter @bleepkit/player build:worklet && vite build",
     "check": "ultracite check",
-    "dev": "vite",
+    "dev": "pnpm --filter @bleepkit/player build:worklet && vite",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc -p ."

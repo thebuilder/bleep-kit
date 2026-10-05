@@ -1,0 +1,593 @@
+{
+  "song": {
+    "version": 1,
+    "name": "Demo adlib",
+    "chip": "adlib",
+    "tempo": 140,
+    "rowsPerBeat": 4,
+    "tickRate": 60,
+    "channels": [
+      {
+        "id": "fm1",
+        "kind": "fm",
+        "instrument": "opl-lead",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm2",
+        "kind": "fm",
+        "instrument": "opl-bass",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm3",
+        "kind": "fm",
+        "instrument": "opl-pad",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm4",
+        "kind": "fm",
+        "instrument": "opl-drum",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm5",
+        "kind": "fm",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm6",
+        "kind": "fm",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm7",
+        "kind": "fm",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm8",
+        "kind": "fm",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm9",
+        "kind": "fm",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      }
+    ],
+    "patterns": {
+      "a": {
+        "length": 32,
+        "tracks": {
+          "fm1": [
+            {
+              "row": 0,
+              "s": "C-5 opl-lead"
+            },
+            {
+              "row": 2,
+              "s": "D#5 ."
+            },
+            {
+              "row": 4,
+              "s": "G-5 ."
+            },
+            {
+              "row": 6,
+              "s": "D#5 ."
+            },
+            {
+              "row": 8,
+              "s": "C-5 ."
+            },
+            {
+              "row": 10,
+              "s": "D-5 ."
+            },
+            {
+              "row": 12,
+              "s": "D#5 ."
+            },
+            {
+              "row": 14,
+              "s": "OFF ."
+            },
+            {
+              "row": 16,
+              "s": "G-4 ."
+            },
+            {
+              "row": 18,
+              "s": "A#4 ."
+            },
+            {
+              "row": 20,
+              "s": "C-5 ."
+            },
+            {
+              "row": 22,
+              "s": "D-5 ."
+            },
+            {
+              "row": 24,
+              "s": "D#5 ."
+            },
+            {
+              "row": 28,
+              "s": "D-5 ."
+            },
+            {
+              "row": 30,
+              "s": "OFF ."
+            }
+          ],
+          "fm2": [
+            {
+              "row": 0,
+              "s": "C-2 opl-bass"
+            },
+            {
+              "row": 6,
+              "s": "C-2 ."
+            },
+            {
+              "row": 8,
+              "s": "C-2 ."
+            },
+            {
+              "row": 14,
+              "s": "OFF ."
+            },
+            {
+              "row": 16,
+              "s": "G-1 ."
+            },
+            {
+              "row": 22,
+              "s": "G-1 ."
+            },
+            {
+              "row": 24,
+              "s": "A#1 ."
+            },
+            {
+              "row": 30,
+              "s": "OFF ."
+            }
+          ],
+          "fm3": [
+            {
+              "row": 0,
+              "s": "C-4 opl-pad"
+            },
+            {
+              "row": 14,
+              "s": "OFF"
+            },
+            {
+              "row": 16,
+              "s": "G-3"
+            },
+            {
+              "row": 30,
+              "s": "OFF"
+            }
+          ],
+          "fm4": [
+            {
+              "row": 0,
+              "s": "C-2 opl-drum"
+            },
+            {
+              "row": 1,
+              "s": "OFF"
+            },
+            {
+              "row": 4,
+              "s": "C-3 ."
+            },
+            {
+              "row": 5,
+              "s": "OFF"
+            },
+            {
+              "row": 8,
+              "s": "G-2 ."
+            },
+            {
+              "row": 9,
+              "s": "OFF"
+            },
+            {
+              "row": 12,
+              "s": "C-3 ."
+            },
+            {
+              "row": 13,
+              "s": "OFF"
+            },
+            {
+              "row": 16,
+              "s": "C-2 ."
+            },
+            {
+              "row": 17,
+              "s": "OFF"
+            },
+            {
+              "row": 20,
+              "s": "C-3 ."
+            },
+            {
+              "row": 21,
+              "s": "OFF"
+            },
+            {
+              "row": 24,
+              "s": "G-2 ."
+            },
+            {
+              "row": 25,
+              "s": "OFF"
+            },
+            {
+              "row": 28,
+              "s": "C-3 ."
+            },
+            {
+              "row": 29,
+              "s": "OFF"
+            }
+          ]
+        }
+      }
+    },
+    "order": ["a", "a"],
+    "loop": 0,
+    "master": {
+      "volume": 0.8,
+      "echo": null,
+      "reverb": null
+    }
+  },
+  "instruments": {
+    "opl-lead": {
+      "version": 1,
+      "name": "OPL Lead",
+      "kind": "fm",
+      "chip": "adlib",
+      "volume": 0.8,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.2,
+        "sustain": 0.7,
+        "release": 0.1
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": {
+        "algorithm": 0,
+        "feedback": 4,
+        "lfo": {
+          "rate": 5,
+          "pitchDepth": 10,
+          "ampDepth": 0
+        },
+        "ops": [
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 0.5,
+            "attack": 31,
+            "decay": 12,
+            "sustainLevel": 0.7,
+            "sustainRate": 4,
+            "release": 8,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 1,
+            "attack": 31,
+            "decay": 8,
+            "sustainLevel": 0.9,
+            "sustainRate": 0,
+            "release": 8,
+            "keyScale": 0,
+            "waveform": 1,
+            "fixedHz": null
+          }
+        ]
+      },
+      "sample": null
+    },
+    "opl-bass": {
+      "version": 1,
+      "name": "OPL Bass",
+      "kind": "fm",
+      "chip": "adlib",
+      "volume": 0.9,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.2,
+        "sustain": 0.7,
+        "release": 0.1
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": {
+        "algorithm": 0,
+        "feedback": 5,
+        "lfo": null,
+        "ops": [
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 0.6,
+            "attack": 31,
+            "decay": 14,
+            "sustainLevel": 0.6,
+            "sustainRate": 8,
+            "release": 8,
+            "keyScale": 1,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 1,
+            "attack": 31,
+            "decay": 9,
+            "sustainLevel": 0.9,
+            "sustainRate": 2,
+            "release": 8,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          }
+        ]
+      },
+      "sample": null
+    },
+    "opl-pad": {
+      "version": 1,
+      "name": "OPL Organ",
+      "kind": "fm",
+      "chip": "adlib",
+      "volume": 0.7,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.2,
+        "sustain": 0.7,
+        "release": 0.2
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": {
+        "algorithm": 1,
+        "feedback": 2,
+        "lfo": {
+          "rate": 6,
+          "pitchDepth": 6,
+          "ampDepth": 0.15
+        },
+        "ops": [
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 0.9,
+            "attack": 20,
+            "decay": 3,
+            "sustainLevel": 0.95,
+            "sustainRate": 0,
+            "release": 5,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 2,
+            "detune": 0,
+            "level": 0.8,
+            "attack": 20,
+            "decay": 3,
+            "sustainLevel": 0.95,
+            "sustainRate": 0,
+            "release": 5,
+            "keyScale": 0,
+            "waveform": 2,
+            "fixedHz": null
+          }
+        ]
+      },
+      "sample": null
+    },
+    "opl-drum": {
+      "version": 1,
+      "name": "OPL Tom",
+      "kind": "fm",
+      "chip": "adlib",
+      "volume": 0.9,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.1,
+        "sustain": 0,
+        "release": 0.05
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": {
+        "algorithm": 0,
+        "feedback": 7,
+        "lfo": null,
+        "ops": [
+          {
+            "mult": 4,
+            "detune": 0,
+            "level": 0.9,
+            "attack": 31,
+            "decay": 24,
+            "sustainLevel": 0,
+            "sustainRate": 0,
+            "release": 8,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 1,
+            "attack": 31,
+            "decay": 20,
+            "sustainLevel": 0,
+            "sustainRate": 0,
+            "release": 12,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          }
+        ]
+      },
+      "sample": null
+    }
+  },
+  "sfx": {
+    "version": 1,
+    "name": "Coin adlib",
+    "category": "coin",
+    "chip": "adlib",
+    "seed": 1234,
+    "wave": "fm",
+    "volume": 0.7,
+    "frequency": {
+      "start": 1046.5,
+      "min": 0,
+      "slide": 0,
+      "deltaSlide": 0
+    },
+    "vibrato": {
+      "depth": 0,
+      "rate": 0
+    },
+    "arpeggio": {
+      "steps": [7],
+      "rate": 14
+    },
+    "envelope": {
+      "attack": 0,
+      "sustain": 0.06,
+      "punch": 0.4,
+      "decay": 0.25
+    },
+    "duty": {
+      "start": 0.5,
+      "sweep": 0
+    },
+    "repeat": {
+      "rate": 0
+    },
+    "phaser": {
+      "offset": 0,
+      "sweep": 0
+    },
+    "filter": {
+      "lowpass": null,
+      "lowpassSweep": 0,
+      "resonance": 0,
+      "highpass": null,
+      "highpassSweep": 0
+    },
+    "bitcrush": {
+      "bits": null,
+      "rateDivide": 1
+    },
+    "noise": {
+      "mode": "long"
+    },
+    "fm": {
+      "ratio": 2,
+      "index": 2,
+      "indexDecay": 0.3
+    },
+    "table": null
+  }
+}

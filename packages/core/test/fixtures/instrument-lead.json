@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Lead",
+  "kind": "pulse",
+  "chip": "nes",
+  "volume": 0.8,
+  "pan": 0,
+  "transpose": 0,
+  "finetune": 0,
+  "envelope": { "attack": 0, "decay": 0.15, "sustain": 0.6, "release": 0.04 },
+  "macros": {
+    "volume": {
+      "values": [1, 1, 0.9, 0.8, 0.75, 0.7, 0.65, 0.6],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggio": { "values": [0, 0, 12, 0], "loop": 0, "release": -1 },
+    "arpeggioMode": "offset",
+    "duty": { "values": [2, 2, 1, 1, 0], "loop": 3, "release": -1 }
+  },
+  "send": { "echo": 0, "reverb": 0 },
+  "pulse": { "duty": 0.5 },
+  "wave": null,
+  "noise": null,
+  "sid": null,
+  "fm": null,
+  "sample": null
+}

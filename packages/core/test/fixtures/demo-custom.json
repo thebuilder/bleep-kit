@@ -1,0 +1,363 @@
+{
+  "song": {
+    "version": 1,
+    "name": "Demo custom",
+    "chip": "custom",
+    "tempo": 140,
+    "rowsPerBeat": 4,
+    "tickRate": 60,
+    "channels": [
+      {
+        "id": "pulse",
+        "kind": "pulse",
+        "instrument": "cpulse",
+        "volume": 1,
+        "pan": -0.3,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "triangle",
+        "kind": "triangle",
+        "instrument": "ctri",
+        "volume": 1,
+        "pan": 0.2,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "noise",
+        "kind": "noise",
+        "instrument": "cnoise",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      }
+    ],
+    "patterns": {
+      "a": {
+        "length": 32,
+        "tracks": {
+          "pulse": [
+            {
+              "row": 0,
+              "s": "C-5 cpulse"
+            },
+            {
+              "row": 2,
+              "s": "D#5 ."
+            },
+            {
+              "row": 4,
+              "s": "G-5 ."
+            },
+            {
+              "row": 6,
+              "s": "D#5 ."
+            },
+            {
+              "row": 8,
+              "s": "C-5 ."
+            },
+            {
+              "row": 10,
+              "s": "D-5 ."
+            },
+            {
+              "row": 12,
+              "s": "D#5 ."
+            },
+            {
+              "row": 14,
+              "s": "OFF ."
+            },
+            {
+              "row": 16,
+              "s": "G-4 ."
+            },
+            {
+              "row": 18,
+              "s": "A#4 ."
+            },
+            {
+              "row": 20,
+              "s": "C-5 ."
+            },
+            {
+              "row": 22,
+              "s": "D-5 ."
+            },
+            {
+              "row": 24,
+              "s": "D#5 ."
+            },
+            {
+              "row": 28,
+              "s": "D-5 ."
+            },
+            {
+              "row": 30,
+              "s": "OFF ."
+            }
+          ],
+          "triangle": [
+            {
+              "row": 0,
+              "s": "C-2 ctri"
+            },
+            {
+              "row": 6,
+              "s": "C-2 ."
+            },
+            {
+              "row": 8,
+              "s": "C-2 ."
+            },
+            {
+              "row": 14,
+              "s": "OFF ."
+            },
+            {
+              "row": 16,
+              "s": "G-1 ."
+            },
+            {
+              "row": 22,
+              "s": "G-1 ."
+            },
+            {
+              "row": 24,
+              "s": "A#1 ."
+            },
+            {
+              "row": 30,
+              "s": "OFF ."
+            }
+          ],
+          "noise": [
+            {
+              "row": 0,
+              "s": "C-3 cnoise"
+            },
+            {
+              "row": 2,
+              "s": "C-6 ."
+            },
+            {
+              "row": 4,
+              "s": "C-6 ."
+            },
+            {
+              "row": 6,
+              "s": "C-6 ."
+            },
+            {
+              "row": 8,
+              "s": "C-5 ."
+            },
+            {
+              "row": 10,
+              "s": "C-6 ."
+            },
+            {
+              "row": 12,
+              "s": "C-6 ."
+            },
+            {
+              "row": 14,
+              "s": "C-6 ."
+            },
+            {
+              "row": 16,
+              "s": "C-3 ."
+            },
+            {
+              "row": 18,
+              "s": "C-6 ."
+            },
+            {
+              "row": 20,
+              "s": "C-6 ."
+            },
+            {
+              "row": 22,
+              "s": "C-6 ."
+            },
+            {
+              "row": 24,
+              "s": "C-5 ."
+            },
+            {
+              "row": 26,
+              "s": "C-6 ."
+            },
+            {
+              "row": 28,
+              "s": "C-6 ."
+            },
+            {
+              "row": 30,
+              "s": "C-6 ."
+            }
+          ]
+        }
+      }
+    },
+    "order": ["a", "a"],
+    "loop": 0,
+    "master": {
+      "volume": 0.8,
+      "echo": {
+        "delay": 0.21,
+        "feedback": 0.4,
+        "level": 0.4,
+        "lowpassHz": 5000
+      },
+      "reverb": null
+    }
+  },
+  "instruments": {
+    "cpulse": {
+      "version": 1,
+      "name": "Custom Pulse",
+      "kind": "pulse",
+      "chip": "custom",
+      "volume": 0.8,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0.003,
+        "decay": 0.2,
+        "sustain": 0.6,
+        "release": 0.1
+      },
+      "macros": {},
+      "send": {
+        "echo": 0.35,
+        "reverb": 0.1
+      },
+      "pulse": {
+        "duty": 0.3
+      },
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": null,
+      "sample": null
+    },
+    "ctri": {
+      "version": 1,
+      "name": "Custom Triangle",
+      "kind": "triangle",
+      "chip": "custom",
+      "volume": 0.9,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0.002,
+        "decay": 0.1,
+        "sustain": 0.9,
+        "release": 0.06
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": null,
+      "sample": null
+    },
+    "cnoise": {
+      "version": 1,
+      "name": "Custom Noise",
+      "kind": "noise",
+      "chip": "custom",
+      "volume": 0.6,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.07,
+        "sustain": 0,
+        "release": 0.03
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": {
+        "mode": "long"
+      },
+      "sid": null,
+      "fm": null,
+      "sample": null
+    }
+  },
+  "sfx": {
+    "version": 1,
+    "name": "Coin custom",
+    "category": "coin",
+    "chip": "custom",
+    "seed": 1234,
+    "wave": "triangle",
+    "volume": 0.7,
+    "frequency": {
+      "start": 1046.5,
+      "min": 0,
+      "slide": 0,
+      "deltaSlide": 0
+    },
+    "vibrato": {
+      "depth": 0,
+      "rate": 0
+    },
+    "arpeggio": {
+      "steps": [7],
+      "rate": 14
+    },
+    "envelope": {
+      "attack": 0,
+      "sustain": 0.06,
+      "punch": 0.4,
+      "decay": 0.25
+    },
+    "duty": {
+      "start": 0.5,
+      "sweep": 0
+    },
+    "repeat": {
+      "rate": 0
+    },
+    "phaser": {
+      "offset": 0,
+      "sweep": 0
+    },
+    "filter": {
+      "lowpass": null,
+      "lowpassSweep": 0,
+      "resonance": 0,
+      "highpass": null,
+      "highpassSweep": 0
+    },
+    "bitcrush": {
+      "bits": null,
+      "rateDivide": 1
+    },
+    "noise": {
+      "mode": "long"
+    },
+    "fm": null,
+    "table": null
+  }
+}

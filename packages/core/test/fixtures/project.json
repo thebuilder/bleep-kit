@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "name": "Deep Reach",
+  "chip": "genesis",
+  "sampleRate": 48000,
+  "seed": 7,
+  "master": { "volume": 0.8, "limiter": true },
+  "export": {
+    "dir": "../public/audio",
+    "manifest": "../src/audio.ts",
+    "baseUrl": "/audio/",
+    "sfxFormat": "ogg",
+    "musicFormat": "ogg",
+    "oggQuality": 6,
+    "mp3Bitrate": 160,
+    "events": true,
+    "embed": false
+  }
+}

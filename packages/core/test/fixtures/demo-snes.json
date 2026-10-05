@@ -1,0 +1,581 @@
+{
+  "song": {
+    "version": 1,
+    "name": "Demo snes",
+    "chip": "snes",
+    "tempo": 140,
+    "rowsPerBeat": 4,
+    "tickRate": 60,
+    "channels": [
+      {
+        "id": "ch1",
+        "kind": "sample",
+        "instrument": "pluck",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "ch2",
+        "kind": "sample",
+        "instrument": "bass",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "ch3",
+        "kind": "sample",
+        "instrument": "pad",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "ch4",
+        "kind": "sample",
+        "instrument": "kick",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "ch5",
+        "kind": "sample",
+        "instrument": "snare",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "ch6",
+        "kind": "sample",
+        "instrument": "hat",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "ch7",
+        "kind": "sample",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "ch8",
+        "kind": "sample",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      }
+    ],
+    "patterns": {
+      "a": {
+        "length": 32,
+        "tracks": {
+          "ch1": [
+            {
+              "row": 0,
+              "s": "C-5 pluck"
+            },
+            {
+              "row": 2,
+              "s": "D#5 ."
+            },
+            {
+              "row": 4,
+              "s": "G-5 ."
+            },
+            {
+              "row": 6,
+              "s": "D#5 ."
+            },
+            {
+              "row": 8,
+              "s": "C-5 ."
+            },
+            {
+              "row": 10,
+              "s": "D-5 ."
+            },
+            {
+              "row": 12,
+              "s": "D#5 ."
+            },
+            {
+              "row": 14,
+              "s": "OFF ."
+            },
+            {
+              "row": 16,
+              "s": "G-4 ."
+            },
+            {
+              "row": 18,
+              "s": "A#4 ."
+            },
+            {
+              "row": 20,
+              "s": "C-5 ."
+            },
+            {
+              "row": 22,
+              "s": "D-5 ."
+            },
+            {
+              "row": 24,
+              "s": "D#5 ."
+            },
+            {
+              "row": 28,
+              "s": "D-5 ."
+            },
+            {
+              "row": 30,
+              "s": "OFF ."
+            }
+          ],
+          "ch2": [
+            {
+              "row": 0,
+              "s": "C-2 bass"
+            },
+            {
+              "row": 6,
+              "s": "C-2 ."
+            },
+            {
+              "row": 8,
+              "s": "C-2 ."
+            },
+            {
+              "row": 14,
+              "s": "OFF ."
+            },
+            {
+              "row": 16,
+              "s": "G-1 ."
+            },
+            {
+              "row": 22,
+              "s": "G-1 ."
+            },
+            {
+              "row": 24,
+              "s": "A#1 ."
+            },
+            {
+              "row": 30,
+              "s": "OFF ."
+            }
+          ],
+          "ch3": [
+            {
+              "row": 0,
+              "s": "C-4 pad"
+            },
+            {
+              "row": 14,
+              "s": "OFF"
+            },
+            {
+              "row": 16,
+              "s": "G-3"
+            },
+            {
+              "row": 30,
+              "s": "OFF"
+            }
+          ],
+          "ch4": [
+            {
+              "row": 0,
+              "s": "C-4 kick"
+            },
+            {
+              "row": 8,
+              "s": "C-4 ."
+            },
+            {
+              "row": 16,
+              "s": "C-4 ."
+            },
+            {
+              "row": 24,
+              "s": "C-4 ."
+            }
+          ],
+          "ch5": [
+            {
+              "row": 8,
+              "s": "C-4 snare"
+            },
+            {
+              "row": 24,
+              "s": "C-4 ."
+            }
+          ],
+          "ch6": [
+            {
+              "row": 0,
+              "s": "C-4 hat"
+            },
+            {
+              "row": 2,
+              "s": "C-4 ."
+            },
+            {
+              "row": 4,
+              "s": "C-4 ."
+            },
+            {
+              "row": 6,
+              "s": "C-4 ."
+            },
+            {
+              "row": 8,
+              "s": "C-4 ."
+            },
+            {
+              "row": 10,
+              "s": "C-4 ."
+            },
+            {
+              "row": 12,
+              "s": "C-4 ."
+            },
+            {
+              "row": 14,
+              "s": "C-4 ."
+            },
+            {
+              "row": 16,
+              "s": "C-4 ."
+            },
+            {
+              "row": 18,
+              "s": "C-4 ."
+            },
+            {
+              "row": 20,
+              "s": "C-4 ."
+            },
+            {
+              "row": 22,
+              "s": "C-4 ."
+            },
+            {
+              "row": 24,
+              "s": "C-4 ."
+            },
+            {
+              "row": 26,
+              "s": "C-4 ."
+            },
+            {
+              "row": 28,
+              "s": "C-4 ."
+            },
+            {
+              "row": 30,
+              "s": "C-4 ."
+            }
+          ]
+        }
+      }
+    },
+    "order": ["a", "a"],
+    "loop": 0,
+    "master": {
+      "volume": 0.8,
+      "echo": {
+        "delay": 0.19,
+        "feedback": 0.45,
+        "level": 0.5,
+        "lowpassHz": 4500
+      },
+      "reverb": {
+        "size": 0.5,
+        "damping": 0.5,
+        "level": 0.35
+      }
+    }
+  },
+  "instruments": {
+    "pluck": {
+      "version": 1,
+      "name": "SNES Pluck",
+      "kind": "sample",
+      "chip": "snes",
+      "volume": 0.8,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.3,
+        "sustain": 0.7,
+        "release": 0.2
+      },
+      "macros": {},
+      "send": {
+        "echo": 0.3,
+        "reverb": 0.15
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": null,
+      "sample": {
+        "generator": "pluck",
+        "params": {
+          "brightness": 0.6,
+          "damp": 0.3
+        },
+        "seed": 3,
+        "baseNote": 60,
+        "loop": false
+      }
+    },
+    "bass": {
+      "version": 1,
+      "name": "SNES Bass",
+      "kind": "sample",
+      "chip": "snes",
+      "volume": 0.8,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.2,
+        "sustain": 0.8,
+        "release": 0.08
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": null,
+      "sample": {
+        "generator": "bass",
+        "params": {
+          "cutoff": 0.4,
+          "sub": 0.4
+        },
+        "seed": 5,
+        "baseNote": 60,
+        "loop": true
+      }
+    },
+    "pad": {
+      "version": 1,
+      "name": "SNES Strings",
+      "kind": "sample",
+      "chip": "snes",
+      "volume": 0.6,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0.02,
+        "decay": 0.3,
+        "sustain": 0.9,
+        "release": 0.5
+      },
+      "macros": {},
+      "send": {
+        "echo": 0.5,
+        "reverb": 0.4
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": null,
+      "sample": {
+        "generator": "strings",
+        "params": {
+          "detune": 0.5,
+          "bright": 0.5,
+          "attack": 0.4
+        },
+        "seed": 7,
+        "baseNote": 60,
+        "loop": true
+      }
+    },
+    "kick": {
+      "version": 1,
+      "name": "Kick",
+      "kind": "sample",
+      "chip": "snes",
+      "volume": 0.8,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.4,
+        "sustain": 1,
+        "release": 0.1
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": null,
+      "sample": {
+        "generator": "kick",
+        "params": {},
+        "seed": 1,
+        "baseNote": 60,
+        "loop": false
+      }
+    },
+    "snare": {
+      "version": 1,
+      "name": "Snare",
+      "kind": "sample",
+      "chip": "snes",
+      "volume": 0.8,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.3,
+        "sustain": 1,
+        "release": 0.1
+      },
+      "macros": {},
+      "send": {
+        "echo": 0.2,
+        "reverb": 0.3
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": null,
+      "sample": {
+        "generator": "snare",
+        "params": {},
+        "seed": 2,
+        "baseNote": 60,
+        "loop": false
+      }
+    },
+    "hat": {
+      "version": 1,
+      "name": "Hat",
+      "kind": "sample",
+      "chip": "snes",
+      "volume": 0.5,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.1,
+        "sustain": 1,
+        "release": 0.05
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": null,
+      "sample": {
+        "generator": "hat",
+        "params": {},
+        "seed": 4,
+        "baseNote": 60,
+        "loop": false
+      }
+    }
+  },
+  "sfx": {
+    "version": 1,
+    "name": "Coin snes",
+    "category": "coin",
+    "chip": "snes",
+    "seed": 1234,
+    "wave": "sine",
+    "volume": 0.7,
+    "frequency": {
+      "start": 1046.5,
+      "min": 0,
+      "slide": 0,
+      "deltaSlide": 0
+    },
+    "vibrato": {
+      "depth": 0,
+      "rate": 0
+    },
+    "arpeggio": {
+      "steps": [7],
+      "rate": 14
+    },
+    "envelope": {
+      "attack": 0,
+      "sustain": 0.06,
+      "punch": 0.4,
+      "decay": 0.25
+    },
+    "duty": {
+      "start": 0.5,
+      "sweep": 0
+    },
+    "repeat": {
+      "rate": 0
+    },
+    "phaser": {
+      "offset": 0,
+      "sweep": 0
+    },
+    "filter": {
+      "lowpass": null,
+      "lowpassSweep": 0,
+      "resonance": 0,
+      "highpass": null,
+      "highpassSweep": 0
+    },
+    "bitcrush": {
+      "bits": null,
+      "rateDivide": 1
+    },
+    "noise": {
+      "mode": "long"
+    },
+    "fm": null,
+    "table": null
+  }
+}

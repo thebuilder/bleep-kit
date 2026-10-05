@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "name": "Title",
+  "chip": "nes",
+  "tempo": 150,
+  "rowsPerBeat": 4,
+  "tickRate": 60,
+  "channels": [
+    {
+      "id": "pulse1",
+      "kind": "pulse",
+      "instrument": "lead",
+      "volume": 1,
+      "pan": 0,
+      "mml": null,
+      "muted": false
+    },
+    {
+      "id": "pulse2",
+      "kind": "pulse",
+      "instrument": "lead",
+      "volume": 0.8,
+      "pan": 0,
+      "mml": null,
+      "muted": false
+    },
+    {
+      "id": "triangle",
+      "kind": "triangle",
+      "instrument": "bass",
+      "volume": 1,
+      "pan": 0,
+      "mml": null,
+      "muted": false
+    },
+    {
+      "id": "noise",
+      "kind": "noise",
+      "instrument": "drums",
+      "volume": 0.7,
+      "pan": 0,
+      "mml": "l8 @drums o3 [c r d r c c d r]4 L [c r d r c c d d]8",
+      "muted": false
+    }
+  ],
+  "patterns": {
+    "intro": {
+      "length": 32,
+      "tracks": {
+        "pulse1": [
+          { "row": 0, "note": 72, "inst": "lead", "vol": 15, "fx": [] },
+          { "row": 4, "s": "E-5 . . 047" },
+          { "row": 8, "s": "G-5 . vC" },
+          { "row": 14, "s": "OFF" }
+        ],
+        "triangle": [{ "row": 0, "s": "C-2 bass" }, { "row": 16, "s": "G-1" }]
+      }
+    },
+    "verse": {
+      "length": 64,
+      "tracks": {
+        "pulse1": [
+          { "row": 0, "s": "C-5 lead vF 037" },
+          { "row": 32, "s": "A-4 . . 037" }
+        ],
+        "pulse2": [{ "row": 2, "s": "C-4 lead vA" }, { "row": 34, "s": "A-3" }],
+        "triangle": [
+          { "row": 0, "s": "C-2" },
+          { "row": 16, "s": "F-1" },
+          { "row": 32, "s": "A-1" },
+          { "row": 48, "s": "G-1" }
+        ]
+      }
+    }
+  },
+  "order": ["intro", "verse", "verse"],
+  "loop": 1,
+  "master": { "volume": 0.8, "echo": null, "reverb": null }
+}
