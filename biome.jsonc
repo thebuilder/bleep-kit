@@ -1,0 +1,8 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": ["ultracite/biome/core"],
+  "files": {
+    // docs/ is prose that other tools write into; it is not linted or reformatted here.
+    "includes": ["!docs"]
+  }
+}

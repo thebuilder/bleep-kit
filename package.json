@@ -1,0 +1,40 @@
+{
+  "name": "bleepkit-monorepo",
+  "private": true,
+  "description": "Retro 80s and 90s game audio: sound effect generators, a browser player, a studio and a CLI.",
+  "license": "ISC",
+  "type": "module",
+  "scripts": {
+    "bleepkit": "node packages/cli/src/index.ts",
+    "build": "turbo run build",
+    "check": "turbo run check //#check:root",
+    "check:packages": "node scripts/check-packages.ts",
+    "check:root": "ultracite check *.json *.jsonc .fallowrc.jsonc *.ts scripts .github",
+    "dev": "turbo run dev --filter=@bleepkit/studio",
+    "fallow": "pnpm test:coverage && pnpm fallow:check",
+    "fallow:check": "fallow --coverage coverage/coverage-final.json",
+    "fix": "ultracite fix",
+    "preview": "turbo run preview --filter=@bleepkit/studio",
+    "test": "turbo run test",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "turbo run typecheck //#typecheck:root",
+    "typecheck:root": "tsc -p .",
+    "verify": "pnpm typecheck && pnpm check && pnpm test:coverage && pnpm fallow:check && pnpm build && pnpm check:packages"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
+    "@types/node": "^22.20.4",
+    "@vitest/coverage-v8": "^5.0.3",
+    "fallow": "^3.31.0",
+    "happy-dom": "^20.14.5",
+    "turbo": "^2.11.7",
+    "typescript": "^7.0.2",
+    "ultracite": "^7.12.2",
+    "vitest": "^5.0.3"
+  },
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.18"
+  }
+}

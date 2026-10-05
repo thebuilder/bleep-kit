@@ -1,0 +1,37 @@
+{
+  "name": "bleepkit",
+  "version": "0.1.0",
+  "description": "Generate retro 80s and 90s game audio from the command line.",
+  "license": "ISC",
+  "type": "module",
+  "bin": {
+    "bleepkit": "./src/index.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node build.ts",
+    "check": "ultracite check",
+    "prepack": "node build.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@bleepkit/core": "workspace:*",
+    "@bleepkit/sfx": "workspace:*",
+    "@types/ws": "^8.18.2",
+    "esbuild": "^0.28.2"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "bin": {
+      "bleepkit": "./dist/index.mjs"
+    }
+  }
+}

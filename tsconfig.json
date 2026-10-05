@@ -1,0 +1,16 @@
+{
+  // Root-level TypeScript: scripts, build and test configs. Package sources and tests are checked by their own
+  // tsconfig.json (`pnpm typecheck` runs them all through Turbo, then this one).
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["node"]
+  },
+  "include": [
+    "scripts",
+    "packages/*/vitest.config.ts",
+    "apps/*/vitest.config.ts",
+    "apps/studio/vite.config.ts",
+    "*.config.ts"
+  ]
+}

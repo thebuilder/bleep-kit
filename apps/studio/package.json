@@ -1,0 +1,24 @@
+{
+  "name": "@bleepkit/studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Bleepkit studio: build and audition retro game sounds, served and built with Vite.",
+  "license": "ISC",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "check": "ultracite check",
+    "dev": "vite",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@bleepkit/core": "workspace:*",
+    "@bleepkit/player": "workspace:*",
+    "@bleepkit/sfx": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^8.3.2"
+  }
+}

@@ -1,0 +1,2 @@
+# Keep LF line endings everywhere, whatever the contributor's platform.
+* text=auto eol=lf

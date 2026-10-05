@@ -1,0 +1,9 @@
+{
+  // Browser only (vite.config.ts runs in Node and is checked by the root config).
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["vite/client"]
+  },
+  "include": ["src", "test"]
+}

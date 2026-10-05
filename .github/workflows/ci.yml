@@ -1,0 +1,28 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # full history for Fallow's churn and hotspot analysis
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      # Turbo's local cache, so unchanged packages skip typecheck, lint and build
+      - uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile
+      # typecheck (every package against its own tsconfig), Ultracite lint and formatting, tests with coverage,
+      # Fallow (unused code, duplication, complexity), build, and a pack-and-use check of the publishable packages
+      - run: pnpm verify

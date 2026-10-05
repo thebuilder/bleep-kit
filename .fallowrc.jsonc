@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/fallow/schema.json",
+  // docs/ is prose, not code.
+  "ignorePatterns": ["docs/**"],
+  // The packages are empty skeletons for now: their declared dependencies are the ones the real code will import, but
+  // nothing imports them yet, so Fallow reports every one as unused. Exempt exactly those, no more. Delete an entry as
+  // soon as code imports it, so each one goes back under the unused-dependency check.
+  "ignoreDependencies": ["@bleepkit/*", "wasm-media-encoders", "ws"],
+  // Coverage for exact CRAP scores is passed on the command line: `pnpm fallow` runs the tests first, CI passes the
+  // coverage it just wrote. Without coverage, Fallow estimates the scores.
+  "health": {
+    // The same ceiling as Biome's noExcessiveCognitiveComplexity in the Ultracite preset, so one standard applies.
+    "maxCognitive": 20,
+    // Test files are not production code: their complexity and coverage say nothing about risk.
+    "ignore": ["**/test/**"]
+  }
+}

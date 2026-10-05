@@ -1,0 +1,17 @@
+{
+  // Emits dist/ for the npm package, against the built core (build it first; Turbo does).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "paths": {
+      "@bleepkit/core": ["../core/dist/index.d.ts"],
+      "@bleepkit/core/tools": ["../core/dist/tools.d.ts"]
+    }
+  },
+  "include": ["src"]
+}

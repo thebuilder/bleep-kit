@@ -1,0 +1,94 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "ui": "stream",
+  "tasks": {
+    // No script, only ordering: a task that depends on `transit` is re-run when a workspace dependency's files change
+    // (packages run each other's TypeScript sources directly, so there is nothing to build first), without waiting
+    // for that dependency's own task.
+    "transit": {
+      "dependsOn": ["^transit"]
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "build.ts",
+        "index.html",
+        "vite.config.ts",
+        "tsconfig*.json",
+        "package.json",
+        "$TURBO_ROOT$/tsconfig.base.json",
+        "$TURBO_ROOT$/apps/studio/vite.config.ts"
+      ],
+      "outputs": ["dist/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["transit"],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "build.ts",
+        "tsconfig*.json",
+        "package.json",
+        "$TURBO_ROOT$/tsconfig.base.json"
+      ],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["transit"],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "vitest.config.ts",
+        "package.json",
+        "$TURBO_ROOT$/tsconfig.base.json"
+      ],
+      "outputs": []
+    },
+    // Lint and formatting (Ultracite). Needs no other package's output.
+    "check": {
+      "inputs": [
+        "src/**",
+        "test/**",
+        "build.ts",
+        "index.html",
+        "*.ts",
+        "*.json",
+        "$TURBO_ROOT$/biome.jsonc"
+      ],
+      "outputs": []
+    },
+    // Root-level files: configs, scripts and workflows.
+    "//#check:root": {
+      "inputs": [
+        "*.json",
+        "*.jsonc",
+        ".fallowrc.jsonc",
+        "*.ts",
+        "scripts/**",
+        ".github/**"
+      ],
+      "outputs": []
+    },
+    "//#typecheck:root": {
+      "inputs": [
+        "scripts/**",
+        "*.ts",
+        "tsconfig*.json",
+        "packages/*/vitest.config.ts",
+        "apps/*/vitest.config.ts",
+        "apps/studio/vite.config.ts"
+      ],
+      "outputs": []
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "preview": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

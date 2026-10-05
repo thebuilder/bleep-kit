@@ -1,0 +1,13 @@
+{
+  // Emits dist/ (JavaScript plus .d.ts) for the npm package; in the workspace the package runs from src/.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}
