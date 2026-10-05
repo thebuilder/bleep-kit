@@ -43,6 +43,42 @@ export async function probeServer(
   }
 }
 
+type Body = Record<string, unknown>;
+
+const bodyOf = async (res: Response): Promise<Body> =>
+  (await res.json().catch(() => ({}))) as Body;
+
+/** What the server's answer to a write means: 412 is a conflict, 422 a document that failed validation. */
+function writeResultOf(res: Response, body: Body): WriteResult {
+  if (res.ok) {
+    return {
+      etag: String(body.etag ?? ""),
+      mtime: Number(body.mtime ?? Date.now()),
+      ok: true,
+    };
+  }
+  if (res.status === 412) {
+    return {
+      etag: String(body.etag ?? ""),
+      json: body.json,
+      ok: false,
+      reason: "conflict",
+    };
+  }
+  if (res.status === 422) {
+    return {
+      issues: (body.issues as never) ?? [],
+      ok: false,
+      reason: "invalid",
+    };
+  }
+  return {
+    message: String(body.error ?? res.status),
+    ok: false,
+    reason: "error",
+  };
+}
+
 export class ServerStore implements ProjectStore {
   readonly mode = "server" as const;
   label: string;
@@ -132,37 +168,7 @@ export class ServerStore implements ProjectStore {
         headers: { "content-type": "application/json" },
         method: "PUT",
       });
-      const body = (await res.json().catch(() => ({}))) as Record<
-        string,
-        unknown
-      >;
-      if (res.ok) {
-        return {
-          etag: String(body.etag ?? ""),
-          mtime: Number(body.mtime ?? Date.now()),
-          ok: true,
-        };
-      }
-      if (res.status === 412) {
-        return {
-          etag: String(body.etag ?? ""),
-          json: body.json,
-          ok: false,
-          reason: "conflict",
-        };
-      }
-      if (res.status === 422) {
-        return {
-          issues: (body.issues as never) ?? [],
-          ok: false,
-          reason: "invalid",
-        };
-      }
-      return {
-        message: String(body.error ?? res.status),
-        ok: false,
-        reason: "error",
-      };
+      return writeResultOf(res, await bodyOf(res));
     } catch (err) {
       return { message: (err as Error).message, ok: false, reason: "error" };
     }
@@ -199,14 +205,6 @@ export class ServerStore implements ProjectStore {
       method: "POST",
     });
     return res.json();
-  }
-
-  render(ref: string, options: Record<string, unknown> = {}): Promise<unknown> {
-    return this.post("render", { options, ref });
-  }
-
-  analyzeRemote(ref: string): Promise<unknown> {
-    return this.post("analyze", { ref });
   }
 
   exportAll(dryRun: boolean): Promise<unknown> {

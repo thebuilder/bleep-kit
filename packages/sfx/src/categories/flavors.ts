@@ -48,13 +48,49 @@ export function freeHz(ctx: Ctx, lo: number, hi: number): number {
   return logBetween(ctx.rng, lo, hi);
 }
 
-/** Travel `octaves` over `seconds` (see sweepFor). */
+/** The 8-bit noise channels (NES, Game Boy) quantize their rate to a short table, so their low end needs pinning. */
+function isTableNoise(ctx: Ctx): boolean {
+  return ctx.chip === "nes" || ctx.chip === "gameboy";
+}
+
+/**
+ * Start pitch of a noise sfx. `wide` is the draw for chips with a free or fine rate; `table` replaces it on the NES and
+ * Game Boy, where the rate comes from a short table and anything above a few hundred Hz lands on a bright
+ * hiss with no low end.
+ */
+export function noiseHz(
+  ctx: Ctx,
+  wide: readonly [number, number],
+  table: readonly [number, number] = wide
+): number {
+  const [lo, hi] = isTableNoise(ctx) ? table : wide;
+  return freeHz(ctx, lo, hi);
+}
+
+/**
+ * Noise mode. The Genesis PSG sweeps its noise through tone 3 mode, where the short (periodic) register turns the sweep
+ * into a pitched buzz: it keeps long (white) noise unless the sound is hat-like (`allowShortOnGenesis`).
+ */
+export function setNoiseMode(
+  ctx: Ctx,
+  shortChance: number,
+  allowShortOnGenesis = false
+): void {
+  const short = ctx.rng() < shortChance;
+  ctx.sfx.noise.mode =
+    short && (allowShortOnGenesis || ctx.chip !== "genesis") ? "short" : "long";
+}
+
+/** Travel `octaves` over `seconds` (see sweepFor); a noise sound on a chip whose noise cannot glide stays put. */
 export function slideBy(
   ctx: Ctx,
   octaves: number,
   seconds: number,
   curve = 0
 ): void {
+  if (ctx.sfx.wave === "noise" && !ctx.caps.noiseSweep) {
+    return;
+  }
   const { slide, deltaSlide } = sweepFor(octaves, seconds, curve);
   ctx.sfx.frequency.slide = slide;
   ctx.sfx.frequency.deltaSlide = deltaSlide;

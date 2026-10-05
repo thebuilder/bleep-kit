@@ -473,10 +473,10 @@ export interface Sfx {
 export interface FmOperator {
   mult: number;         // 0..15 (0 = 0.5)
   detune: number;       // -3..3
-  level: number;        // 0..1 (1 = loudest, maps to TL)
+  level: number;        // 0..1 linear amplitude (1 = loudest, 0.5 = -6 dB; modulators use it as modulation depth)
   attack: number;       // 0..31 rate
   decay: number;        // 0..31 rate
-  sustainLevel: number; // 0..1
+  sustainLevel: number; // 0..1 linear amplitude the decay stops at (0.5 = -6 dB, 0 = -48 dB)
   sustainRate: number;  // 0..31 (second decay)
   release: number;      // 0..15 rate
   keyScale: number;     // 0..3
@@ -681,8 +681,12 @@ export interface RenderOptions {
   sampleRate?: number;          // default 48000
   /** Seed for anything random in the render (noise phase, sample generators without their own seed). */
   seed?: number;                // default 1
-  /** Song: how many times to play the loop section; default 1. */
+  /** Song: passes through the loop section after the first one; default 1. A looping song always renders two passes
+      (the second is the one a game repeats, so `loopStart` and `loopEnd` bracket it), and 3 adds two more. */
   loops?: number;
+  /** The project's master. Sfx renders apply `volume` (default 0.8 when absent); songs keep their own
+      `song.master.volume`. `limiter: false` bypasses the output limiter for both (default: on). */
+  master?: { volume: number; limiter: boolean };
   /** Song: seconds of release tail after the end; default 1 (0.25 for sfx). */
   tail?: number;
   /** Also return per-channel dry stems (before master effects). */
@@ -697,7 +701,7 @@ export interface RenderResult {
   channels: Float32Array[];
   frames: number;
   events: EngineEvent[];
-  /** Loop points in frames, when the source loops. */
+  /** Loop points in frames, when the source loops: the start and end of the second pass through the loop section. */
   loopStart?: number;
   loopEnd?: number;
   /** Per-channel mono stems, when requested. */
@@ -1073,7 +1077,7 @@ source (osc | fm | sid | wave | noise | sample)
 | nes | pulse with duty from `[0.125, 0.25, 0.5, 0.75]`, 16-level stepped triangle (32 steps per cycle, no volume), LFSR noise 15-bit long mode and 7-bit short mode with the NES 16-entry period table scaled to the host rate |
 | gameboy | pulse with the same duty list, 32-step 4-bit wave channel (table from the instrument, 4-bit output levels), LFSR noise 15 and 7 bit with the Game Boy divisor table |
 | c64 | SID voice: tri, saw, pulse with PWM, noise (23-bit LFSR), waveform combining by AND of the two waveforms' 12-bit outputs, ring mod (tri of voice n multiplied by sign of voice n-1), hard sync (reset phase of voice n when voice n-1 wraps), one shared multimode 12 dB SVF (lp, bp, hp) with resonance 0..1, per-voice filter routing by `sid.filter.mode !== "off"` |
-| genesis | 6 x 4-op FM (section 3.5) + PSG: 3 square at duty 0.5 and 1 noise (SN76489: 15-bit LFSR white or periodic, 3 fixed rates or tone3 rate) |
+| genesis | 6 x 4-op FM (section 3.5) + PSG: 3 square at duty 0.5 and 1 noise (SN76489: 15-bit LFSR white or periodic; the shift rate is one of the 3 fixed rates, clock / 512, 1024 or 2048, or in tone3 mode clock / (32 N) from the divider of square 3, N = 1..1023). Song notes use the fixed rates. An sfx whose noise pitch moves (slide, vibrato or arpeggio) uses tone3 mode, so its sweeps glide the way they do on hardware instead of jumping between three rates or turning into a tone |
 | adlib | 9 x 2-op FM with OPL2 waveform select (0 sine, 1 half sine, 2 abs sine, 3 pulse sine, 4..7 OPL3 extras allowed in custom) |
 | snes | 8 sample channels (generated samples, section 3.7), gaussian interpolation, 32000 Hz internal rate, per-voice ADSR in SPC700 rate steps, echo bus with 8-tap FIR lowpass simplified to one pole + feedback |
 | custom | any kind on any channel, no constraints, free pan, master effects available |
@@ -1103,7 +1107,7 @@ Per-chip constraints and coloring (the values `chips/<id>.ts` must export; tests
 
 ### 3.5 FM
 
-One operator: phase accumulator at `hz * (mult === 0 ? 0.5 : mult) * detuneFactor` (or `fixedHz`), waveform from the OPL table when the chip allows it, else sine. Modulation input is added to the phase in radians scaled by `MOD_INDEX = 8` (so an operator at level 1 modulates by 8 radians, enough for metallic sounds; tests pin this constant). Output level is `level` converted to a log scale (`TL = (1 - level) * 96 dB`), then the operator envelope: attack rate, decay rate to `sustainLevel`, sustain rate (second decay), release rate, each rate 0..31 mapped to seconds by the YM2612 table approximation `seconds = 10 * 2^(-rate / 2.5)` (rate 31 is near instant, rate 0 never moves). `keyScale` shortens rates at higher notes. Feedback applies to operator 1 (index 0) as `fb = feedback === 0 ? 0 : 2^(feedback - 7) * PI` radians of its own previous two outputs averaged.
+One operator: phase accumulator at `hz * (mult === 0 ? 0.5 : mult) * detuneFactor` (or `fixedHz`), waveform from the OPL table when the chip allows it, else sine. Modulation input is added to the phase in radians scaled by `MOD_INDEX = 8` (so an operator at level 1 modulates by 8 radians, enough for metallic sounds; tests pin this constant). Output level is `level` read as a linear amplitude and converted to attenuation, `TL = -20 * log10(max(1e-5, level))` dB capped at 48 dB (level 1 is 0 dB, 0.5 is 6 dB, 0.25 is 12 dB, and 0 is the 48 dB floor, not silence), then the operator envelope: attack rate, decay rate to `sustainLevel` (the same mapping, `-20 * log10(max(1e-5, sustainLevel))` capped at 48 dB, so a sustain of 0.25 settles 12 dB under the peak), sustain rate (second decay), release rate, each rate 0..31 mapped to seconds by the YM2612 table approximation `seconds = 10 * 2^(-rate / 2.5)` (rate 31 is near instant, rate 0 never moves). `keyScale` shortens rates at higher notes. Feedback applies to operator 1 (index 0) as `fb = feedback === 0 ? 0 : 2^(feedback - 7) * PI` radians of its own previous two outputs averaged.
 
 4-op algorithms (YM2612 numbering, operators 1..4 are `ops[0..3]`):
 
@@ -1115,6 +1119,10 @@ One operator: phase accumulator at `hz * (mult === 0 ? 0.5 : mult) * detuneFacto
 ```
 
 2-op: `0: 1>2`, `1: 1 + 2`. The LFO (per song, one for the whole chip like real hardware, but we allow per instrument settings and run one LFO per voice for simplicity) adds pitch vibrato in cents and amplitude modulation.
+
+A key on restarts everything that shapes the note: operator phases, the feedback memory, the envelope levels and the voice's LFO pitch offset all reset to zero, so a note sounds the same whatever the voice played before it (the voice hides the resulting step with its short declick when it was still sounding). Without that a looped song's second pass would differ from its first and the loop would click at the seam.
+
+Patches are tuned to be measured, not guessed. A modulator that decays faster than its carrier gives a bright attack that settles into a duller sustain: on the starter bass (genesis) the spectral centroid is about 600 Hz in the first 90 ms and 220 Hz in the sustain, on the fixture bass 560 Hz against 340 Hz, and the lead keeps its second harmonic within 7 dB of the fundamental throughout. `defaultFmPatch` (modulators near 0.3 to 0.5, carriers 0.9 to 1) is the baseline for a new FM instrument; the CLI's per-preset starters (lead, bass, drums, pad, bell) are in `packages/cli/src/presets.ts`.
 
 FM runs at the host rate with a sine table of 4096 entries and linear interpolation; no oversampling. Aliasing at high modulation indexes is accepted as part of the character.
 
@@ -1141,11 +1149,13 @@ After the chip mix bus (stereo, sum of voices after pan):
 
 Pan modes: `none` mixes mono to both sides (nes, gameboy, c64, adlib); `hard` snaps pan to left, center, right (genesis, like the YM2612 L/R bits; gameboy actually has hard L/R bits too, so gameboy is `hard`); `free` is equal power pan (snes, custom).
 
+Leveling: chips are leveled once, in core, by `CHIP_GAIN` in `dsp/color.ts`, so that a full-volume square note peaks at -12 dBFS within 1.5 dB on every chip (a core test renders it on all 7 chips). Nothing downstream adds per-chip compensation except the sfx filter and phaser makeup in `@bleepkit/sfx`. SNES sample drums are normalized to a 0.95 peak (`DRUM_PEAK` in `samples/generators.ts`), so their instrument volume is a plain level like any other.
+
 Master: `song.master.volume` or `project.master.volume` gain, then the limiter when enabled: a lookahead peak limiter (1 ms lookahead, 50 ms release, ceiling -0.3 dBFS) implemented with a 64-frame delay line. The limiter is always the last stage and always in both realtime and offline paths so renders match playback.
 
 ### 3.9 Sfx execution
 
-An Sfx document compiles (`sfx-compile.ts`) into a `SfxProgram`: precomputed per-frame coefficients (frequency slide per frame as a multiplier, duty sweep per frame, envelope stage lengths in frames, filter coefficients and sweeps, arpeggio step frames, repeat period in frames, phaser offsets). A Voice runs the program with the same oscillator code as instruments (the `wave` maps to a source: `square` -> pulse, `wave` -> wavetable with the given table, `fm` -> 2-op FM with the 3 parameter patch, `noise` -> the chip's noise model). The chip's constraints and coloring apply exactly as for songs: an nes coin uses stepped 4-bit volume and the period table. For sfx the engine creates a tiny per-sfx chip bus so that a nes coin and a genesis laser fired at the same time each keep their own coloring (sfx pool voices carry their chip id; the synth keeps one coloring state per chip, allocated at create time for all 7 chips).
+An Sfx document compiles (`sfx-compile.ts`) into a `SfxProgram`: precomputed per-frame coefficients (frequency slide per frame as a multiplier, duty sweep per frame, envelope stage lengths in frames, filter coefficients and sweeps, arpeggio step frames, repeat period in frames, phaser offsets). A Voice runs the program with the same oscillator code as instruments (the `wave` maps to a source: `square` -> pulse, `wave` -> wavetable with the given table, `fm` -> 2-op FM with the 3 parameter patch, `noise` -> the chip's noise model). `RenderOptions.master` (`{ volume, limiter }`) is applied to sfx renders too: the CLI passes the project master and, without one, sfx render at volume 0.8 with the limiter on. Songs keep their own `master`. The 2-op sfx FM path takes the modulation index in radians, like the textbook formula (the control path divides by 2 pi before the operator, where the instrument FM path of 3.5 uses TL in dB), and the sfx builder (`limitFm`) caps the modulator at 6 kHz and the Carson bandwidth at 40 kHz so a laser stays near a 4 kHz centroid. On genesis the PSG noise channel cannot sweep on its own, so moving-pitch noise uses tone3 mode (the noise rate follows channel 3 pitch times 16; `quantizeTone3NoiseRate`), and `CHIP_CAPS.noiseSweep` is false where a sweep is impossible. The chip's constraints and coloring apply exactly as for songs: an nes coin uses stepped 4-bit volume and the period table. For sfx the engine creates a tiny per-sfx chip bus so that a nes coin and a genesis laser fired at the same time each keep their own coloring (sfx pool voices carry their chip id; the synth keeps one coloring state per chip, allocated at create time for all 7 chips).
 
 Pitch-less params a game may vary at trigger time: `velocity` (scales volume), `pitch` (semitone offset to `frequency.start`), `pan`, `seed` (noise phase and any `randomize` left in the program: none today, reserved).
 
@@ -1182,7 +1192,7 @@ Voice stealing for sfx: pick a free voice; otherwise the voice in its release st
 All three build a `Synth` at `opts.sampleRate`, drive it with the right messages, and run `process` in 128-frame blocks until done, collecting events. They return a `RenderResult` (section 2.2).
 
 - `renderSfx`: length is the program's duration plus `tail` (default 0.25 s), trimmed to the last frame above -90 dBFS plus 10 ms, so sfx files have no silence.
-- `renderSong`: plays from order 0. With a loop: renders the intro, then the loop section `loops` times, then `tail` seconds of release. `loopStart` is the frame where the loop order index starts the first time; `loopEnd` is the frame where it starts again (so one loop length). When the song does not loop, `loopStart` and `loopEnd` are absent and the render stops after `halt` or the end of `order` plus `tail`. With `stems: true`, `stems[i]` holds the dry mono stem of channel `i` and `stemIds[i]` its id.
+- `renderSong`: plays from order 0. With a loop it always renders at least two passes of the loop section, so the seam is real audio: the intro, the first pass, a second pass, then `tail` seconds of release. `loops` counts extra passes after the first (`loops: 1`, the default, is the minimum of two passes; `0` behaves like `1`). `loopStart` is the frame where the second pass starts (the loop order index the second time) and `loopEnd` is `loopStart` plus one pass, so the loop region is the second pass and its start is exactly what the first pass flows into. The sequencer emits a section event at every loop jump and the synth restarts its tick grid there, and FM voices reset their state at key-on, so the second pass is identical to the first and the seam is below -40 dB (typically about -100 dB or lower). When the song does not loop, `loopStart` and `loopEnd` are absent and the render stops after `halt` or the end of `order` plus `tail`. With `stems: true`, `stems[i]` holds the dry mono stem of channel `i` and `stemIds[i]` its id.
 - `renderInstrumentNote`: one note for `duration` (default 0.5 s) then `release` (default 0.5 s) on the right channel kind of `chip` (default the instrument's chip or `custom`).
 - `events` hold `frame` in render frames (0 at the start of the render). Loop renders emit a `loop` event at every loop start and `end` at the final frame.
 
@@ -1292,7 +1302,7 @@ Binary `bleepkit`, built with esbuild into `packages/cli/dist/index.mjs` like Pi
 | `bleepkit mutate <ref> [--amount 0.15] [--count 1] [--seed] [--out <id>]` | sfx only today; writes `<id>-m1.json`... (or `--out`) and prints descriptions | `{ ok, results: [{ id, path, description }] }` |
 | `bleepkit validate [ref...]` | normalizes every document (or the named ones) with the instrument map; exit 1 when any error | `{ ok, documents: [{ ref, ok, issues }] }` |
 | `bleepkit list [sfx|songs|instruments]` | lists documents with name, chip, category or kind, duration when a render exists in `out/` | `{ ok, sfx: [...], songs: [...], instruments: [...] }` |
-| `bleepkit render [ref...] [--format wav] [--loops 1] [--tail 1] [--stems] [--analyze] [--images] [--rate 48000]` | renders to `out/<kind>/<id>.wav` (`.ogg`/`.mp3` with `--format`), writes `<id>.events.json`; `--analyze` adds the analysis JSON; `--images` writes `out/analysis/<id>.waveform.png`, `.spectrogram.png`, `.scopes.png`; no refs = everything | `{ ok, renders: [{ ref, path, duration, loopStart, loopEnd, peakDb, rmsDb, clipped, analysis? }] }` |
+| `bleepkit render [ref...] [--format wav] [--loops 1] [--tail 1] [--stems] [--analyze] [--images] [--rate 48000]` | renders to `out/<kind>/<id>.wav` (`.ogg`/`.mp3` with `--format`), writes `<id>.events.json`; `--loops` is the number of extra passes of a looping song after the first (minimum 1, so a render always holds the intro and two passes and `loopStart` / `loopEnd` bracket the second); `--analyze` adds the analysis JSON; `--images` writes `out/analysis/<id>.waveform.png`, `.spectrogram.png`, `.scopes.png`; no refs = everything | `{ ok, renders: [{ ref, path, duration, loopStart, loopEnd, peakDb, rmsDb, clipped, analysis? }] }` |
 | `bleepkit analyze <file or ref> [--images] [--pitch] [--window 2048]` | analysis of a render in `out/` or any wav/ogg path; renders first when `out/` is stale or missing (render if the document is newer) | the `Analysis` object (section 6.4) with `ok: true` |
 | `bleepkit play <ref> [--studio http://localhost:5174] [--visual]` | POSTs `/api/play` to the running studio; exit 4 when no studio answers | `{ ok, studio }` |
 | `bleepkit export [--dir] [--manifest] [--sfx-format] [--music-format] [--embed] [--clean] [--dry-run]` | renders everything whose render is stale, encodes to the project's export formats, writes files to `export.dir`, writes the manifest; `--clean` removes files in `export.dir` that no document produces; `--dry-run` lists what would change | `{ ok, written: string[], removed: string[], manifest, warnings: string[] }` |
@@ -1343,11 +1353,11 @@ interface Analysis {
   clipped: { frames: number; first: number | null }; // |x| >= 0.999
   silenceDb: number;                                  // level of the quietest 50 ms window
   leadingSilence: number; trailingSilence: number;    // seconds under -60 dBFS at the ends
-  loop: { start: number; end: number; seamDiffDb: number } | null;   // seconds; seamDiffDb: RMS difference across 5 ms either side of the seam
+  loop: { start: number; end: number; seamDiffDb: number | null } | null;   // seconds; seamDiffDb: RMS (dBFS) of the difference between the 5 ms before `end` and the 5 ms before `start`, which is what a loop jump would splice; below -40 dB is clean; null when `start` is under 5 ms (nothing precedes it to compare)
   spectrum: { centroidHz: number; bands: { lowDb: number; midDb: number; highDb: number } };  // 20..250, 250..4000, 4000..nyquist
   pitch: { medianHz: number | null; medianNote: string | null; track: { time: number; hz: number | null; confidence: number }[] };  // track hop 512 frames, trimmed to 200 entries max in --json unless --pitch
   envelope: { time: number; db: number }[];           // RMS every 10 ms, max 1000 points
-  dutyCycle: number | null;                           // for sfx with wave square: ratio measured from zero crossings on the first 100 ms
+  dutyCycle: number | null;                           // null unless the signal is a two-level pulse; the CLI passes the sfx `wave` when known and `analyze` of plain files leaves it null
   images?: { waveform: string; spectrogram: string; scopes?: string };  // paths written with --images
 }
 ```
@@ -1395,7 +1405,7 @@ With `embed: true`, `manifest.sfx.<id>.data` and `manifest.songs.<id>.data` carr
 ## 8. Export formats and loop gaps
 
 - Masters are 16-bit WAV in `out/`, always, with a `smpl` chunk holding one loop (`loopStart`, `loopEnd` in frames, type forward) when the song loops, and a `LIST INFO` chunk with `ISFT: bleepkit <version>` and `ICMT: <id>`.
-- Game music defaults to OGG Vorbis (quality 6), which is gapless: loop points from the manifest in seconds line up with the decoded buffer. The player uses `loopStart` / `loopEnd` on the buffer source, so the render contains intro + one loop + tail and the game loops the middle.
+- Game music defaults to OGG Vorbis (quality 6), which is gapless: loop points from the manifest in seconds line up with the decoded buffer. The player uses `loopStart` / `loopEnd` on the buffer source, so the render contains the intro, two passes and the tail, and the game loops the second pass (`loopStart` to `loopEnd`).
 - MP3 is optional (`musicFormat: "mp3"`) because MP3 adds encoder delay (1105 frames with LAME-style encoders) and end padding, so decoded audio is offset and longer and a buffer loop has a gap or a click. `export` compensates by writing the manifest `loopStart` / `loopEnd` shifted by the encoder delay (hard coded 1105 frames at the encode rate, since `wasm-media-encoders` does not report it) and warns in its output: "MP3 loop points are approximate; use OGG for seamless loops". Sfx in MP3 keep their file; only the manifest `duration` excludes the delay.
 - Safari: treat Safari as unable to decode OGG Vorbis in `decodeAudioData` (the player's `loadManifest` probes `canPlayType('audio/ogg; codecs=vorbis')` and reports it). Games that need Safari either set both formats to `mp3` and accept approximate loops, or set `embed: true` and use synth mode, which needs no files at all. Recommended for Safari: synth mode.
 - `wasm-media-encoders` (version 0.7.0, pinned exactly) is loaded with `createOggEncoder()` / `createMp3Encoder()` from a dynamic import; the WASM is fetched by the package in the browser and read from `node_modules` in Node. Encoding runs in the main thread of the CLI (it is fast) and in a Web Worker in the studio (`src/workers/encode.ts`).
@@ -1406,6 +1416,7 @@ Every package has `test/`. Fixtures live in `packages/core/test/fixtures/` (docu
 
 - DSP unit tests (core): pulse duty ratio by counting samples above zero over 100 cycles (within 1%); frequency by zero crossings and by FFT peak (within 0.5% at 440 Hz for every oscillator and FM at low index); NES period quantization reproduces known cents errors (A-7 on NES pulse is sharp by a known amount); envelope timing: attack reaches 0.99 within attack seconds plus 1 ms, release falls below -60 dB within release seconds times 1.2; macro loop and release indexes; LFSR noise short mode has period 93 or 31 in NES; SID filter cutoff lowers the FFT energy above cutoff by at least 12 dB per octave; limiter never exceeds -0.3 dBFS on a +12 dB input; echo repeats at the delay time (cross correlation peak).
 - Sequencer tests: a pattern with notes at rows 0, 4, 8 emits noteOn events at the expected frames for tempo 120 and 150; `jump`, `skip`, `halt`, loop points; MML and the equivalent pattern produce identical event lists; effects per tick values at tick 0, 1, 2.
+- Loop and level tests (core): seam below -40 dB on every fixture and chip demo and below -80 dB for an FM song with an LFO; one render has one `loop` event and `loops: 3` has three; FM key-on resets operator state; a full-volume square peaks -12 dBFS +-1.5 dB on all 7 chips; sfx honor `RenderOptions.master`; the sfx FM index is pinned in radians (Bessel sideband ratio); genesis tone3 rate table; `onSection` events from the sequencer; `seamDiffDb` null cases. In sfx: `noiseSweep` caps, noise start clamps (60 to 250 Hz boom on nes/gameboy, 300 to 1500 Hz steps) and FM modulator and bandwidth bounds.
 - Golden tests: for every fixture document, `renderSfx` / `renderSong` at 48000 and 44100 produce a Float32 output whose FNV-1a hash of the raw bytes matches `test/golden/<id>.json`. A changed golden must be updated on purpose: bump `ENGINE_VERSION` (section 6.2), run `UPDATE_GOLDEN=1 pnpm test` (it refuses to move hashes under an unbumped version), and review by listening (the orchestrator) or by analysis diff. The same test renders twice and asserts bit equality (determinism) and renders through `createSynth` in 128-frame blocks versus 64-frame blocks and asserts equality (block-size independence).
 - Normalize tests: every rule in section 2 has a test with the issue path and severity; round trip `normalize(normalize(x).value)` yields zero issues and deep-equal output; the compact row string form and the typed form normalize to the same thing; version greater than FORMAT_VERSION is an error.
 - MML tests: each grammar element; `formatMml(parseMml(x).events)` reparses to the same events; error positions.

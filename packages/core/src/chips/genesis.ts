@@ -82,3 +82,12 @@ export function quantizeNoiseRate(hz: number): number {
   }
   return best;
 }
+
+/**
+ * Tone 3 mode of the noise channel (NF = 3): the shift register is clocked by tone channel 3's divider, so its rate is
+ * clock / (32 N) with N = 1..1023 (109 Hz to 111.8 kHz) instead of one of the three fixed rates. Sweeping N sweeps the
+ * noise, which the three fixed rates cannot. Takes the same requested pitch as `quantizeNoiseRate`.
+ */
+export function quantizeTone3NoiseRate(hz: number): number {
+  return quantizeHz(Math.max(hz, 1) * 16);
+}

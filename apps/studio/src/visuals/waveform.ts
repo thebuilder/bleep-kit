@@ -4,7 +4,7 @@ import type { RenderResult } from "../lib/contract.ts";
 import { rgba, type Surface } from "./canvas.ts";
 import { createSpectrum } from "./fft.ts";
 
-export const PX = 3;
+const PX = 3;
 
 export interface WaveOpts {
   /** peak guide lines (clipping) */
@@ -16,8 +16,8 @@ export interface WaveOpts {
   played?: number;
 }
 
-/** min and max per column of the left channel, as 0..1 magnitudes either side of the middle. */
-export function columnPeaks(r: RenderResult, cols: number): Float32Array {
+/** min and max per column of the left channel (lows and highs, interleaved), either side of the middle. */
+export function peaks(r: RenderResult, cols: number): Float32Array {
   const out = new Float32Array(cols * 2);
   const [ch] = r.channels;
   if (!ch || r.frames === 0) {
@@ -69,7 +69,7 @@ export function drawWaveform(
     return;
   }
   const cols = Math.max(8, Math.floor(w / PX));
-  const pk = columnPeaks(r, cols);
+  const pk = peaks(r, cols);
   const played = o.played ?? -1;
   const playedCols = played < 0 ? cols : Math.floor(played * cols);
   const amp = mid - 2;

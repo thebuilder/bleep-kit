@@ -137,8 +137,3 @@ export function icon(name: string, size = 16, cls = ""): string {
   }
   return svg;
 }
-
-export const hasIcon = (name: string): boolean => name in ART;
-
-/** The icon for a sfx category or channel kind. */
-export const categoryIcon = (c: string): string => (hasIcon(c) ? c : "custom");

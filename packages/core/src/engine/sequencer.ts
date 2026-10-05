@@ -13,6 +13,8 @@ export interface SeqHandler {
   onEvent: (frame: number, channel: number, e: TimelineEvent) => void;
   onLoop: (frame: number) => void;
   onRow: (frame: number, mark: RowMark) => void;
+  /** The first pass reaches the start of the loop section (not called when the song starts there). */
+  onSection: (frame: number) => void;
 }
 
 const KIND_NONE = -1;
@@ -20,6 +22,7 @@ const KIND_TEMPO = 0;
 const KIND_ROW = 1;
 const KIND_CHANNEL = 2;
 const KIND_END = 3;
+const KIND_SECTION = 4;
 
 /** The instrument and volume set by the events in `list` before index `end`: what a channel holds after them. */
 function persistentState(
@@ -56,6 +59,8 @@ export class SongPlayer {
   private tempoPtr = 0;
   private readonly chPtr = new Int32Array(MAX_SEQ_CHANNELS);
   private pausedPulse = 0;
+  /** The first pass has not reached the loop section yet. */
+  private sectionPending = false;
 
   // result of the last peek()
   private kind = KIND_NONE;
@@ -142,6 +147,7 @@ export class SongPlayer {
     this.pausedPulse = pulse;
     this.setTempo(this.tempoAt(pulse));
     this.placePointers(tl, pulse);
+    this.sectionPending = tl.loopPulse !== null && tl.loopPulse > pulse + EPS;
     if (state) {
       for (let c = 0; c < tl.tracks.length && c < MAX_SEQ_CHANNELS; c += 1) {
         const list = tl.tracks[c] ?? [];
@@ -245,8 +251,12 @@ export class SongPlayer {
     if (!tl) {
       return;
     }
-    // earlier sources win ties: tempo, then rows, then channels, then the end
+    // earlier sources win ties: the loop section, tempo, then rows, then channels, then the end
     let best = Number.POSITIVE_INFINITY;
+    if (this.sectionPending && tl.loopPulse !== null) {
+      best = tl.loopPulse;
+      this.kind = KIND_SECTION;
+    }
     const tp = tl.tempos[this.tempoPtr];
     if (tp && tp[0] < best - EPS) {
       best = tp[0];
@@ -296,7 +306,10 @@ export class SongPlayer {
         return;
       }
       const at = Math.min(ef, frame);
-      if (this.kind === KIND_TEMPO) {
+      if (this.kind === KIND_SECTION) {
+        this.sectionPending = false;
+        h.onSection(at);
+      } else if (this.kind === KIND_TEMPO) {
         this.fireTempo(tl);
       } else if (this.kind === KIND_ROW) {
         this.fireRow(tl, h, at);

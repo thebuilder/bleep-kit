@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_DUTIES } from "../src/engine/inst.ts";
+import { SongPlayer } from "../src/engine/sequencer.ts";
 import { SynthImpl } from "../src/engine/synth.ts";
+import { compileSong } from "../src/engine/timeline.ts";
 import type { Effect, Instrument, Row, Song } from "../src/index.ts";
 import {
   createSynth,
@@ -147,6 +149,61 @@ describe("sequencer flow", () => {
       ...extra,
     };
   }
+
+  it("tells the handler when the first pass reaches the loop section, once, then at every wrap", () => {
+    const song = twoPatterns([], { loop: 1 });
+    const player = new SongPlayer(SR);
+    player.load(compileSong(song, { lead: simpleInstrument() }));
+    const seen: [string, number][] = [];
+    const noop = () => undefined;
+    const handler = {
+      onEnd: (f: number) => seen.push(["end", f]),
+      onEvent: noop,
+      onLoop: (f: number) => seen.push(["loop", f]),
+      onRow: noop,
+      onSection: (f: number) => seen.push(["section", f]),
+    };
+    player.start(0, 0, 3, null);
+    for (let frame = 0; frame <= SR * 8 && player.running; frame += 100) {
+      player.advance(frame, handler);
+    }
+    // 120 bpm, 4 rows a beat, 4 rows a pattern: one beat (24000 frames) a pattern, the loop section starts at pattern b
+    expect(seen).toEqual([
+      ["section", 24_000],
+      ["loop", 72_000],
+      ["loop", 120_000],
+      ["end", 168_000],
+    ]);
+  });
+
+  it("does not announce a loop section the song starts in, or one a seek has passed", () => {
+    const player = new SongPlayer(SR);
+    player.load(
+      compileSong(twoPatterns([], { loop: 0 }), { lead: simpleInstrument() })
+    );
+    const sections: number[] = [];
+    const handler = {
+      onEnd: () => undefined,
+      onEvent: () => undefined,
+      onLoop: () => undefined,
+      onRow: () => undefined,
+      onSection: (f: number) => sections.push(f),
+    };
+    player.start(0, 0, 1, null);
+    for (let frame = 0; frame <= SR * 4; frame += 100) {
+      player.advance(frame, handler);
+    }
+    expect(sections).toEqual([]);
+    const later = new SongPlayer(SR);
+    later.load(
+      compileSong(twoPatterns([], { loop: 1 }), { lead: simpleInstrument() })
+    );
+    later.start(96 * 2, 0, 1, null);
+    for (let frame = 0; frame <= SR * 4; frame += 100) {
+      later.advance(frame, handler);
+    }
+    expect(sections).toEqual([]);
+  });
 
   function notesPlayed(song: Song, seconds = 8): number[] {
     const synth = createSynth({ sampleRate: SR });

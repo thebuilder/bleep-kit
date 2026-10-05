@@ -2447,7 +2447,7 @@
     .kb {
       display: block;
       width: 100%;
-      height: 124px;
+      height: 104px;
       touch-action: none;
       cursor: pointer;
       image-rendering: pixelated;
@@ -2531,7 +2531,7 @@
     }
     .alg {
       position: relative;
-      height: 66px;
+      height: 58px;
       padding: 8px 6px 14px;
       color: var(--muted);
       background: #0e0d14;
@@ -2554,14 +2554,24 @@
         0 0 0 2px var(--accent),
         0 0 18px rgba(243, 178, 74, 0.35);
     }
+    /* The four operators sit in a 2 x 2 grid of compact strips, so all of them are on screen at once at 1440 x 900.
+       Each strip uses micro fields: label and value on one line, a thin slider under them. */
+    .op-wrap {
+      margin-top: 10px;
+      container-type: inline-size;
+    }
     .op-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 12px;
-      margin-top: 12px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    @container (max-width: 699px) {
+      .op-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
     }
     .op {
-      padding: 10px;
+      padding: 6px 10px 8px;
       background: #0e0d14;
       border: 1px solid #000;
       box-shadow: 0 0 0 1px var(--line);
@@ -2570,20 +2580,55 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
     }
     .op-h .pxh {
       color: var(--accent);
     }
     .op-env {
-      width: 96px;
-      height: 32px;
+      width: 80px;
+      height: 24px;
       image-rendering: pixelated;
       border: 1px solid #000;
     }
-    .op .fields {
-      grid-template-columns: 1fr;
-      gap: 5px;
+    .fields.micro {
+      grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+      gap: 4px 12px;
+    }
+    .fields.micro.roomy {
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    }
+    .fields.micro .fld {
+      grid-template-areas:
+        "l n"
+        "r r";
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 0 6px;
+    }
+    .fields.micro .fld > label {
+      grid-area: l;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .fields.micro .fld input[type="number"] {
+      grid-area: n;
+      width: calc(4ch + 12px);
+      min-width: 0;
+      height: 20px;
+      min-height: 20px;
+      padding: 0 4px;
+      font-size: 11px;
+    }
+    .fields.micro .fld input[type="range"] {
+      grid-area: r;
+      height: 14px;
+    }
+    .fields.micro .fld .tgl {
+      grid-area: n;
+      grid-column: auto;
+      justify-self: end;
     }
     .wavegrid-box {
       display: grid;

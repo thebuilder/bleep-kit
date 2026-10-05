@@ -46,25 +46,50 @@ const putEntry = (
   });
 };
 
-async function exportSfx(ctx: ExportCtx, d: { id: string; value: unknown }) {
-  const p = ctx.project;
-  const r = await renderSfxAsync(d.value as Sfx, p.sampleRate);
+type Rendered = Awaited<ReturnType<typeof renderSfxAsync>>;
+
+/** Encode a render in the project's format and add the file to the zip; returns the file name and the format used. */
+async function encodeEntry(
+  ctx: ExportCtx,
+  id: string,
+  r: Rendered,
+  format: Project["export"]["sfxFormat"]
+): Promise<{ file: string; used: string }> {
   const out = await encodeAudio(r, {
-    bitrate: p.export.mp3Bitrate,
-    format: p.export.sfxFormat,
-    name: d.id,
-    quality: p.export.oggQuality,
+    bitrate: ctx.project.export.mp3Bitrate,
+    format,
+    name: id,
+    quality: ctx.project.export.oggQuality,
   });
   if (out.note) {
-    ctx.notes.push(`${d.id}: ${out.note}`);
+    ctx.notes.push(`${id}: ${out.note}`);
   }
-  const file = `${d.id}.${out.used}`;
+  const file = `${id}.${out.used}`;
   putEntry(ctx, `${ctx.dir}/${file}`, out.bytes);
+  return { file, used: out.used };
+}
+
+async function exportSfx(ctx: ExportCtx, d: { id: string; value: unknown }) {
+  const r = await renderSfxAsync(d.value as Sfx, ctx.project.sampleRate);
+  const { file } = await encodeEntry(
+    ctx,
+    d.id,
+    r,
+    ctx.project.export.sfxFormat
+  );
   const e: SfxEntry = { duration: round(r.frames / r.sampleRate), file };
-  if (p.export.embed) {
+  if (ctx.project.export.embed) {
     e.data = d.value as Sfx;
   }
   ctx.manifest.sfx[d.id] = e;
+}
+
+/** Loop points in seconds. An MP3 starts late by the encoder delay, so its points shift by the same amount. */
+function loopPoints(r: Rendered, used: string) {
+  const shift = used === "mp3" ? MP3_ENCODER_DELAY / r.sampleRate : 0;
+  const point = (frames: number | undefined) =>
+    frames === undefined ? null : round(frames / r.sampleRate + shift);
+  return { loopEnd: point(r.loopEnd), loopStart: point(r.loopStart) };
 }
 
 async function exportSong(ctx: ExportCtx, d: { id: string; value: unknown }) {
@@ -74,27 +99,13 @@ async function exportSong(ctx: ExportCtx, d: { id: string; value: unknown }) {
     ctx.instruments,
     p.sampleRate
   );
-  const out = await encodeAudio(r, {
-    bitrate: p.export.mp3Bitrate,
-    format: p.export.musicFormat,
-    name: d.id,
-    quality: p.export.oggQuality,
-  });
-  if (out.note) {
-    ctx.notes.push(`${d.id}: ${out.note}`);
-  }
-  const file = `${d.id}.${out.used}`;
-  putEntry(ctx, `${ctx.dir}/${file}`, out.bytes);
-  const shift = out.used === "mp3" ? MP3_ENCODER_DELAY / r.sampleRate : 0;
-  const point = (frames: number | undefined) =>
-    frames === undefined ? null : round(frames / r.sampleRate + shift);
+  const { file, used } = await encodeEntry(ctx, d.id, r, p.export.musicFormat);
   const e: SongEntry = {
     duration: round(r.frames / r.sampleRate),
     file,
-    loopEnd: point(r.loopEnd),
-    loopStart: point(r.loopStart),
+    ...loopPoints(r, used),
   };
-  if (out.used === "mp3" && e.loopStart !== null) {
+  if (used === "mp3" && e.loopStart !== null) {
     ctx.notes.push(
       "MP3 loop points are approximate; use OGG for seamless loops"
     );

@@ -19,6 +19,7 @@ import {
   phaser,
   pwm,
   runFlavors,
+  setNoiseMode,
   sign,
   slideBy,
   vibrato,
@@ -108,7 +109,7 @@ function shimmer(ctx: Ctx): void {
 function swirl(ctx: Ctx): void {
   const { rng, sfx } = ctx;
   applyWave(ctx, "noise");
-  sfx.noise.mode = chance(rng, 0.4) ? "short" : "long";
+  setNoiseMode(ctx, 0.4);
   sfx.frequency.start = freeHz(ctx, 300, 2000);
   const total = between(rng, 0.5, 1.2);
   const attack = between(rng, 0.1, 0.3);

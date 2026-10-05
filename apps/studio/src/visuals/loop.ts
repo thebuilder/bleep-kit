@@ -44,7 +44,7 @@ export function addVisual(fn: Visual): () => void {
   return () => visuals.delete(fn);
 }
 
-export function setReduced(on: boolean): void {
+function setReduced(on: boolean): void {
   reduced = on;
   document.documentElement.dataset.reduced = on ? "1" : "0";
 }
@@ -112,11 +112,6 @@ export function startLoop(): void {
     );
   }
   raf = requestAnimationFrame(tick);
-}
-
-export function stopLoop(): void {
-  running = false;
-  cancelAnimationFrame(raf);
 }
 
 /** Run one frame by hand (tests, and drawing a still frame after a state change under reduced motion). */

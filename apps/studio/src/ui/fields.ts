@@ -279,3 +279,11 @@ export function textField(
   );
   return input;
 }
+
+/** The title row at the top of an inspector: a pixel icon and a name. */
+export function inspectorTitle(iconName: string, text: string): HTMLElement {
+  const title = h("div", { class: "insp-title" });
+  title.innerHTML = `${icon(iconName, 16)}<span class="nm"></span>`;
+  (title.querySelector(".nm") as HTMLElement).textContent = text;
+  return title;
+}

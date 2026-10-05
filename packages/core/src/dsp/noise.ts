@@ -77,8 +77,9 @@ export function renderNoise(s: NoiseState, out: Float32Array, n: number): void {
       if (steps === 1) {
         last = sum;
       } else {
-        // average, then lift back toward unit variance so bright noise is not much quieter than dull noise
-        const v = (sum / steps) * Math.min(Math.sqrt(steps), 3);
+        // average, then lift back toward unit variance (capped at 2) so bright noise is not much quieter than dull noise
+        // but a hiss that averages many steps does not outshout a boom that averages few
+        const v = (sum / steps) * Math.min(Math.sqrt(steps), 2);
         last = v > 1 ? 1 : v < -1 ? -1 : v;
       }
     }

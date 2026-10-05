@@ -51,8 +51,8 @@ export type ServerMessage =
   | { type: "log"; level: "info" | "warn" | "error"; message: string };
 
 export interface ProjectStore {
-  analyzeRemote?: (ref: string) => Promise<unknown>;
   close: () => void;
+  /** Server only: the studio server renders and writes the whole export. */
   exportAll?: (dryRun: boolean) => Promise<unknown>;
   /** Short text for the status area: the folder on disk, or "this browser". */
   readonly label: string;
@@ -62,8 +62,6 @@ export interface ProjectStore {
   readBytes: (path: string) => Promise<Uint8Array | null>;
   readJson: (path: string) => Promise<FileJson>;
   remove: (path: string) => Promise<void>;
-  /** Server only. */
-  render?: (ref: string, options?: Record<string, unknown>) => Promise<unknown>;
   subscribe: (fn: (msg: ServerMessage) => void) => () => void;
   writeBytes: (path: string, bytes: Uint8Array) => Promise<void>;
   /** Write a document; `ifMatch` is the etag the caller loaded, left out to overwrite. */
@@ -94,7 +92,7 @@ export function kindOfPath(path: string): FileKind | null {
   return path.startsWith("out/") ? "render" : null;
 }
 
-export const DIR_OF = {
+const DIR_OF = {
   instrument: "instruments",
   sfx: "sfx",
   song: "songs",

@@ -221,10 +221,10 @@ export interface Sfx {
 export interface FmOperator {
   mult: number;         // 0..15 (0 = 0.5)
   detune: number;       // -3..3
-  level: number;        // 0..1 (1 = loudest, maps to TL)
+  level: number;        // 0..1 linear amplitude (1 = loudest, 0.5 = -6 dB; modulators use it as modulation depth)
   attack: number;       // 0..31 rate
   decay: number;        // 0..31 rate
-  sustainLevel: number; // 0..1
+  sustainLevel: number; // 0..1 linear amplitude the decay stops at (0.5 = -6 dB, 0 = -48 dB)
   sustainRate: number;  // 0..31 (second decay)
   release: number;      // 0..15 rate
   keyScale: number;     // 0..3
@@ -429,8 +429,12 @@ export interface RenderOptions {
   sampleRate?: number;          // default 48000
   /** Seed for anything random in the render (noise phase, sample generators without their own seed). */
   seed?: number;                // default 1
-  /** Song: how many times to play the loop section; default 1. */
+  /** Song: passes through the loop section after the first one; default 1. A looping song always renders two passes
+      (the second is the one a game repeats, so `loopStart` and `loopEnd` bracket it), and 3 adds two more. */
   loops?: number;
+  /** The project's master. Sfx renders apply `volume` (default 0.8 when absent); songs keep their own
+      `song.master.volume`. `limiter: false` bypasses the output limiter for both (default: on). */
+  master?: { volume: number; limiter: boolean };
   /** Song: seconds of release tail after the end; default 1 (0.25 for sfx). */
   tail?: number;
   /** Also return per-channel dry stems (before master effects). */
@@ -445,7 +449,7 @@ export interface RenderResult {
   channels: Float32Array[];
   frames: number;
   events: EngineEvent[];
-  /** Loop points in frames, when the source loops. */
+  /** Loop points in frames, when the source loops: the start and end of the second pass through the loop section. */
   loopStart?: number;
   loopEnd?: number;
   /** Per-channel mono stems, when requested. */

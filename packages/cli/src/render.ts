@@ -359,6 +359,7 @@ function doRender(
 ): RenderResult {
   const options = {
     loops: eff.loops,
+    master: pc.project.master,
     sampleRate: eff.rate,
     seed: eff.seed,
     stems: wantStems,
@@ -516,11 +517,21 @@ function writeStems(job: Job, result: RenderResult): string[] {
   return stems;
 }
 
-function analysisOf(job: Job, result: RenderResult): Analysis {
+/** An sfx knows its wave, so the duty cycle is only measured for a square; a song has no single wave (null). */
+function waveOf(kind: DocKind, value: unknown): string | null {
+  return kind === "sfx" ? (value as Sfx).wave : null;
+}
+
+function analysisOf(
+  job: Job,
+  result: RenderResult,
+  wave: string | null
+): Analysis {
   const analysis = analyze(result, {
     file: job.masterRel,
     maxTrack: job.opts.pitch ? Number.POSITIVE_INFINITY : 200,
     ...(job.opts.window ? { pitchWindow: job.opts.window } : {}),
+    wave,
   });
   analysis.file = job.masterRel;
   return analysis;
@@ -580,7 +591,11 @@ export async function renderDoc(
   if (opts.analyze || opts.images) {
     const result = produced.result ?? readMaster(pc, job.masterRel);
     if (opts.analyze) {
-      entry.analysis = analysisOf(job, readMaster(pc, job.masterRel));
+      entry.analysis = analysisOf(
+        job,
+        readMaster(pc, job.masterRel),
+        waveOf(kind, doc.value)
+      );
     }
     if (opts.images) {
       entry.images = writeImages(pc, id, result);

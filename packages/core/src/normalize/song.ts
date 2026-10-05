@@ -909,10 +909,12 @@ function resolveLoop(
     return loop;
   }
   if (synthesized) {
-    return Math.min(
+    const idx = Math.min(
       order.length - 1,
       Math.floor(mmlLoop / (SYNTH_PATTERN_BEATS * PPQ) + 1e-9)
     );
+    warnLoopOverride(ctx, doc, loop, idx);
+    return idx;
   }
   const starts: number[] = [0];
   for (const pid of order) {
@@ -929,14 +931,26 @@ function resolveLoop(
       "/loop",
       `MML loop point L at pulse ${mmlLoop} is not on an order boundary and was rounded to order ${idx}`
     );
-  } else if (!agrees && doc.loop !== undefined && doc.loop !== null) {
+  } else if (!agrees) {
+    warnLoopOverride(ctx, doc, loop, idx);
+  }
+  return idx;
+}
+
+/** The MML loop point only needs a word when the document says something else: an absent or null `loop` is no claim. */
+function warnLoopOverride(
+  ctx: Ctx,
+  doc: Rec,
+  loop: number | null,
+  idx: number
+): void {
+  if (doc.loop !== undefined && doc.loop !== null && loop !== idx) {
     warn(
       ctx,
       "/loop",
       `MML loop point L overrides loop ${show(doc.loop)}, the song loops to order ${idx}`
     );
   }
-  return idx;
 }
 
 function readMaster(

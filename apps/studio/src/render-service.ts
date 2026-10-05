@@ -1,69 +1,57 @@
 /* Asks the render worker for audio and caches the answers. Without Workers (tests) it renders on the main thread in a
-   later task, so callers always get a promise. Peaks and thumbnails are derived here. */
+   later task, so callers always get a promise. It also remembers how long each sound really lasted when it was last
+   rendered, which is what the pads and the editor show: the envelope times only say how long the sound is asked to
+   run, and a chip can gate it off sooner (the NES triangle) or let the tail ring on. */
 import type { Instrument, RenderResult, Sfx, Song } from "./lib/contract.ts";
+import { workerLink } from "./lib/worker-link.ts";
+import { project } from "./state/docs.ts";
 import type {
   AnalysisBundle,
+  RenderMaster,
   RenderRequest,
   RenderResponse,
   Source,
 } from "./workers/render.ts";
 import { runRequest } from "./workers/render.ts";
 
-let worker: Worker | null | undefined;
-let nextId = 1;
 type Out = RenderResult | AnalysisBundle;
-const pending = new Map<
-  number,
-  { resolve: (r: Out) => void; reject: (e: Error) => void }
->();
 const cache = new Map<string, Out>();
 const inflight = new Map<string, Promise<Out>>();
 const CACHE_MAX = 120;
 
-function getWorker(): Worker | null {
-  if (worker !== undefined) {
-    return worker;
-  }
-  try {
-    if (typeof Worker === "undefined") {
-      worker = null;
-    } else {
-      worker = new Worker(new URL("./workers/render.ts", import.meta.url), {
-        type: "module",
-      });
-      worker.onmessage = (e: MessageEvent<RenderResponse>) => {
-        const p = pending.get(e.data.id);
-        if (!p) {
-          return;
-        }
-        pending.delete(e.data.id);
-        if ("error" in e.data) {
-          p.reject(new Error(e.data.error));
-        } else if ("bundle" in e.data) {
-          p.resolve(e.data.bundle);
-        } else {
-          p.resolve(e.data.result);
-        }
-      };
-      worker.onerror = () => {
-        worker = null;
-        for (const [, p] of pending) {
-          p.reject(new Error("render worker failed"));
-        }
-        pending.clear();
-      };
-    }
-  } catch {
-    worker = null;
-  }
-  return worker;
-}
+const link = workerLink<RenderResponse, Out>(
+  () =>
+    new Worker(new URL("./workers/render.ts", import.meta.url), {
+      type: "module",
+    }),
+  "render",
+  (res) =>
+    "bundle" in res
+      ? res.bundle
+      : (res as Extract<RenderResponse, { result: RenderResult }>).result
+);
 
 type Req = RenderRequest extends infer R
   ? R extends unknown
     ? Omit<R, "id">
     : never
   : never;
+
+/** Off the main thread when there is a worker, in a later task when there is not, so callers always get a promise. */
+function compute(req: Req): Promise<Out> {
+  return (
+    link.request((w, id) => w.postMessage({ ...req, id })) ??
+    new Promise<Out>((resolve, reject) => {
+      setTimeout(() => {
+        try {
+          resolve(runRequest({ ...req, id: 0 } as RenderRequest));
+        } catch (err) {
+          reject(err as Error);
+        }
+      }, 0);
+    })
+  );
+}
 
 function run(req: Req, key: string): Promise<Out> {
   const hit = cache.get(key);
@@ -74,23 +62,7 @@ function run(req: Req, key: string): Promise<Out> {
   if (open) {
     return open;
   }
-  nextId += 1;
-  const id = nextId;
-  const w = getWorker();
-  const p = new Promise<Out>((resolve, reject) => {
-    if (w) {
-      pending.set(id, { reject, resolve });
-      w.postMessage({ ...req, id });
-    } else {
-      setTimeout(() => {
-        try {
-          resolve(runRequest({ ...req, id } as RenderRequest));
-        } catch (err) {
-          reject(err as Error);
-        }
-      }, 0);
-    }
-  }).then((r) => {
+  const p = compute(req).then((r) => {
     cache.set(key, r);
     if (cache.size > CACHE_MAX) {
       cache.delete(cache.keys().next().value as string);
@@ -103,35 +75,75 @@ function run(req: Req, key: string): Promise<Out> {
   return p;
 }
 
-export const renderSfxAsync = (
-  sfx: Sfx,
-  rate = 44_100
-): Promise<RenderResult> =>
-  run(
-    { kind: "sfx", rate, sfx },
-    `sfx:${rate}:${JSON.stringify(sfx)}`
-  ) as Promise<RenderResult>;
+/** The project's master as it is now, and a key for it: a render made under another master is another render. */
+const masterNow = (): RenderMaster => ({ ...project.project.master });
+const masterKey = (m: RenderMaster): string => `${m.volume}:${m.limiter}`;
+
+/* ----- how long sounds really last ----- */
+const lengths = new Map<string, number>();
+const LENGTHS_MAX = 500;
+const lengthListeners = new Set<() => void>();
+
+function rememberLength(json: string, r: RenderResult): void {
+  const seconds = r.frames / r.sampleRate;
+  if (lengths.get(json) === seconds) {
+    return;
+  }
+  lengths.delete(json);
+  lengths.set(json, seconds);
+  if (lengths.size > LENGTHS_MAX) {
+    lengths.delete(lengths.keys().next().value as string);
+  }
+  for (const fn of lengthListeners) {
+    fn();
+  }
+}
+
+/** How long this exact sound lasted the last time it was rendered, or null before the first render. */
+export const renderedSeconds = (sfx: Sfx): number | null =>
+  lengths.get(JSON.stringify(sfx)) ?? null;
+
+/** How long to treat a sound as playing: its last render, or what the envelope asks for until there is one. */
+export const playLength = (sfx: Sfx): number =>
+  renderedSeconds(sfx) ??
+  sfx.envelope.attack + sfx.envelope.sustain + sfx.envelope.decay;
+
+/** "0.42s" for a rendered length, nothing before the first render. */
+export const lengthLabel = (seconds: number | null): string =>
+  seconds === null ? "" : `${seconds.toFixed(2)}s`;
+
+/** Called whenever a sound's rendered length is new or changed (a sidebar row, a pad). */
+export function onLengthChange(fn: () => void): () => void {
+  lengthListeners.add(fn);
+  return () => lengthListeners.delete(fn);
+}
+
+export function renderSfxAsync(sfx: Sfx, rate = 44_100): Promise<RenderResult> {
+  const json = JSON.stringify(sfx);
+  const master = masterNow();
+  return (
+    run(
+      { kind: "sfx", master, rate, sfx },
+      `sfx:${rate}:${masterKey(master)}:${json}`
+    ) as Promise<RenderResult>
+  ).then((r) => {
+    rememberLength(json, r);
+    return r;
+  });
+}
 
 export const renderSongAsync = (
   song: Song,
   instruments: Record<string, Instrument>,
   rate = 44_100,
   stems = false
-): Promise<RenderResult> =>
-  run(
-    { instruments, kind: "song", rate, song, stems },
-    `song:${rate}:${stems}:${JSON.stringify([song, instruments])}`
+): Promise<RenderResult> => {
+  const master = masterNow();
+  return run(
+    { instruments, kind: "song", master, rate, song, stems },
+    `song:${rate}:${stems}:${masterKey(master)}:${JSON.stringify([song, instruments])}`
   ) as Promise<RenderResult>;
-
-export const renderNoteAsync = (
-  inst: Instrument,
-  note: number,
-  rate = 44_100
-): Promise<RenderResult> =>
-  run(
-    { inst, kind: "note", note, rate },
-    `note:${rate}:${note}:${JSON.stringify(inst)}`
-  ) as Promise<RenderResult>;
+};
 
 /** Render, analyse and draw the analysis images, all in the worker. */
 export function analyzeAsync(
@@ -140,43 +152,16 @@ export function analyzeAsync(
   width = 1100,
   rate = 44_100
 ): Promise<AnalysisBundle> {
-  const key = `ana:${rate}:${width}:${file}:${JSON.stringify(source)}`;
+  const master = masterNow();
+  const key = `ana:${rate}:${width}:${masterKey(master)}:${file}:${JSON.stringify(source)}`;
   // the images are big, so they are not kept in the cache
   return (
     run(
-      { file, kind: "analysis", rate, source, width },
+      { file, kind: "analysis", master, rate, source, width },
       key
     ) as Promise<AnalysisBundle>
   ).then((b) => {
     cache.delete(key);
     return b;
   });
-}
-
-/** min and max per bucket, interleaved, from the left channel. */
-export function peaks(r: RenderResult, buckets: number): Float32Array {
-  const out = new Float32Array(buckets * 2);
-  const [ch] = r.channels;
-  if (!ch || r.frames === 0) {
-    return out;
-  }
-  const per = r.frames / buckets;
-  for (let b = 0; b < buckets; b += 1) {
-    let lo = 0;
-    let hi = 0;
-    const from = Math.floor(b * per);
-    const to = Math.max(from + 1, Math.floor((b + 1) * per));
-    for (let i = from; i < to && i < r.frames; i += 1) {
-      const v = ch[i] ?? 0;
-      if (v < lo) {
-        lo = v;
-      }
-      if (v > hi) {
-        hi = v;
-      }
-    }
-    out[b * 2] = lo;
-    out[b * 2 + 1] = hi;
-  }
-  return out;
 }

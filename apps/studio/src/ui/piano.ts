@@ -5,7 +5,7 @@ import { choose } from "../lib/dom.ts";
 import { rgba, type Surface, surface } from "../visuals/canvas.ts";
 
 const isBlack = (n: number) => [1, 3, 6, 8, 10].includes(n % 12);
-export const FADE_MS = 150;
+const FADE_MS = 150;
 
 interface Lit {
   color: string;
@@ -239,7 +239,7 @@ export function createPiano(canvas: HTMLCanvasElement, o: PianoOpts): Piano {
 /* Computer keyboard to piano: the two tracker rows, relative to the C of `octave` (lower row) and the one above it. */
 export const LOWER_KEYS = "zsxdcvgbhnjm";
 export const UPPER_KEYS = "q2w3er5t6y7u";
-export const EXTRA_KEYS = "i9o0p";
+const EXTRA_KEYS = "i9o0p";
 
 /** Note offset from the C of the lower octave, or null when the key is not a piano key. */
 export function keyToOffset(key: string): number | null {

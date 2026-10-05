@@ -14,10 +14,17 @@ import {
 export const MOD_INDEX = 8;
 const TWO_PI = 2 * Math.PI;
 const FULL_DB = 96;
-/** Makeup gain: patches sit well below full scale (sustain levels, carrier TL), so FM voices would be far quieter than pulses. */
-const FM_MAKEUP = 2.4;
-/** Sustain level 0 means this much attenuation. */
+/** Makeup gain: a lone full level carrier peaks at 1, so FM voices sit near the pulses before the chip gain. */
+const FM_MAKEUP = 1;
+/** Sustain level 0 means this much attenuation (and so does anything quieter). */
 const SUSTAIN_RANGE_DB = 48;
+/** Levels below this are treated as silent (-100 dB): keeps the dB conversion finite. */
+const MIN_LEVEL = 1e-5;
+
+/** Attenuation in dB of a linear amplitude level (1 = 0 dB, 0.5 = 6 dB), capped at `max`. */
+function levelToDb(level: number, max: number): number {
+  return Math.min(max, -20 * Math.log10(Math.max(MIN_LEVEL, level)));
+}
 
 const OP_OFF = 0;
 const OP_ATTACK = 1;
@@ -90,9 +97,9 @@ export function compileFmPatch(
       keyScale: o.keyScale,
       mult: o.mult === 0 ? 0.5 : o.mult,
       releaseRate: o.release * 2 + 1,
-      sustainDb: (1 - o.sustainLevel) * SUSTAIN_RANGE_DB,
+      sustainDb: levelToDb(o.sustainLevel, SUSTAIN_RANGE_DB),
       sustainRate: o.sustainRate,
-      tlDb: (1 - o.level) * FULL_DB,
+      tlDb: levelToDb(o.level, FULL_DB),
       waveform: waveforms ? o.waveform : 0,
     });
   }
@@ -187,11 +194,20 @@ export function fmSetAlgorithm(s: FmState, rt: FmRt, algorithm: number): void {
   s.outScale = FM_MAKEUP / Math.sqrt(carriers);
 }
 
-/** Key on: set rates for this note and start every attack. */
+/**
+ * Key on: set rates for this note and start every attack. Phases, feedback memory and envelope levels restart, so a note
+ * sounds the same whatever the voice played before it (the voice hides the step on a voice that is still sounding);
+ * without that, a looped song's second pass would differ from its first and the loop would click at the seam.
+ */
 export function fmNoteOn(s: FmState, rt: FmRt, note: number): void {
   const sr = s.sampleRate;
   s.nOps = rt.nOps;
   s.note = note;
+  s.phase.fill(0);
+  s.out1.fill(0);
+  s.out2.fill(0);
+  s.att.fill(FULL_DB);
+  s.lfoPitch = 0;
   const kc = keyCode(note);
   for (let i = 0; i < rt.nOps; i += 1) {
     const o = rt.ops[i];

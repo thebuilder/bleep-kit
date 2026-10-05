@@ -196,14 +196,18 @@ export function createBackdrop(canvas: HTMLCanvasElement): Backdrop {
     ctx.putImageData(img, 0, 0);
   }
 
-  function addTap(layer: number, x: number, y: number, now: number): void {
-    // x and y are view pixels
+  /** Forget taps older than ten seconds; true when the last second already holds the most a second may. */
+  function tapRateLimited(now: number): boolean {
     const keep = now - 10_000;
     while (tapTimes.length && (tapTimes[0] ?? 0) < keep) {
       tapTimes.shift();
     }
-    const lastSecond = tapTimes.filter((s) => s > now - 1000).length;
-    if (lastSecond >= MAX_TAPS_PER_S) {
+    return tapTimes.filter((s) => s > now - 1000).length >= MAX_TAPS_PER_S;
+  }
+
+  function addTap(layer: number, x: number, y: number, now: number): void {
+    // x and y are view pixels
+    if (tapRateLimited(now)) {
       return;
     }
     tapTimes.push(now);
@@ -214,62 +218,87 @@ export function createBackdrop(canvas: HTMLCanvasElement): Backdrop {
   }
 
   let seedN = 1;
+
+  /** Lightning for an explosion or a hit, with a tap on the sky layer where it lands. */
+  function strike(cat: string, x: number, now: number): void {
+    if (!view) {
+      return;
+    }
+    reactive.strikes.push({
+      at: time,
+      big: cat === "explosion",
+      seed: seedN * 31 + 7,
+      x,
+    });
+    addTap(
+      layerIndex("sky"),
+      Math.round(x * view.width),
+      Math.round(view.height * 0.2),
+      now
+    );
+    if (reactive.strikes.length > 6) {
+      reactive.strikes.shift();
+    }
+  }
+
+  /** A burst of the sound's category colour, with a tap on the embers layer when the scene has one. */
+  function burst(cat: string, x: number, now: number): void {
+    if (!view) {
+      return;
+    }
+    reactive.bursts.push({
+      at: time,
+      color: hexToRgb(categoryColor(cat)),
+      x,
+      y: 0.3 + ((seedN * 0.37) % 0.4),
+    });
+    if (reactive.bursts.length > 8) {
+      reactive.bursts.shift();
+    }
+    const emb = layerIndex("embers");
+    if (emb >= 0) {
+      addTap(
+        emb,
+        Math.round(x * view.width),
+        Math.round(view.height * 0.78),
+        now
+      );
+    }
+  }
+
+  function onTrigger(channelId: string, now: number): void {
+    const cat = channelId || "custom";
+    const x = 0.15 + ((seedN * 0.618_033_9) % 0.7);
+    if (cat === "explosion" || cat === "hit") {
+      strike(cat, x, now);
+    } else {
+      burst(cat, x, now);
+    }
+  }
+
+  function react(e: EngineEvent, now: number): void {
+    seedN += 1;
+    if (e.type === "trigger") {
+      onTrigger(e.channelId, now);
+    } else if (
+      e.type === "noteOn" &&
+      (BASS_KINDS.has(e.channelId) || e.note < 48)
+    ) {
+      reactive.pulse = Math.min(1, reactive.pulse + 0.7);
+    } else if (e.type === "row" && e.row % 4 === 0) {
+      reactive.rings.push(time);
+      if (reactive.rings.length > 5) {
+        reactive.rings.shift();
+      }
+    }
+  }
+
   function handle(events: readonly EngineEvent[], now: number): void {
     if (!(scene && view)) {
       return;
     }
     for (const e of events) {
-      seedN += 1;
-      if (e.type === "trigger") {
-        const cat = e.channelId || "custom";
-        const x = 0.15 + ((seedN * 0.618_033_9) % 0.7);
-        if (cat === "explosion" || cat === "hit") {
-          reactive.strikes.push({
-            at: time,
-            big: cat === "explosion",
-            seed: seedN * 31 + 7,
-            x,
-          });
-          addTap(
-            layerIndex("sky"),
-            Math.round(x * view.width),
-            Math.round(view.height * 0.2),
-            now
-          );
-          if (reactive.strikes.length > 6) {
-            reactive.strikes.shift();
-          }
-        } else {
-          const color = hexToRgb(categoryColor(cat));
-          reactive.bursts.push({
-            at: time,
-            color,
-            x,
-            y: 0.3 + ((seedN * 0.37) % 0.4),
-          });
-          if (reactive.bursts.length > 8) {
-            reactive.bursts.shift();
-          }
-          const emb = layerIndex("embers");
-          if (emb >= 0) {
-            addTap(
-              emb,
-              Math.round(x * view.width),
-              Math.round(view.height * 0.78),
-              now
-            );
-          }
-        }
-      } else if (e.type === "noteOn") {
-        if (BASS_KINDS.has(e.channelId) || e.note < 48) {
-          reactive.pulse = Math.min(1, reactive.pulse + 0.7);
-        }
-      } else if (e.type === "row" && e.row % 4 === 0) {
-        reactive.rings.push(time);
-        if (reactive.rings.length > 5) {
-          reactive.rings.shift();
-        }
-      }
+      react(e, now);
     }
   }
 

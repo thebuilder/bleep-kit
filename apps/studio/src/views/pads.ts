@@ -12,31 +12,67 @@ import {
   mutateMany,
   randomizeSfx,
 } from "../lib/core.ts";
-import { fire, h, reducedMotion, reflow } from "../lib/dom.ts";
+import {
+  choose,
+  debounce,
+  fire,
+  h,
+  reducedMotion,
+  reflow,
+} from "../lib/dom.ts";
 import { playSfx, playSfxValue } from "../playback.ts";
-import { peaks, renderSfxAsync } from "../render-service.ts";
+import {
+  lengthLabel,
+  playLength,
+  renderedSeconds,
+  renderSfxAsync,
+} from "../render-service.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
-import { group, rangeField, selectField, textField } from "../ui/fields.ts";
+import {
+  group,
+  inspectorTitle,
+  rangeField,
+  selectField,
+  textField,
+} from "../ui/fields.ts";
 import { icon } from "../ui/icons.ts";
 import { createSfx, pickCategory } from "../ui/pickers.ts";
 import { hexToRgb, rgba, surface } from "../visuals/canvas.ts";
 import { addVisual } from "../visuals/loop.ts";
+import { peaks } from "../visuals/waveform.ts";
 
 const KEYS = "1234567890QWERTYUIOP";
 const THUMB_W = 48;
 const THUMB_H = 22;
 
 /** Pads are ordered by category (coin first), then id, so the first ten keys are the classics. */
-export function orderedSfx(): Doc[] {
+function orderedSfx(): Doc[] {
   const rank = (d: Doc) => SFX_CATEGORIES.indexOf((d.value as Sfx).category);
   return project
     .list("sfx")
     .sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id));
 }
 
-export const durationOf = (s: Sfx): number =>
-  s.envelope.attack + s.envelope.sustain + s.envelope.decay;
+const kbd = (key: string) => `<kbd>${key}</kbd>`;
+const keyRange = (keys: string) =>
+  keys.length === 1
+    ? kbd(keys)
+    : `${kbd(keys.slice(0, 1))}-${kbd(keys.slice(-1))}`;
+
+/** The line under the title: which keys play pads, for as many pads as there are (1-0, then Q-P, twenty at most). */
+function padKeysHint(count: number): string {
+  const n = Math.min(count, KEYS.length);
+  if (n === 0) {
+    return "Tap New SFX to make your first sound.";
+  }
+  const ranges = [KEYS.slice(0, n).slice(0, 10), KEYS.slice(10, n)]
+    .filter(Boolean)
+    .map(keyRange)
+    .join(" and ");
+  const what = count > n ? `the first ${n}` : choose([[n === 1, "it"]], "them");
+  return `Tap a pad to play it. ${n === 1 ? "Key" : "Keys"} ${ranges} play${n === 1 ? "s" : ""} ${what}.`;
+}
 
 function drawThumb(
   canvas: HTMLCanvasElement,
@@ -88,7 +124,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
   host.innerHTML = `
     <div class="pads-view">
       <div class="pads-head">
-        <div><h1 class="vh">Pads</h1><p class="muted">Tap a pad to play it. Keys <kbd>1</kbd>-<kbd>0</kbd> and <kbd>Q</kbd>-<kbd>P</kbd> play the first twenty.</p></div>
+        <div><h1 class="vh">Pads</h1><p class="muted" id="padHint"></p></div>
         <div class="pads-legend"><span class="muted mono" id="padCount"></span></div>
       </div>
       <div class="pads-wrap" id="padsWrap"><div class="pads" id="padGrid"></div><canvas class="bursts" id="padBursts"></canvas></div>
@@ -112,22 +148,28 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
   const sweeps: Sweep[] = [];
   const litUntil = new Map<string, number>();
 
+  /** The tile's length label: what the last render measured, blank until there is one. */
+  function setLength(tile: HTMLElement, sfx: Sfx): void {
+    (tile.querySelector(".du") as HTMLElement).textContent = lengthLabel(
+      renderedSeconds(sfx)
+    );
+  }
+
   function colorsOf(s: Sfx) {
     return { color: categoryColor(s.category), ring: categoryRing(s.category) };
   }
 
-  function refreshThumb(
-    doc: Doc,
-    canvas: HTMLCanvasElement,
-    color: string
-  ): void {
-    const sfx = doc.value as Sfx;
-    const token = (thumbs.get(canvas.dataset.k ?? doc.id) ?? 0) + 1;
-    thumbs.set(canvas.dataset.k ?? doc.id, token);
+  /** Draw a tile's waveform from a render, and write the length that render came out at next to it. */
+  function refreshThumb(tile: HTMLElement, sfx: Sfx, color: string): void {
+    const canvas = tile.querySelector("canvas") as HTMLCanvasElement;
+    const key = canvas.dataset.k ?? "";
+    const token = (thumbs.get(key) ?? 0) + 1;
+    thumbs.set(key, token);
     renderSfxAsync(sfx, 22_050)
       .then((r) => {
-        if (thumbs.get(canvas.dataset.k ?? doc.id) === token) {
+        if (thumbs.get(key) === token) {
           drawThumb(canvas, peaks(r, THUMB_W), color);
+          setLength(tile, sfx);
         }
       })
       .catch(() => drawThumb(canvas, null, color));
@@ -156,8 +198,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
         <button class="mini" data-act="randomize" title="Randomize this pad" aria-label="Randomize ${sfx.name}">${icon("refresh", 12)}</button>
       </span>`;
     (el.querySelector(".nm") as HTMLElement).textContent = sfx.name;
-    (el.querySelector(".du") as HTMLElement).textContent =
-      `${durationOf(sfx).toFixed(2)}s`;
+    setLength(el, sfx);
     return el;
   }
 
@@ -169,7 +210,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
     el.classList.add("hit");
     litUntil.set(
       doc.id,
-      performance.now() + Math.max(160, durationOf(doc.value as Sfx) * 1000)
+      performance.now() + Math.max(160, playLength(doc.value as Sfx) * 1000)
     );
     el.classList.add("lit");
   }
@@ -257,7 +298,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
         role: "button",
         tabindex: "0",
       });
-      tile.innerHTML = `<canvas class="thumb" width="${THUMB_W}" height="${THUMB_H}" data-k="${vid}"></canvas><span class="du mono">${durationOf(v).toFixed(2)}s</span>
+      tile.innerHTML = `<canvas class="thumb" width="${THUMB_W}" height="${THUMB_H}" data-k="${vid}"></canvas><span class="du mono"></span>
         <span class="vbtns"><button class="btn small primary" data-act="play">${icon("play", 10)}</button><button class="btn small" data-act="keep">${icon("save", 12)}Keep</button></span>`;
       const doPlay = () => {
         playSfxValue(vid, v);
@@ -295,15 +336,8 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
       );
       targets.set(vid, tile);
       g.append(tile);
-      renderSfxAsync(v, 22_050)
-        .then((r) =>
-          drawThumb(
-            tile.querySelector("canvas") as HTMLCanvasElement,
-            peaks(r, THUMB_W),
-            colorsOf(base).color
-          )
-        )
-        .catch(() => undefined);
+      setLength(tile, v);
+      refreshThumb(tile, v, colorsOf(base).color);
     }
     el.addEventListener("click", (e) => {
       const act = (e.target as HTMLElement).closest<HTMLElement>("[data-act]")
@@ -347,11 +381,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
       padEls.set(d.id, el);
       targets.set(d.id, el);
       grid.append(el);
-      refreshThumb(
-        d,
-        el.querySelector("canvas") as HTMLCanvasElement,
-        colorsOf(d.value as Sfx).color
-      );
+      refreshThumb(el, d.value as Sfx, colorsOf(d.value as Sfx).color);
     }
     const add = h("button", {
       "aria-label": "New sound effect",
@@ -364,6 +394,9 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
     grid.append(add);
     (host.querySelector("#padCount") as HTMLElement).textContent =
       `${docs.length} sound${docs.length === 1 ? "" : "s"}`;
+    (host.querySelector("#padHint") as HTMLElement).innerHTML = padKeysHint(
+      docs.length
+    );
     if (!(selected && padEls.has(selected))) {
       selected = null;
       const [first] = docs;
@@ -436,60 +469,63 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
   });
 
   /* ----- visuals: bursts and pad lighting ----- */
+  const rectIn = (el: Element, wr: DOMRect) => {
+    const r = el.getBoundingClientRect();
+    return { h: r.height, w: r.width, x: r.left - wr.left, y: r.top - wr.top };
+  };
+
+  /** Without the burst (reduced motion, or the pad is off screen) the pad just lights for a moment. */
+  function lightPad(id: string, now: number): void {
+    const pe = padEls.get(id);
+    if (pe && id) {
+      litUntil.set(id, now + 200);
+      pe.classList.add("lit");
+    }
+  }
+
+  /** A burst around the pad and a sweep across its thumbnail as long as the sound plays; the pad stays lit that long. */
+  function launch(id: string, el: HTMLElement, now: number): void {
+    const wr = wrap.getBoundingClientRect();
+    const sfx = project.get<Sfx>("sfx", id)?.value;
+    const color = sfx ? colorsOf(sfx).color : "#f3b24a";
+    bursts.push({
+      at: now,
+      big: sfx?.category === "explosion",
+      color,
+      rect: rectIn(el, wr),
+      seed: Math.floor(now) % 97,
+    });
+    const thumb = el.querySelector(".thumb");
+    if (thumb && sfx) {
+      sweeps.push({
+        at: now,
+        color,
+        ms: Math.max(120, playLength(sfx) * 1000),
+        rect: rectIn(thumb, wr),
+      });
+    }
+    const pe = padEls.get(id);
+    if (pe) {
+      pe.classList.remove("hit");
+      reflow(pe);
+      pe.classList.add("hit", "lit");
+      litUntil.set(
+        id,
+        now + Math.max(160, (sfx ? playLength(sfx) : 0.2) * 1000)
+      );
+    }
+  }
+
   const off = addVisual((f) => {
     for (const e of f.events) {
       if (e.type !== "trigger") {
         continue;
       }
       const el = targets.get(e.id);
-      if (!el || f.reduced) {
-        const pe = padEls.get(e.id);
-        if (pe && e.id) {
-          litUntil.set(e.id, f.time + 200);
-          pe.classList.add("lit");
-        }
-        continue;
-      }
-      const wr = wrap.getBoundingClientRect();
-      const r = el.getBoundingClientRect();
-      const sfx = project.get<Sfx>("sfx", e.id)?.value;
-      const color = sfx ? colorsOf(sfx).color : "#f3b24a";
-      bursts.push({
-        at: f.time,
-        big: sfx?.category === "explosion",
-        color,
-        rect: {
-          h: r.height,
-          w: r.width,
-          x: r.left - wr.left,
-          y: r.top - wr.top,
-        },
-        seed: Math.floor(f.time) % 97,
-      });
-      const thumb = el.querySelector(".thumb");
-      if (thumb && sfx) {
-        const tr = thumb.getBoundingClientRect();
-        sweeps.push({
-          at: f.time,
-          color,
-          ms: Math.max(120, durationOf(sfx) * 1000),
-          rect: {
-            h: tr.height,
-            w: tr.width,
-            x: tr.left - wr.left,
-            y: tr.top - wr.top,
-          },
-        });
-      }
-      const pe = padEls.get(e.id);
-      if (pe) {
-        pe.classList.remove("hit");
-        reflow(pe);
-        pe.classList.add("hit", "lit");
-        litUntil.set(
-          e.id,
-          f.time + Math.max(160, (sfx ? durationOf(sfx) : 0.2) * 1000)
-        );
+      if (el && !f.reduced) {
+        launch(e.id, el, f.time);
+      } else {
+        lightPad(e.id, f.time);
       }
     }
     for (const [id, until] of litUntil) {
@@ -587,9 +623,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
       return;
     }
     const sfx = doc.value;
-    const title = h("div", { class: "insp-title" });
-    title.innerHTML = `${icon(sfx.category, 16)}<span class="nm"></span>`;
-    (title.querySelector(".nm") as HTMLElement).textContent = sfx.name;
+    const title = inspectorTitle(sfx.category, sfx.name);
     (title.querySelector(".ico") as SVGElement).style.color = categoryColor(
       sfx.category
     );
@@ -713,9 +747,20 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
   }
 
   /* ----- project changes ----- */
+  // the master volume and limiter shape every render, and a slider sends a stream of changes
+  const refreshAllThumbs = debounce(() => {
+    for (const [pid, el] of padEls) {
+      const sfx = project.get<Sfx>("sfx", pid)?.value;
+      if (sfx) {
+        refreshThumb(el, sfx, colorsOf(sfx).color);
+      }
+    }
+  }, 150);
   const unsub = project.subscribe((e) => {
     if (e.type === "list") {
       rebuild();
+    } else if (e.type === "project") {
+      refreshAllThumbs();
     } else if (e.type === "doc") {
       const doc = project.docs.get(e.path);
       if (doc?.kind !== "sfx") {
@@ -734,14 +779,9 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
         el.style.removeProperty("--ring");
       }
       (el.querySelector(".nm") as HTMLElement).textContent = sfx.name;
-      (el.querySelector(".du") as HTMLElement).textContent =
-        `${durationOf(sfx).toFixed(2)}s`;
+      setLength(el, sfx);
       if (e.cause !== "saved") {
-        refreshThumb(
-          doc,
-          el.querySelector("canvas") as HTMLCanvasElement,
-          color
-        );
+        refreshThumb(el, sfx, color);
       }
     }
   });
@@ -752,6 +792,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
   ctx.cleanup(() => {
     off();
     unsub();
+    refreshAllThumbs.cancel();
     removeEventListener("resize", onResize);
     burstSurface.dispose();
     bursts.length = 0;

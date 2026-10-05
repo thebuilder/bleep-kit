@@ -32,6 +32,8 @@ export interface SfxProgram {
   lowpassSweep: number;
   minHz: number;
   noiseShort: boolean;
+  /** Genesis noise whose pitch moves: clocked by tone channel 3 so the rate can sweep (section 3.3). */
+  noiseTone3: boolean;
   phaserOffsetMs: number;
   phaserSweep: number;
   punch: number;
@@ -69,6 +71,16 @@ function sfxSource(wave: SfxWave): number {
   }
 }
 
+/** True when the sfx pitch is not a constant: a slide, vibrato or arpeggio. */
+function pitchMoves(sfx: Sfx): boolean {
+  return (
+    sfx.frequency.slide !== 0 ||
+    sfx.frequency.deltaSlide !== 0 ||
+    (sfx.vibrato.depth > 0 && sfx.vibrato.rate > 0) ||
+    (sfx.arpeggio.steps.length > 0 && sfx.arpeggio.rate > 0)
+  );
+}
+
 export function compileSfx(sfx: Sfx, sampleRate: number): SfxProgram {
   const env = sfx.envelope;
   const attackFrames = Math.round(env.attack * sampleRate);
@@ -97,6 +109,7 @@ export function compileSfx(sfx: Sfx, sampleRate: number): SfxProgram {
     lowpassSweep: sfx.filter.lowpassSweep,
     minHz: sfx.frequency.min,
     noiseShort: sfx.noise.mode === "short",
+    noiseTone3: sfx.chip === "genesis" && pitchMoves(sfx),
     phaserOffsetMs: sfx.phaser.offset,
     phaserSweep: sfx.phaser.sweep,
     punch: env.punch,

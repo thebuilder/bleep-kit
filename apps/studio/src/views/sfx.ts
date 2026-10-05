@@ -25,7 +25,7 @@ import {
 } from "../lib/core.ts";
 import { debounce, h, prefs } from "../lib/dom.ts";
 import { playSfx, stopEverything } from "../playback.ts";
-import { renderSfxAsync } from "../render-service.ts";
+import { playLength, renderSfxAsync } from "../render-service.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
 import {
@@ -39,7 +39,7 @@ import {
   toggleField,
 } from "../ui/fields.ts";
 import { icon } from "../ui/icons.ts";
-import { issuesBox } from "../ui/issues.ts";
+import { showIssues } from "../ui/issues.ts";
 import { presetTable, type WaveGrid, waveGrid } from "../ui/wavegrid.ts";
 import { surface } from "../visuals/canvas.ts";
 import { addVisual } from "../visuals/loop.ts";
@@ -48,7 +48,6 @@ import {
   drawWaveform,
   makeSpectrogram,
 } from "../visuals/waveform.ts";
-import { durationOf } from "./pads.ts";
 
 const LIST_SEPARATOR = /[\s,]+/;
 
@@ -149,7 +148,7 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
             1.02,
             (performance.now() - playStart) /
               1000 /
-              Math.max(0.05, durationOf(sfxNow()) + 0.05)
+              Math.max(0.05, playLength(sfxNow()) + 0.05)
           );
     drawWaveform(waveSurf, render, {
       clip: true,
@@ -215,43 +214,38 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
   const profile = () => chipProfile(sfxNow().chip);
   const chipName = () => CHIP_THEME[sfxNow().chip].short;
 
-  /** Grey out what the chip or wave does not have, and say why. */
-  function applyOff(): void {
-    const s = sfxNow();
-    const c = profile();
-    const cn = chipName();
-    const notes: string[] = [];
-    const filterOff = c.constraints.filter ? false : `${cn} has no filter`;
-    for (const k of [
-      "lpOn",
-      "lpHz",
-      "lpSweep",
-      "res",
-      "hpOn",
-      "hpHz",
-      "hpSweep",
-    ]) {
-      handles[k]?.setOff(filterOff);
-    }
-    if (filterOff) {
+  const FILTER_FIELDS = [
+    "lpOn",
+    "lpHz",
+    "lpSweep",
+    "res",
+    "hpOn",
+    "hpHz",
+    "hpSweep",
+  ];
+  /** The filter group: greyed whole when the chip has no filter, else each knob follows its own switch. */
+  function applyFilterOff(s: Sfx, cn: string, notes: string[]): void {
+    if (!profile().constraints.filter) {
+      for (const k of FILTER_FIELDS) {
+        handles[k]?.setOff(`${cn} has no filter`);
+      }
       notes.push(`${cn} has no filter, so the Filter group is greyed out.`);
-    } else {
-      handles.lpHz?.setOff(
-        s.filter.lowpass === null ? "Turn Lowpass on first" : false
-      );
-      handles.lpSweep?.setOff(
-        s.filter.lowpass === null ? "Turn Lowpass on first" : false
-      );
-      handles.res?.setOff(
-        s.filter.lowpass === null ? "Turn Lowpass on first" : false
-      );
-      handles.hpHz?.setOff(
-        s.filter.highpass === null ? "Turn Highpass on first" : false
-      );
-      handles.hpSweep?.setOff(
-        s.filter.highpass === null ? "Turn Highpass on first" : false
-      );
+      return;
     }
+    handles.lpOn?.setOff(false);
+    handles.hpOn?.setOff(false);
+    const lp = s.filter.lowpass === null ? "Turn Lowpass on first" : false;
+    const hp = s.filter.highpass === null ? "Turn Highpass on first" : false;
+    for (const k of ["lpHz", "lpSweep", "res"]) {
+      handles[k]?.setOff(lp);
+    }
+    for (const k of ["hpHz", "hpSweep"]) {
+      handles[k]?.setOff(hp);
+    }
+  }
+  /** Duty only shapes the square wave, noise mode only the noise wave; the chip's own limits go in the hint. */
+  function applyShapeOff(s: Sfx, cn: string, notes: string[]): void {
+    const c = profile();
     const dutyOff =
       s.wave === "square"
         ? false
@@ -259,18 +253,23 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
     handles.dutyStart?.setOff(dutyOff);
     handles.dutySweep?.setOff(dutyOff);
     if (c.constraints.dutyCycles.length > 0 && s.wave === "square") {
-      notes.push(
-        `${cn} snaps pulse width to ${c.constraints.dutyCycles.map((d) => `${Math.round(d * 100)}%`).join(", ")}.`
+      const widths = c.constraints.dutyCycles.map(
+        (d) => `${Math.round(d * 100)}%`
       );
+      notes.push(`${cn} snaps pulse width to ${widths.join(", ")}.`);
     }
     handles.noiseMode?.setOff(
       s.wave === "noise" ? false : "Noise mode only applies to the noise wave"
     );
     handles.bits?.setOff(false);
-    const steps = c.constraints.volumeSteps;
-    if (steps > 0) {
-      notes.push(`${cn} has ${steps} volume steps per channel.`);
+    if (c.constraints.volumeSteps > 0) {
+      notes.push(
+        `${cn} has ${c.constraints.volumeSteps} volume steps per channel.`
+      );
     }
+  }
+  /** Hide the FM and wavetable groups unless the wave uses them; mark waves the chip cannot play. */
+  function applyWaveOptions(s: Sfx, cn: string): void {
     if (groups.fm) {
       groups.fm.el.hidden = s.wave !== "fm";
     }
@@ -280,13 +279,20 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
     const waveSel = handles.wave as
       | (FieldHandle & { select: HTMLSelectElement })
       | undefined;
-    if (waveSel) {
-      for (const opt of Array.from(waveSel.select.options)) {
-        const ok = CHIP_WAVES[s.chip].includes(opt.value as SfxWave);
-        opt.disabled = !ok;
-        opt.textContent = ok ? opt.value : `${opt.value} (not on ${cn})`;
-      }
+    for (const opt of Array.from(waveSel?.select.options ?? [])) {
+      const ok = CHIP_WAVES[s.chip].includes(opt.value as SfxWave);
+      opt.disabled = !ok;
+      opt.textContent = ok ? opt.value : `${opt.value} (not on ${cn})`;
     }
+  }
+  /** Grey out what the chip or wave does not have, and say why. */
+  function applyOff(): void {
+    const s = sfxNow();
+    const cn = chipName();
+    const notes: string[] = [];
+    applyFilterOff(s, cn, notes);
+    applyShapeOff(s, cn, notes);
+    applyWaveOptions(s, cn);
     hint.textContent = notes.join(" ");
     hint.hidden = notes.length === 0;
   }
@@ -298,18 +304,8 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
     const inner = h("div", { class: "insp-in" });
     insp.append(inner);
     const box = h("div", { class: "issue-slot" });
-    const showIssues = () => {
-      box.replaceChildren();
-      const ib = issuesBox(doc().issues);
-      if (ib) {
-        box.append(ib);
-      }
-    };
-    showIssues();
+    showIssues(box, doc().issues);
     inner.append(box);
-    const refreshIssues = () => showIssues();
-    (inner as unknown as { refreshIssues: () => void }).refreshIssues =
-      refreshIssues;
 
     const mk = (key: string, title: string, o: { closed?: boolean } = {}) => {
       const g = group(title, { key: `sfx-${key}`, lock: true, ...o });
@@ -923,20 +919,18 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
       app.navigate("#/pads");
       return;
     }
+    if (e.type === "project") {
+      // the master volume and limiter shape the render
+      refreshRender();
+      return;
+    }
     if (e.type !== "doc" || e.path !== doc().path) {
       return;
     }
     syncHeader();
     applyOff();
     refreshRender();
-    const slot = insp.querySelector(".issue-slot");
-    if (slot) {
-      slot.replaceChildren();
-      const ib = issuesBox(doc().issues);
-      if (ib) {
-        slot.append(ib);
-      }
-    }
+    showIssues(insp.querySelector(".issue-slot"), doc().issues);
     if (
       e.cause === "undo" ||
       e.cause === "external" ||

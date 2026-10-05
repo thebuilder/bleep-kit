@@ -4,7 +4,11 @@
 import type { Command, ViewHooks } from "../app.ts";
 import { app } from "../app.ts";
 import { engine } from "../engine/engine.ts";
-import { download, exportInBrowser } from "../export-local.ts";
+import {
+  download,
+  type ExportResult,
+  exportInBrowser,
+} from "../export-local.ts";
 import {
   type Manifest,
   manifestTs,
@@ -25,6 +29,7 @@ import { project } from "../state/docs.ts";
 import type { LocalStore } from "../store/local.ts";
 import type { FileEntry } from "../store/store.ts";
 import {
+  inspectorTitle,
   rangeField,
   selectField,
   textField,
@@ -35,6 +40,7 @@ import { confirmDialog } from "../ui/modal.ts";
 
 const EVENTS_EXT = /\.events$/;
 const LAST_EXT = /\.[^.]+$/;
+const NON_ALNUM = /[^a-z0-9]+/g;
 const LEADING_DOTDOT = /^(\.\.\/)+/;
 
 const esc = (s: string) =>
@@ -66,6 +72,153 @@ interface Stale {
   id: string;
   kind: "sfx" | "song";
   reason: string;
+}
+
+type Doc = ReturnType<typeof project.list>[number];
+
+interface StaleState {
+  files: FileEntry[];
+  local: boolean;
+  seen: Record<string, string>;
+}
+
+/** The newest render time per sound id, read from the files under out/. */
+function renderTimes(files: FileEntry[]): Map<string, number> {
+  const outs = new Map<string, number>();
+  for (const f of files) {
+    if (f.kind === "render") {
+      const base = (f.path.split("/").pop() ?? "")
+        .replace(LAST_EXT, "")
+        .replace(EVENTS_EXT, "");
+      outs.set(base, Math.max(outs.get(base) ?? 0, f.mtime));
+    }
+  }
+  return outs;
+}
+
+/** Compared with what the last zip export saw (the browser has no out/ folder to look at). */
+function exportReason(d: Doc, seen: Record<string, string>): string | null {
+  if (seen[d.path] === d.etag) {
+    return null;
+  }
+  return seen[d.path] ? "changed since the last export" : "never exported";
+}
+
+/** Compared with the render files the studio server wrote. */
+function renderReason(
+  d: Doc,
+  outs: Map<string, number>,
+  mtime: number
+): string | null {
+  const o = outs.get(d.id);
+  if (o === undefined) {
+    return "no render yet";
+  }
+  return mtime > o ? "changed since its render" : null;
+}
+
+function staleList(st: StaleState): Stale[] {
+  const outs = renderTimes(st.files);
+  const mtimes = new Map(st.files.map((f) => [f.path, f.mtime]));
+  const reasonFor = (d: Doc): string | null => {
+    if (d.dirty) {
+      return "unsaved changes";
+    }
+    return st.local || outs.size === 0
+      ? exportReason(d, st.seen)
+      : renderReason(d, outs, mtimes.get(d.path) ?? 0);
+  };
+  const out: Stale[] = [];
+  for (const kind of ["sfx", "song"] as const) {
+    for (const d of project.list(kind)) {
+      const reason = reasonFor(d);
+      if (reason) {
+        out.push({ id: d.id, kind, reason });
+      }
+    }
+  }
+  return out;
+}
+
+function staleChip(s: Stale): HTMLElement {
+  const c = h("button", {
+    class: "stale-chip",
+    onclick: () => app.navigate(`#/${s.kind}/${s.id}`),
+    title: s.reason,
+  });
+  c.innerHTML = `${icon(s.kind === "sfx" ? "wave" : "song", 12)}<span></span><small></small>`;
+  (c.querySelector("span") as HTMLElement).textContent = s.id;
+  (c.querySelector("small") as HTMLElement).textContent = s.reason;
+  return c;
+}
+
+const kb = (bytes: number, digits = 1) =>
+  `${(bytes / 1024).toFixed(digits)} kB`;
+
+/** The project name as a file name stem. */
+const slug = () =>
+  project.project.name.toLowerCase().replace(NON_ALNUM, "-") || "bleepkit";
+
+/** What the zip export in the browser produced: the file list, then its notes. */
+function browserResultNodes(res: ExportResult): HTMLElement[] {
+  const list = h("ul", { class: "files" });
+  for (const e of res.entries) {
+    const li = h("li", {});
+    li.innerHTML = `<span class="mono"></span><small></small>`;
+    (li.querySelector("span") as HTMLElement).textContent = e.path;
+    (li.querySelector("small") as HTMLElement).textContent = kb(e.data.length);
+    list.append(li);
+  }
+  return [
+    h(
+      "p",
+      { class: "ok" },
+      `Exported ${res.entries.length} files (${kb(res.bytes, 0)}). The zip was downloaded.`
+    ),
+    list,
+    ...res.notes.map((n) => h("p", { class: "warnline" }, n)),
+  ];
+}
+
+interface ServerResult {
+  errors?: string[];
+  files?: unknown[];
+  warnings?: string[];
+  written?: unknown[];
+}
+
+/** The studio server reports files as paths or as objects with a path or file; show whichever it sent. */
+function serverFileNames(r: ServerResult | null): string[] {
+  const list = r?.files ?? r?.written ?? [];
+  return list.map((f) => {
+    if (typeof f === "string") {
+      return f;
+    }
+    const o = f as { file?: string; path?: string } | null;
+    return String(o?.path ?? o?.file ?? JSON.stringify(f));
+  });
+}
+
+export function serverResultNodes(res: unknown): HTMLElement[] {
+  const r = res as ServerResult | null;
+  const names = serverFileNames(r);
+  const body = names.length
+    ? h(
+        "ul",
+        { class: "files" },
+        ...names.map((n) => h("li", {}, h("span", { class: "mono" }, n)))
+      )
+    : h("pre", { class: "json" }, JSON.stringify(res, null, 2));
+  return [
+    h(
+      "p",
+      { class: "ok" },
+      `Export finished: ${names.length ? `${names.length} files written` : "see the result below"}.`
+    ),
+    body,
+    ...(r?.warnings ?? []).map((w) => h("p", { class: "warnline" }, w)),
+    ...(r?.errors ?? []).map((w) => h("p", { class: "bad" }, w)),
+  ];
 }
 
 export function mountProject(ctx: ViewCtx): ViewHooks {
@@ -292,50 +445,10 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
   });
 
   /* ----- stale list ----- */
-  function staleList(): Stale[] {
-    const out: Stale[] = [];
-    const seen = exported();
-    const outs = new Map<string, number>();
-    for (const f of files) {
-      if (f.kind === "render") {
-        const base = (f.path.split("/").pop() ?? "")
-          .replace(LAST_EXT, "")
-          .replace(EVENTS_EXT, "");
-        outs.set(base, Math.max(outs.get(base) ?? 0, f.mtime));
-      }
-    }
-    const mtimeOf = new Map(files.map((f) => [f.path, f.mtime]));
-    for (const kind of ["sfx", "song"] as const) {
-      for (const d of project.list(kind)) {
-        if (d.dirty) {
-          out.push({ id: d.id, kind, reason: "unsaved changes" });
-        } else if (local || outs.size === 0) {
-          if (seen[d.path] !== d.etag) {
-            out.push({
-              id: d.id,
-              kind,
-              reason: seen[d.path]
-                ? "changed since the last export"
-                : "never exported",
-            });
-          }
-        } else {
-          const o = outs.get(d.id);
-          const m = mtimeOf.get(d.path) ?? 0;
-          if (o === undefined) {
-            out.push({ id: d.id, kind, reason: "no render yet" });
-          } else if (m > o) {
-            out.push({ id: d.id, kind, reason: "changed since its render" });
-          }
-        }
-      }
-    }
-    return out;
-  }
   function renderStale(): void {
     const box = q("#pStale");
     box.replaceChildren();
-    const list = staleList();
+    const list = staleList({ files, local, seen: exported() });
     const total = project.list("sfx").length + project.list("song").length;
     const head = h("div", { class: "stale-h" });
     head.innerHTML = `<b class="pxh"></b><span class="muted"></span>`;
@@ -346,18 +459,7 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
       ? "These changed since they were last exported."
       : `${total} sounds exported.`;
     box.append(head);
-    const chips = h("div", { class: "stale-chips" });
-    for (const s of list) {
-      const c = h("button", {
-        class: "stale-chip",
-        onclick: () => app.navigate(`#/${s.kind}/${s.id}`),
-        title: s.reason,
-      });
-      c.innerHTML = `${icon(s.kind === "sfx" ? "wave" : "song", 12)}<span></span><small></small>`;
-      (c.querySelector("span") as HTMLElement).textContent = s.id;
-      (c.querySelector("small") as HTMLElement).textContent = s.reason;
-      chips.append(c);
-    }
+    const chips = h("div", { class: "stale-chips" }, ...list.map(staleChip));
     box.append(chips);
   }
   async function refreshFiles(): Promise<void> {
@@ -375,6 +477,34 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
   const bar = q("#pBar");
   const progLabel = q("#pLabel");
   const outBox = q("#pOut");
+  /** The studio server renders and writes the files itself. */
+  async function serverExport(
+    exportAll: (dryRun: boolean) => Promise<unknown>
+  ): Promise<void> {
+    prog.classList.add("indeterminate");
+    progLabel.textContent = "The studio server is rendering";
+    const res = await exportAll(false);
+    bar.style.width = "100%";
+    outBox.append(...serverResultNodes(res));
+  }
+  /** The browser renders, encodes and zips; remember what was exported so the stale list can compare. */
+  async function browserExport(): Promise<void> {
+    const res = await exportInBrowser((done, total, label) => {
+      bar.style.width = `${Math.round((done / Math.max(1, total)) * 100)}%`;
+      progLabel.textContent = `${label}  ${done}/${total}`;
+    });
+    bar.style.width = "100%";
+    progLabel.textContent = "done";
+    const seen: Record<string, string> = {};
+    for (const d of [...project.list("sfx"), ...project.list("song")]) {
+      if (d.etag) {
+        seen[d.path] = d.etag;
+      }
+    }
+    prefs.set(exportedKey, seen);
+    outBox.append(...browserResultNodes(res));
+    download(`${slug()}-audio.zip`, res.zip);
+  }
   async function runExport(): Promise<void> {
     if (exporting) {
       return;
@@ -387,51 +517,8 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
     bar.style.width = "0%";
     await project.saveAll();
     try {
-      if (!local && project.store.exportAll) {
-        prog.classList.add("indeterminate");
-        progLabel.textContent = "The studio server is rendering";
-        const res = await project.store.exportAll(false);
-        bar.style.width = "100%";
-        showServerResult(res);
-      } else {
-        const res = await exportInBrowser((done, total, label) => {
-          bar.style.width = `${Math.round((done / Math.max(1, total)) * 100)}%`;
-          progLabel.textContent = `${label}  ${done}/${total}`;
-        });
-        bar.style.width = "100%";
-        progLabel.textContent = "done";
-        const seen: Record<string, string> = {};
-        for (const d of [...project.list("sfx"), ...project.list("song")]) {
-          if (d.etag) {
-            seen[d.path] = d.etag;
-          }
-        }
-        prefs.set(exportedKey, seen);
-        const list = h("ul", { class: "files" });
-        for (const e of res.entries) {
-          const li = h("li", {});
-          li.innerHTML = `<span class="mono"></span><small></small>`;
-          (li.querySelector("span") as HTMLElement).textContent = e.path;
-          (li.querySelector("small") as HTMLElement).textContent =
-            `${(e.data.length / 1024).toFixed(1)} kB`;
-          list.append(li);
-        }
-        outBox.append(
-          h(
-            "p",
-            { class: "ok" },
-            `Exported ${res.entries.length} files (${(res.bytes / 1024).toFixed(0)} kB). The zip was downloaded.`
-          ),
-          list
-        );
-        for (const n of res.notes) {
-          outBox.append(h("p", { class: "warnline" }, n));
-        }
-        download(
-          `${project.project.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "bleepkit"}-audio.zip`,
-          res.zip
-        );
-      }
+      const exportAll = store.exportAll?.bind(store);
+      await (!local && exportAll ? serverExport(exportAll) : browserExport());
     } catch (err) {
       outBox.append(
         h("p", { class: "bad" }, `Export failed: ${(err as Error).message}`)
@@ -445,46 +532,6 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
       fire(refreshFiles());
     }
   }
-  function showServerResult(res: unknown): void {
-    const r = res as {
-      files?: unknown[];
-      written?: unknown[];
-      warnings?: string[];
-      errors?: string[];
-    } | null;
-    const list = (r?.files ?? r?.written ?? []) as unknown[];
-    const names = list.map((f) =>
-      typeof f === "string"
-        ? f
-        : String(
-            (f as { path?: string; file?: string } | null)?.path ??
-              (f as { file?: string } | null)?.file ??
-              JSON.stringify(f)
-          )
-    );
-    outBox.append(
-      h(
-        "p",
-        { class: "ok" },
-        `Export finished: ${names.length ? `${names.length} files written` : "see the result below"}.`
-      )
-    );
-    if (names.length) {
-      const ul = h("ul", { class: "files" });
-      for (const n of names) {
-        ul.append(h("li", {}, h("span", { class: "mono" }, n)));
-      }
-      outBox.append(ul);
-    } else {
-      outBox.append(h("pre", { class: "json" }, JSON.stringify(res, null, 2)));
-    }
-    for (const w of r?.warnings ?? []) {
-      outBox.append(h("p", { class: "warnline" }, w));
-    }
-    for (const w of r?.errors ?? []) {
-      outBox.append(h("p", { class: "bad" }, w));
-    }
-  }
   go.addEventListener("click", () => fire(runExport()));
 
   /* ----- local-only actions ----- */
@@ -492,10 +539,7 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
     const ls = store as LocalStore;
     q("#pZipOut").addEventListener("click", async () => {
       await project.saveAll();
-      download(
-        `${project.project.name.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "bleepkit"}-project.zip`,
-        await ls.exportZip()
-      );
+      download(`${slug()}-project.zip`, await ls.exportZip());
     });
     q<HTMLInputElement>("#pZipIn").addEventListener("change", async (e) => {
       const input = e.target as HTMLInputElement;
@@ -537,11 +581,7 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
     insp.replaceChildren();
     const inner = h("div", { class: "insp-in" });
     insp.append(inner);
-    const title = h("div", { class: "insp-title" });
-    title.innerHTML = `${icon("folder", 16)}<span class="nm"></span>`;
-    (title.querySelector(".nm") as HTMLElement).textContent =
-      project.project.name;
-    inner.append(title);
+    inner.append(inspectorTitle("folder", project.project.name));
     const stats = h("div", { class: "hint stats-list" });
     for (const [label, n] of [
       ["Sound effects", project.list("sfx").length],

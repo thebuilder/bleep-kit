@@ -243,16 +243,6 @@ function clampFields(sfx: Sfx): void {
   }
 }
 
-/** Output level of a full-volume sound on each chip, relative to the NES (measured with renderSfx). */
-const CHIP_GAIN: Readonly<Record<ChipId, number>> = {
-  adlib: 1.5,
-  c64: 1.4,
-  custom: 1.45,
-  gameboy: 1,
-  genesis: 1.5,
-  nes: 1,
-  snes: 1.5,
-};
 const MAX_VOLUME = 0.95;
 
 /**
@@ -364,10 +354,38 @@ function limitBand(sfx: Sfx): void {
   }
 }
 
-/** Filters and the phaser take level out of the sound: give it back so every category stays audible. */
+/** Highest modulator pitch an sfx FM voice keeps: a modulator above this puts its sidebands past the audible band. */
+const FM_MODULATOR_MAX_HZ = 6000;
+const FM_RATIO_STEP = 0.5;
+/** Carson bandwidth, 2 x (index + 1) x modulator, the voice may spread to before it turns into a screech. */
+const FM_BANDWIDTH_MAX_HZ = 40_000;
+const FM_INDEX_MIN = 0.3;
+
+/**
+ * An FM voice whose modulator sits far above the carrier, or whose index is high for its pitch, spreads its sidebands
+ * over the whole band (and folds back as aliasing). Keep the ratio low enough that the modulator stays under 6 kHz at
+ * the highest pitch the sound reaches, in half steps, and the index low enough that the Carson bandwidth stays under
+ * 40 kHz there (a laser then lands near a 4 kHz centroid instead of a 10 kHz screech).
+ */
+function limitFm(sfx: Sfx, seconds: number): void {
+  if (sfx.wave !== "fm" || sfx.fm === null) {
+    return;
+  }
+  const top = Math.max(topPitchAt(sfx, 0), topPitchAt(sfx, seconds));
+  const ratioLimit =
+    Math.floor(FM_MODULATOR_MAX_HZ / top / FM_RATIO_STEP) * FM_RATIO_STEP;
+  sfx.fm.ratio = Math.min(sfx.fm.ratio, Math.max(FM_RATIO_STEP, ratioLimit));
+  const indexLimit = FM_BANDWIDTH_MAX_HZ / (2 * sfx.fm.ratio * top) - 1;
+  sfx.fm.index = Math.min(sfx.fm.index, Math.max(FM_INDEX_MIN, indexLimit));
+}
+
+/**
+ * Filters and the phaser take level out of the sound: give it back so every category stays audible. Chip loudness is
+ * not handled here: the core levels every chip bus (CHIP_GAIN in dsp/color.ts) so a full-volume sound peaks alike.
+ */
 function compensateLevel(sfx: Sfx): void {
   const { filter } = sfx;
-  let gain = CHIP_GAIN[sfx.chip];
+  let gain = 1;
   if (filter.lowpass !== null) {
     gain *= 1.3;
   }
@@ -407,6 +425,7 @@ export function finalize(ctx: Ctx): Sfx {
   limitHighpass(sfx);
   limitBand(sfx);
   limitPhaser(sfx, total);
+  limitFm(sfx, total);
   compensateLevel(sfx);
   sfx.duty.start = snapDuty(ctx.chip, sfx.duty.start);
   roundFields(sfx);

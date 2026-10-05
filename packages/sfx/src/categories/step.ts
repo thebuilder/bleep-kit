@@ -8,13 +8,15 @@ import {
   drawDuty,
   setEnvelope,
 } from "../build.ts";
-import { between, chance, pick, round } from "../util.ts";
+import { between, pick, round } from "../util.ts";
 import {
   type Flavor,
   freeHz,
   highpass,
   lowpass,
+  noiseHz,
   runFlavors,
+  setNoiseMode,
   slideBy,
   w,
 } from "./flavors.ts";
@@ -22,8 +24,9 @@ import {
 function tick(ctx: Ctx): void {
   const { rng, sfx } = ctx;
   applyWave(ctx, "noise");
-  sfx.noise.mode = chance(rng, 0.5) ? "short" : "long";
-  sfx.frequency.start = freeHz(ctx, 500, 4000);
+  // A tick is hat-like: short noise is welcome, even on the Genesis.
+  setNoiseMode(ctx, 0.5, true);
+  sfx.frequency.start = noiseHz(ctx, [500, 4000], [300, 1500]);
   const total = between(rng, 0.03, 0.08);
   const sustain = between(rng, 0, 0.01);
   setEnvelope(ctx, 0, sustain, total - sustain, between(rng, 0.3, 0.6));
@@ -43,7 +46,9 @@ function thud(ctx: Ctx): void {
   applyWave(ctx, wave, { table: pick(rng, ["sine", "triangle"]) });
   sfx.noise.mode = "long";
   sfx.frequency.start =
-    wave === "noise" ? freeHz(ctx, 80, 260) : freeHz(ctx, 60, 150);
+    wave === "noise"
+      ? noiseHz(ctx, [80, 260], [300, 1500])
+      : freeHz(ctx, 60, 150);
   const total = between(rng, 0.06, 0.14);
   const sustain = between(rng, 0.005, 0.03);
   setEnvelope(ctx, 0, sustain, total - sustain, between(rng, 0.4, 0.7));
@@ -55,8 +60,8 @@ function thud(ctx: Ctx): void {
 function scuff(ctx: Ctx): void {
   const { rng, sfx } = ctx;
   applyWave(ctx, "noise");
-  sfx.noise.mode = chance(rng, 0.5) ? "short" : "long";
-  sfx.frequency.start = freeHz(ctx, 1500, 5000);
+  setNoiseMode(ctx, 0.5, true);
+  sfx.frequency.start = noiseHz(ctx, [1500, 5000], [300, 1500]);
   const total = between(rng, 0.08, 0.2);
   const attack = between(rng, 0.01, 0.03);
   setEnvelope(ctx, attack, between(rng, 0, 0.02), 0, between(rng, 0, 0.3));

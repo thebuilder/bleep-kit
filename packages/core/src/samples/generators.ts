@@ -28,6 +28,9 @@ function noise(rng: Rng): number {
   return rng() * 2 - 1;
 }
 
+/** Drum one shots are normalized hot: they are short, so their peak is nearly all the loudness they have. */
+const DRUM_PEAK = 0.95;
+
 /** Peak normalize to the given level. */
 function normalize(buf: Float32Array, peak: number): void {
   let m = 0;
@@ -180,7 +183,7 @@ function kick(p: Params, seed: number, sr: number): GeneratedSample {
     }
   }
   fadeEnd(out, sr);
-  normalize(out, 0.9);
+  normalize(out, DRUM_PEAK);
   return oneShot(out, sr);
 }
 
@@ -210,7 +213,7 @@ function snare(p: Params, seed: number, sr: number): GeneratedSample {
       (body[i] ?? 0) * (1 - noiseAmt * 0.5) + (hiss[i] ?? 0) * noiseAmt * 1.2;
   }
   fadeEnd(out, sr);
-  normalize(out, 0.9);
+  normalize(out, DRUM_PEAK);
   return oneShot(out, sr);
 }
 
@@ -234,7 +237,7 @@ function hat(p: Params, seed: number, sr: number): GeneratedSample {
   }
   svf(out, "hp", 5000 + tone * 3000, 0.9, sr);
   fadeEnd(out, sr);
-  normalize(out, 0.8);
+  normalize(out, DRUM_PEAK);
   return oneShot(out, sr);
 }
 
@@ -255,7 +258,7 @@ function tom(p: Params, _seed: number, sr: number): GeneratedSample {
       0.12 * Math.sin(TWO_PI * phase * 2.3) * Math.exp(-t / 0.04);
   }
   fadeEnd(out, sr);
-  normalize(out, 0.9);
+  normalize(out, DRUM_PEAK);
   return oneShot(out, sr);
 }
 
@@ -282,7 +285,7 @@ function clap(p: Params, seed: number, sr: number): GeneratedSample {
   }
   svf(out, "bp", 900 + tone * 1800, 1.2, sr);
   fadeEnd(out, sr);
-  normalize(out, 0.9);
+  normalize(out, DRUM_PEAK);
   return oneShot(out, sr);
 }
 
@@ -302,7 +305,7 @@ function crash(p: Params, seed: number, sr: number): GeneratedSample {
   }
   svf(out, "hp", 2500 + tone * 2500, 0.7, sr);
   fadeEnd(out, sr, 0.01);
-  normalize(out, 0.85);
+  normalize(out, DRUM_PEAK);
   return oneShot(out, sr);
 }
 

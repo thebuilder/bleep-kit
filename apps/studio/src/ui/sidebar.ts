@@ -5,6 +5,11 @@ import { categoryColor, KIND_HEX } from "../lib/chips.ts";
 import type { Instrument, Sfx, Song } from "../lib/contract.ts";
 import { fire, h, prefs } from "../lib/dom.ts";
 import { playDoc } from "../playback.ts";
+import {
+  lengthLabel,
+  onLengthChange,
+  renderedSeconds,
+} from "../render-service.ts";
 import { type Doc, type DocKind, project } from "../state/docs.ts";
 import { icon } from "./icons.ts";
 import {
@@ -35,7 +40,7 @@ function rowFor(doc: Doc, cur: boolean): HTMLElement {
     const s = doc.value as Sfx;
     ic = s.category;
     color = categoryColor(s.category);
-    meta = `${(s.envelope.attack + s.envelope.sustain + s.envelope.decay).toFixed(2)}s`;
+    meta = lengthLabel(renderedSeconds(s));
   } else if (doc.kind === "instrument") {
     const i = doc.value as Instrument;
     ic = i.kind;
@@ -217,6 +222,7 @@ export function createSidebar(host: HTMLElement): {
       schedule();
     }
   });
+  onLengthChange(schedule);
   render();
   return {
     update(r) {

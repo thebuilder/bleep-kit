@@ -44,7 +44,11 @@ export function defaultFmOperator(): FmOperator {
   };
 }
 
-/** A bright electric piano style patch. 4 operators use algorithm 4 (two stacks), 2 operators use FM (0). */
+/**
+ * A bright electric piano style patch. 4 operators use algorithm 4 (two stacks), 2 operators use FM (0). Operator
+ * levels are linear amplitudes (section 3.5): the modulators sit at 0.3 to 0.5 and decay to a fraction of that, so the
+ * attack is bright (strong second and third harmonics) and the sustain is duller.
+ */
 export function defaultFmPatch(ops: 2 | 4 = 4): FmPatch {
   const base = defaultFmOperator();
   if (ops === 2) {
@@ -52,8 +56,8 @@ export function defaultFmPatch(ops: 2 | 4 = 4): FmPatch {
       algorithm: 0,
       feedback: 2,
       ops: [
-        { ...base, mult: 1, level: 0.6, decay: 14, sustainLevel: 0.2 },
-        { ...base, mult: 1, level: 1, decay: 10, sustainLevel: 0.6 },
+        { ...base, mult: 1, level: 0.45, decay: 8, sustainLevel: 0.2 },
+        { ...base, mult: 1, level: 1, decay: 7, sustainLevel: 0.6 },
       ],
       lfo: null,
     };
@@ -62,10 +66,10 @@ export function defaultFmPatch(ops: 2 | 4 = 4): FmPatch {
     algorithm: 4,
     feedback: 3,
     ops: [
-      { ...base, mult: 1, level: 0.65, decay: 14, sustainLevel: 0.25 },
-      { ...base, mult: 1, level: 1, decay: 10, sustainLevel: 0.6 },
-      { ...base, mult: 4, level: 0.45, decay: 16, sustainLevel: 0.15 },
-      { ...base, mult: 1, level: 0.9, decay: 9, sustainLevel: 0.7 },
+      { ...base, mult: 1, level: 0.45, decay: 8, sustainLevel: 0.2 },
+      { ...base, mult: 1, level: 1, decay: 7, sustainLevel: 0.5 },
+      { ...base, mult: 4, level: 0.3, decay: 12, sustainLevel: 0.06 },
+      { ...base, mult: 1, level: 0.9, decay: 6, sustainLevel: 0.55 },
     ],
     lfo: null,
   };

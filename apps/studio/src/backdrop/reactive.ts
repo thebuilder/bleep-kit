@@ -14,13 +14,13 @@ import {
   TAU,
 } from "../pixelkit/core/index.ts";
 
-export interface Burst {
+interface Burst {
   at: number;
   color: [number, number, number];
   x: number;
   y: number;
 }
-export interface Strike {
+interface Strike {
   at: number;
   big: boolean;
   seed: number;

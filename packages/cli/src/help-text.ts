@@ -177,7 +177,8 @@ const mml = `MML  one string per channel (song.channels[i].mml); whitespace igno
   t<n>            tempo (sets song tempo when the song has no patterns) | w<n> duty index
   {Axx}           attach a tracker effect (letter + two hex digits) to the next note, e.g. {A0F} or {047}
   [ ... ]<n>      repeat n times (default 2), nesting up to 4
-  L               loop point: the song loops back here (one channel is enough, the first L wins)
+  L               loop point: the song loops back here (one channel is enough, the first L wins). A song with no
+                  patterns plays once unless some channel has an L: without it there is no loop and no loop points
   |               bar line, ignored
   Example: "t140 @lead o4 l8 [c e g > c < g e]2 L @lead o5 l4 c d e g"
   Length n lasts 384/n pulses (96 per quarter note); a row lasts 96/rowsPerBeat pulses.
@@ -206,6 +207,7 @@ export const WORKFLOW_TEXT = `WORKING WITHOUT EARS: the loop an agent should use
 Use --json on any command for one machine readable object. Exit codes: 0 ok, 1 bad result (validation, clipping with
 --strict), 2 usage, 3 no project, 4 file not found, 5 encode or write failure, 6 server could not bind.
 What the numbers mean: peak above -1 dB or "clipped" means too loud (lower "volume"); pitch.medianNote tells you the
-note you actually made; loop.seamDiffDb near 0 is a clean music loop; leading/trailing silence should be near 0 for sfx.
+note you actually made; loop.seamDiffDb below -40 dB is a clean music loop (null means the loop starts too early to compare);
+leading/trailing silence should be near 0 for sfx.
 Songs: write MML first (help formats mml), render, then check duration and loop.start/loop.end against what you meant.
 Every command has an example: bleepkit <command> --help.`;

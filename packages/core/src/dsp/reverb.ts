@@ -29,6 +29,27 @@ class Allpass {
   }
 }
 
+function resetCombs(list: Comb[]): void {
+  for (let i = 0; i < list.length; i += 1) {
+    const c = list[i];
+    if (c) {
+      c.buf.fill(0);
+      c.pos = 0;
+      c.store = 0;
+    }
+  }
+}
+
+function resetAllpasses(list: Allpass[]): void {
+  for (let i = 0; i < list.length; i += 1) {
+    const a = list[i];
+    if (a) {
+      a.buf.fill(0);
+      a.pos = 0;
+    }
+  }
+}
+
 export class Reverb {
   enabled = false;
   private readonly combsL: Comb[] = [];
@@ -99,15 +120,10 @@ export class Reverb {
   }
 
   reset(): void {
-    for (const c of [...this.combsL, ...this.combsR]) {
-      c.buf.fill(0);
-      c.pos = 0;
-      c.store = 0;
-    }
-    for (const a of [...this.apL, ...this.apR]) {
-      a.buf.fill(0);
-      a.pos = 0;
-    }
+    resetCombs(this.combsL);
+    resetCombs(this.combsR);
+    resetAllpasses(this.apL);
+    resetAllpasses(this.apR);
   }
 
   private side(

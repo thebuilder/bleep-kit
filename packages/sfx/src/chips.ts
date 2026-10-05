@@ -12,6 +12,12 @@ export interface ChipCaps {
   filter: boolean;
   /** Lowest Hz the chip's pitch register can reach, per wave. */
   floor: Partial<Record<SfxWave, number>>;
+  /**
+   * The noise rate can glide. False where a slide would turn the noise into a tone or a click train, so generators skip
+   * noise slides there. The Genesis PSG has only three fixed rates, but its tone 3 mode (noise clocked by the third
+   * square's period) sweeps smoothly, which the core uses whenever the pitch of a Genesis noise sfx moves.
+   */
+  noiseSweep: boolean;
   /** Authentic to use the phaser comb (an echo-like shimmer on the 16-bit profile). */
   phaser: boolean;
   waves: readonly SfxWave[];
@@ -25,6 +31,7 @@ export const CHIP_CAPS: Readonly<Record<ChipId, ChipCaps>> = {
     duties: null,
     filter: false,
     floor: {},
+    noiseSweep: true,
     phaser: false,
     waves: ["fm", "square", "sine", "saw"],
   },
@@ -33,6 +40,7 @@ export const CHIP_CAPS: Readonly<Record<ChipId, ChipCaps>> = {
     duties: null,
     filter: true,
     floor: {},
+    noiseSweep: true,
     phaser: false,
     waves: ["square", "saw", "triangle", "noise"],
   },
@@ -41,6 +49,7 @@ export const CHIP_CAPS: Readonly<Record<ChipId, ChipCaps>> = {
     duties: null,
     filter: true,
     floor: {},
+    noiseSweep: true,
     phaser: true,
     waves: ["square", "triangle", "saw", "sine", "noise", "wave", "fm"],
   },
@@ -49,6 +58,7 @@ export const CHIP_CAPS: Readonly<Record<ChipId, ChipCaps>> = {
     duties: NES_DUTIES,
     filter: false,
     floor: { square: 66, wave: 33 },
+    noiseSweep: true,
     phaser: false,
     waves: ["square", "wave", "noise"],
   },
@@ -57,6 +67,7 @@ export const CHIP_CAPS: Readonly<Record<ChipId, ChipCaps>> = {
     duties: [0.5],
     filter: false,
     floor: { square: 110 },
+    noiseSweep: true,
     phaser: false,
     waves: ["square", "noise", "fm"],
   },
@@ -65,6 +76,7 @@ export const CHIP_CAPS: Readonly<Record<ChipId, ChipCaps>> = {
     duties: NES_DUTIES,
     filter: false,
     floor: { square: 56, triangle: 28 },
+    noiseSweep: true,
     phaser: false,
     waves: ["square", "triangle", "noise"],
   },
@@ -73,6 +85,7 @@ export const CHIP_CAPS: Readonly<Record<ChipId, ChipCaps>> = {
     duties: null,
     filter: true,
     floor: {},
+    noiseSweep: true,
     phaser: true,
     waves: ["sine", "triangle", "saw", "square", "noise"],
   },

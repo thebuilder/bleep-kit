@@ -6,7 +6,7 @@ import { chipChannels } from "./lib/core.ts";
 import { fire } from "./lib/dom.ts";
 import { type Doc, project } from "./state/docs.ts";
 
-export function unlockAudio(): void {
+function unlockAudio(): void {
   fire(engine.unlock());
 }
 

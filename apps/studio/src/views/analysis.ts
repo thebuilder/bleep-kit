@@ -17,7 +17,7 @@ import { playDoc, stopEverything } from "../playback.ts";
 import { analyzeAsync } from "../render-service.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
-import { group } from "../ui/fields.ts";
+import { group, inspectorTitle } from "../ui/fields.ts";
 import { icon } from "../ui/icons.ts";
 import { surface } from "../visuals/canvas.ts";
 import { addVisual } from "../visuals/loop.ts";
@@ -51,6 +51,27 @@ function sourceOf(doc: Doc): Source {
     };
   }
   return { inst: doc.value as Instrument, note: 60, type: "note" };
+}
+
+/** The loop seam card. A loop that starts at the very top of the file has nothing before it to compare with. */
+function loopCard(loop: NonNullable<Analysis["loop"]>): Card {
+  const seam = loop.seamDiffDb;
+  return {
+    label: "Loop seam",
+    sub:
+      seam === null
+        ? `${loop.start.toFixed(2)} s to ${loop.end.toFixed(2)} s, starts at the top`
+        : `${loop.start.toFixed(2)} s to ${loop.end.toFixed(2)} s`,
+    text: db,
+    tone: choose(
+      [
+        [seam === null || seam < -30, "ok" as const],
+        [seam !== null && seam < -15, "warn" as const],
+      ],
+      "bad" as const
+    ),
+    value: seam,
+  };
 }
 
 export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
@@ -181,20 +202,7 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
       },
     ];
     if (a.loop) {
-      const good = a.loop.seamDiffDb < -30;
-      cards.splice(4, 0, {
-        label: "Loop seam",
-        sub: `${a.loop.start.toFixed(2)} s to ${a.loop.end.toFixed(2)} s`,
-        text: db,
-        tone: choose(
-          [
-            [good, "ok" as const],
-            [a.loop.seamDiffDb < -15, "warn" as const],
-          ],
-          "bad" as const
-        ),
-        value: a.loop.seamDiffDb,
-      });
+      cards.splice(4, 0, loopCard(a.loop));
     }
     cards.splice(a.loop ? 5 : 4, 0, {
       label: "Pitch",
@@ -449,9 +457,7 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
     insp.replaceChildren();
     const inner = h("div", { class: "insp-in" });
     insp.append(inner);
-    const title = h("div", { class: "insp-title" });
-    title.innerHTML = `${icon("chart", 16)}<span class="nm">Analysis JSON</span>`;
-    inner.append(title);
+    inner.append(inspectorTitle("chart", "Analysis JSON"));
     inner.append(
       h(
         "div",

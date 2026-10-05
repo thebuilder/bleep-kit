@@ -7,12 +7,14 @@ import {
   drawDuty,
   setEnvelope,
 } from "../build.ts";
-import { between, chance, pick, round } from "../util.ts";
+import { between, pick, round } from "../util.ts";
 import {
   type Flavor,
   freeHz,
   lowpass,
+  noiseHz,
   runFlavors,
+  setNoiseMode,
   slideBy,
   w,
 } from "./flavors.ts";
@@ -20,8 +22,8 @@ import {
 function thwack(ctx: Ctx): void {
   const { rng, sfx } = ctx;
   applyWave(ctx, "noise");
-  sfx.noise.mode = chance(rng, 0.5) ? "short" : "long";
-  sfx.frequency.start = freeHz(ctx, 300, 2400);
+  setNoiseMode(ctx, 0.5);
+  sfx.frequency.start = noiseHz(ctx, [300, 2400], [150, 900]);
   const total = between(rng, 0.06, 0.2);
   const sustain = between(rng, 0, 0.04);
   setEnvelope(ctx, 0, sustain, total - sustain, between(rng, 0.4, 0.9));

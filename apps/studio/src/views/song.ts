@@ -36,6 +36,7 @@ import {
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
 import {
+  type Group,
   group,
   rangeField,
   selectField,
@@ -43,10 +44,10 @@ import {
   toggleField,
 } from "../ui/fields.ts";
 import { icon } from "../ui/icons.ts";
-import { issuesBox } from "../ui/issues.ts";
+import { showIssues } from "../ui/issues.ts";
 import { createPiano, keyToOffset } from "../ui/piano.ts";
 import { surface, triggerIndex } from "../visuals/canvas.ts";
-import { addVisual } from "../visuals/loop.ts";
+import { addVisual, type Frame } from "../visuals/loop.ts";
 
 const ALNUM_KEY = /^[0-9a-z]$/;
 const TRAILING_NUMBER = /-\d+$/;
@@ -96,6 +97,52 @@ const emptyRow = (row: number): Row => ({
 });
 const isEmpty = (r: Row) =>
   r.note === null && r.inst === null && r.vol === null && r.fx.length === 0;
+
+/** Delete on a field: the note field empties the whole row, the others only themselves. */
+function clearField(r: Row, field: number): void {
+  if (field === 0) {
+    r.note = null;
+    r.inst = null;
+    r.vol = null;
+    r.fx = [];
+  } else if (field === 1) {
+    r.inst = null;
+  } else if (field === 2) {
+    r.vol = null;
+  } else {
+    r.fx.splice(field - 3, 1);
+  }
+}
+
+const noteCell = (r: Row | undefined) =>
+  `<span class="n${NOTE_CLASS[String(r?.note)] ?? ""}" data-f="0">${noteText(r?.note ?? null)}</span>`;
+
+/** The instrument's number in the inspector's list, "??" when the row names one that is gone. */
+function instCell(
+  r: Row | undefined,
+  list: string[],
+  channelKind: SongChannel["kind"]
+) {
+  const id = r?.inst;
+  if (!id) {
+    return `<span class="i e" data-f="1">--</span>`;
+  }
+  const at = list.indexOf(id);
+  const kind = project.instruments()[id]?.kind ?? channelKind;
+  return `<span class="i" data-f="1" title="${id}" style="--ik:${KIND_HEX[kind]}">${at >= 0 ? hex(at, 2) : "??"}</span>`;
+}
+
+function volCell(r: Row | undefined) {
+  const v = r?.vol;
+  const none = v === null || v === undefined;
+  return `<span class="v${none ? " e" : ""}" data-f="2">${none ? "-" : hex(v)}</span>`;
+}
+
+function fxCell(r: Row | undefined, k: number) {
+  const e = r?.fx[k];
+  const text = e ? formatEffect(e).padEnd(3, "0").slice(0, 3) : "---";
+  return `<span class="f${e ? "" : " e"}" data-f="${3 + k}">${text}</span>`;
+}
 
 export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   const { host, insp } = ctx;
@@ -182,26 +229,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     if (c.mml !== null) {
       return `<span class="n mml-cell">MML</span>`;
     }
-    const il = instList();
-    const instAt = r?.inst ? il.indexOf(r.inst) : -1;
-    let instTxt = "--";
-    if (r?.inst) {
-      instTxt = instAt >= 0 ? hex(instAt, 2) : "??";
-    }
-    const instKind = r?.inst
-      ? (project.instruments()[r.inst]?.kind ?? c.kind)
-      : c.kind;
-    const fx = (i: number) => {
-      const e = r?.fx[i];
-      return e ? formatEffect(e).padEnd(3, "0").slice(0, 3) : "---";
-    };
-    let out = `<span class="n${NOTE_CLASS[String(r?.note)] ?? ""}" data-f="0">${noteText(r?.note ?? null)}</span>`;
-    out += `<span class="i${r?.inst ? "" : " e"}" data-f="1"${r?.inst ? ` title="${r.inst}" style="--ik:${KIND_HEX[instKind]}"` : ""}>${instTxt}</span>`;
-    out += `<span class="v${r?.vol === null || r?.vol === undefined ? " e" : ""}" data-f="2">${r?.vol === null || r?.vol === undefined ? "-" : hex(r.vol)}</span>`;
-    for (let k = 0; k < fxCount(c.id); k += 1) {
-      out += `<span class="f${r?.fx[k] ? "" : " e"}" data-f="${3 + k}">${fx(k)}</span>`;
-    }
-    return out;
+    const fx = Array.from({ length: fxCount(c.id) }, (_, k) => fxCell(r, k));
+    return (
+      noteCell(r) + instCell(r, instList(), c.kind) + volCell(r) + fx.join("")
+    );
   }
 
   function rowHtml(rowIdx: number, maps: Map<number, Row>[]): string {
@@ -573,192 +604,183 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     move(1);
   }
 
+  /** Cursor movement and Enter (play from here). */
+  function navigationKey(e: KeyboardEvent): boolean {
+    const steps = new Map<string, () => void>([
+      ["ArrowUp", () => move(-1)],
+      ["ArrowDown", () => move(1)],
+      ["ArrowLeft", () => move(0, 0, -1)],
+      ["ArrowRight", () => move(0, 0, 1)],
+      ["Tab", () => move(0, e.shiftKey ? -1 : 1)],
+      ["PageUp", () => move(-16)],
+      ["PageDown", () => move(16)],
+      ["Home", () => move(-cur.row)],
+      ["End", () => move(1e6)],
+      ["Enter", () => playFrom(orderIdx, cur.row)],
+    ]);
+    const step = steps.get(e.key);
+    step?.();
+    return step !== undefined;
+  }
+
+  /** Delete clears the field under the cursor and moves down; Backspace clears it and stays. */
+  function clearKey(c: SongChannel, key: string): void {
+    if (c.mml !== null) {
+      return;
+    }
+    const f = cur.field;
+    editRow(cur.ch, cur.row, (r) => clearField(r, f));
+    entry = "";
+    if (key === "Delete") {
+      advance();
+    }
+  }
+
+  /** The keys that mean the same in every field: octave down and up, follow. */
+  function globalKey(k: string): boolean {
+    if (k === "-" || k === "_") {
+      setOctave(octave - 1);
+    } else if (k === "=" || k === "+") {
+      setOctave(octave + 1);
+    } else if (k === "f" || k === "F") {
+      setFollow(!follow);
+    } else {
+      return false;
+    }
+    return true;
+  }
+
+  /** Note field: the piano keys, 1 for note off and ` for release. */
+  function noteKey(c: SongChannel, k: string): boolean {
+    const special = { "`": "release", "1": "off" } as const;
+    if (k === "1" || k === "`") {
+      editRow(cur.ch, cur.row, (r) => {
+        r.note = special[k];
+      });
+      advance();
+      return true;
+    }
+    const off = keyToOffset(k);
+    if (off === null || k.length !== 1) {
+      return false;
+    }
+    const note = clamp((octave + 1) * 12 + off, 0, 127);
+    const prev = currentRow();
+    const il = instList();
+    editRow(cur.ch, cur.row, (r) => {
+      r.note = note;
+      // new notes on the first row pick up the channel's instrument so the grid shows what will play
+      const first =
+        c.instrument && il.includes(c.instrument) ? c.instrument : null;
+      if (r.inst === null && !prev?.inst && first && cur.row === 0) {
+        r.inst = first;
+      }
+    });
+    audition(note);
+    advance();
+    return true;
+  }
+
+  /** Instrument field: two hex digits pick the instrument by its number in the inspector. */
+  function instKey(kl: string): boolean {
+    if (!HEX_KEY.test(kl)) {
+      return false;
+    }
+    entry += kl;
+    if (entry.length < 2) {
+      flashEntry();
+      return true;
+    }
+    const idx = Number.parseInt(entry, 16);
+    entry = "";
+    const instId = instList()[idx];
+    if (!instId) {
+      app.toast(
+        `There is no instrument ${hex(idx, 2)}. They are numbered in the inspector.`
+      );
+      return true;
+    }
+    editRow(cur.ch, cur.row, (r) => {
+      r.inst = instId;
+    });
+    advance();
+    return true;
+  }
+
+  /** Volume field: one hex digit. */
+  function volKey(kl: string): boolean {
+    if (!HEX_KEY.test(kl)) {
+      return false;
+    }
+    const v = Number.parseInt(kl, 16);
+    editRow(cur.ch, cur.row, (r) => {
+      r.vol = v;
+    });
+    advance();
+    return true;
+  }
+
+  /** Effect fields: a letter or digit, then two hex digits. */
+  function effectKey(kl: string): boolean {
+    if (!ALNUM_KEY.test(kl)) {
+      return false;
+    }
+    entry += kl;
+    if (entry.length < 3) {
+      flashEntry();
+      return true;
+    }
+    const code = entry;
+    const eff: Effect | null = parseEffect(code.toUpperCase());
+    const slot = cur.field - 3;
+    entry = "";
+    if (!eff) {
+      app.toast(
+        `${code.toUpperCase()} is not an effect. Try A0F (arpeggio) or 0C4 style codes: a letter, then two hex digits.`
+      );
+      return true;
+    }
+    editRow(cur.ch, cur.row, (r) => {
+      r.fx[slot] = eff;
+      r.fx = r.fx.filter(Boolean);
+    });
+    advance();
+    return true;
+  }
+
   function onTrackerKey(e: KeyboardEvent): boolean {
-    const s = song();
-    const c = s.channels[cur.ch];
+    const c = song().channels[cur.ch];
     if (!(c && pattern())) {
       return false;
     }
     const k = e.key;
-    switch (k) {
-      case "ArrowUp":
-        move(-1);
-        return true;
-      case "ArrowDown":
-        move(1);
-        return true;
-      case "ArrowLeft":
-        move(0, 0, -1);
-        return true;
-      case "ArrowRight":
-        move(0, 0, 1);
-        return true;
-      case "Tab":
-        move(0, e.shiftKey ? -1 : 1);
-        return true;
-      case "PageUp":
-        move(-16);
-        return true;
-      case "PageDown":
-        move(16);
-        return true;
-      case "Home":
-        move(-cur.row);
-        return true;
-      case "End":
-        move(1e6);
-        return true;
-      case "Enter":
-        playFrom(orderIdx, cur.row);
-        return true;
-      case "Delete":
-      case "Backspace": {
-        if (c.mml !== null) {
-          return true;
-        }
-        const f = cur.field;
-        editRow(cur.ch, cur.row, (r) => {
-          if (f === 0) {
-            r.note = null;
-            r.inst = null;
-            r.vol = null;
-            r.fx = [];
-          } else if (f === 1) {
-            r.inst = null;
-          } else if (f === 2) {
-            r.vol = null;
-          } else {
-            r.fx.splice(f - 3, 1);
-          }
-        });
-        entry = "";
-        if (k === "Delete") {
-          advance();
-        }
-        return true;
-      }
-      default:
-        break;
+    if (navigationKey(e)) {
+      return true;
+    }
+    if (k === "Delete" || k === "Backspace") {
+      clearKey(c, k);
+      return true;
     }
     if (e.shiftKey && k.length > 1) {
       return false;
     }
-    if (k === "-" || k === "_") {
-      setOctave(octave - 1);
-      return true;
-    }
-    if (k === "=" || k === "+") {
-      setOctave(octave + 1);
-      return true;
-    }
-    if (k === "f" || k === "F") {
-      setFollow(!follow);
+    if (globalKey(k)) {
       return true;
     }
     if (c.mml !== null) {
       return false;
     }
-    const f = cur.field;
     const kl = k.toLowerCase();
-    if (f === 0) {
-      if (k === "1") {
-        editRow(cur.ch, cur.row, (r) => {
-          r.note = "off";
-        });
-        advance();
-        return true;
-      }
-      if (k === "`") {
-        editRow(cur.ch, cur.row, (r) => {
-          r.note = "release";
-        });
-        advance();
-        return true;
-      }
-      const off = keyToOffset(k);
-      if (off !== null && k.length === 1) {
-        const note = clamp((octave + 1) * 12 + off, 0, 127);
-        const prev = currentRow();
-        const il = instList();
-        editRow(cur.ch, cur.row, (r) => {
-          r.note = note;
-          if (
-            r.inst === null &&
-            (prev?.inst === null || prev?.inst === undefined)
-          ) {
-            // new notes pick up the channel's instrument so the grid shows what will play
-            const first =
-              c.instrument && il.includes(c.instrument) ? c.instrument : null;
-            if (first && cur.row === 0) {
-              r.inst = first;
-            }
-          }
-        });
-        audition(note);
-        advance();
-        return true;
-      }
-      return false;
+    switch (cur.field) {
+      case 0:
+        return noteKey(c, k);
+      case 1:
+        return instKey(kl);
+      case 2:
+        return volKey(kl);
+      default:
+        return effectKey(kl);
     }
-    if (f === 1) {
-      if (HEX_KEY.test(kl)) {
-        entry += kl;
-        if (entry.length >= 2) {
-          const idx = Number.parseInt(entry, 16);
-          entry = "";
-          const instId = instList()[idx];
-          if (instId) {
-            editRow(cur.ch, cur.row, (r) => {
-              r.inst = instId;
-            });
-            advance();
-          } else {
-            app.toast(
-              `There is no instrument ${hex(idx, 2)}. They are numbered in the inspector.`
-            );
-          }
-        } else {
-          flashEntry();
-        }
-        return true;
-      }
-      return false;
-    }
-    if (f === 2) {
-      if (HEX_KEY.test(kl)) {
-        const v = Number.parseInt(kl, 16);
-        editRow(cur.ch, cur.row, (r) => {
-          r.vol = v;
-        });
-        advance();
-        return true;
-      }
-      return false;
-    }
-    if (ALNUM_KEY.test(kl)) {
-      entry += kl;
-      if (entry.length >= 3) {
-        const eff: Effect | null = parseEffect(entry.toUpperCase());
-        const slot = f - 3;
-        const code = entry;
-        entry = "";
-        if (eff) {
-          editRow(cur.ch, cur.row, (r) => {
-            r.fx[slot] = eff;
-            r.fx = r.fx.filter(Boolean);
-          });
-          advance();
-        } else {
-          app.toast(
-            `${code.toUpperCase()} is not an effect. Try A0F (arpeggio) or 0C4 style codes: a letter, then two hex digits.`
-          );
-        }
-      } else {
-        flashEntry();
-      }
-      return true;
-    }
-    return false;
   }
 
   function flashEntry(): void {
@@ -1171,18 +1193,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   q("#gHere").addEventListener("click", () => playFrom(orderIdx, cur.row));
 
   /* ----- inspector ----- */
-  function buildInspector(): void {
-    insp.replaceChildren();
-    const s = song();
-    const inner = h("div", { class: "insp-in" });
-    insp.append(inner);
-    const slot = h("div", { class: "issue-slot" });
-    const ib = issuesBox(doc().issues);
-    if (ib) {
-      slot.append(ib);
-    }
-    inner.append(slot);
-
+  function songGroup(s: Song): HTMLElement {
     const gs = group("Song", { key: "song-song" });
     textField(gs.body, {
       label: "Name",
@@ -1239,8 +1250,75 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       },
       value: s.loop !== null,
     });
-    inner.append(gs.el);
+    return gs.el;
+  }
 
+  /** The echo's four knobs, shown while the echo is on. */
+  function echoFields(
+    gm: Group,
+    echo: NonNullable<Song["master"]["echo"]>,
+    why: string | false
+  ): void {
+    for (const [k, label, min, max, step] of [
+      ["delay", "Delay (s)", 0.01, 1, 0.01],
+      ["feedback", "Feedback", 0, 0.95, 0.01],
+      ["level", "Level", 0, 1, 0.01],
+      ["lowpassHz", "Lowpass (Hz)", 200, 12_000, 10],
+    ] as const) {
+      rangeField(gm.body, {
+        label,
+        max,
+        min,
+        off: why,
+        onInput: (v) =>
+          project.edit<Song>(
+            doc(),
+            (d) => {
+              if (d.master.echo) {
+                d.master.echo[k] = v;
+              }
+            },
+            `echo${k}`
+          ),
+        step,
+        value: echo[k],
+      });
+    }
+  }
+
+  /** The reverb's three knobs, shown while the reverb is on. */
+  function reverbFields(
+    gm: Group,
+    reverb: NonNullable<Song["master"]["reverb"]>,
+    why: string | false
+  ): void {
+    for (const [k, label] of [
+      ["size", "Size"],
+      ["damping", "Damping"],
+      ["level", "Level"],
+    ] as const) {
+      rangeField(gm.body, {
+        label,
+        max: 1,
+        min: 0,
+        off: why,
+        onInput: (v) =>
+          project.edit<Song>(
+            doc(),
+            (d) => {
+              if (d.master.reverb) {
+                d.master.reverb[k] = v;
+              }
+            },
+            `rev${k}`
+          ),
+        step: 0.01,
+        value: reverb[k],
+      });
+    }
+  }
+
+  function masterGroup(s: Song): HTMLElement {
     const gm = group("Master", { key: "song-master" });
     const fxOk = chipProfile(s.chip).constraints.masterFx;
     const why = fxOk
@@ -1275,31 +1353,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       value: s.master.echo !== null,
     });
     if (s.master.echo) {
-      for (const [k, label, min, max, step] of [
-        ["delay", "Delay (s)", 0.01, 1, 0.01],
-        ["feedback", "Feedback", 0, 0.95, 0.01],
-        ["level", "Level", 0, 1, 0.01],
-        ["lowpassHz", "Lowpass (Hz)", 200, 12_000, 10],
-      ] as const) {
-        rangeField(gm.body, {
-          label,
-          max,
-          min,
-          off: why,
-          onInput: (v) =>
-            project.edit<Song>(
-              doc(),
-              (d) => {
-                if (d.master.echo) {
-                  d.master.echo[k] = v;
-                }
-              },
-              `echo${k}`
-            ),
-          step,
-          value: s.master.echo[k],
-        });
-      }
+      echoFields(gm, s.master.echo, why);
     }
     toggleField(gm.body, {
       label: "Reverb",
@@ -1315,123 +1369,105 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       value: s.master.reverb !== null,
     });
     if (s.master.reverb) {
-      for (const [k, label] of [
-        ["size", "Size"],
-        ["damping", "Damping"],
-        ["level", "Level"],
-      ] as const) {
-        rangeField(gm.body, {
-          label,
-          max: 1,
-          min: 0,
-          off: why,
-          onInput: (v) =>
-            project.edit<Song>(
-              doc(),
-              (d) => {
-                if (d.master.reverb) {
-                  d.master.reverb[k] = v;
-                }
-              },
-              `rev${k}`
-            ),
-          step: 0.01,
-          value: s.master.reverb[k],
-        });
-      }
+      reverbFields(gm, s.master.reverb, why);
     }
-    inner.append(gm.el);
+    return gm.el;
+  }
 
-    const c = s.channels[cur.ch];
-    if (c) {
-      const gc = group(`Channel: ${c.id}`, { key: "song-chan" });
-      const insts = project.list("instrument");
-      const same = insts.filter((d) => (d.value as Instrument).kind === c.kind);
-      const opts = [
-        { label: "(none)", value: "" },
-        ...(same.length ? same : insts).map((d) => ({
-          label: `${hex(instList().indexOf(d.id), 2)} ${(d.value as Instrument).name}`,
-          value: d.id,
-        })),
-      ];
-      selectField<string>(gc.body, {
-        label: "Instrument",
-        onInput: (v) =>
-          project.edit<Song>(doc(), (d) => {
+  /** The selected channel's instrument, volume and pan, and a button that opens its instrument. */
+  function channelGroup(s: Song, c: SongChannel): HTMLElement[] {
+    const gc = group(`Channel: ${c.id}`, { key: "song-chan" });
+    const insts = project.list("instrument");
+    const same = insts.filter((d) => (d.value as Instrument).kind === c.kind);
+    const opts = [
+      { label: "(none)", value: "" },
+      ...(same.length ? same : insts).map((d) => ({
+        label: `${hex(instList().indexOf(d.id), 2)} ${(d.value as Instrument).name}`,
+        value: d.id,
+      })),
+    ];
+    selectField<string>(gc.body, {
+      label: "Instrument",
+      onInput: (v) =>
+        project.edit<Song>(doc(), (d) => {
+          const ch = d.channels[cur.ch];
+          if (ch) {
+            ch.instrument = v === "" ? null : v;
+          }
+        }),
+      options: opts,
+      value: c.instrument ?? "",
+    });
+    rangeField(gc.body, {
+      label: "Volume",
+      max: 1,
+      min: 0,
+      onInput: (v) => {
+        project.edit<Song>(
+          doc(),
+          (d) => {
             const ch = d.channels[cur.ch];
             if (ch) {
-              ch.instrument = v === "" ? null : v;
+              ch.volume = v;
             }
-          }),
-        options: opts,
-        value: c.instrument ?? "",
-      });
-      rangeField(gc.body, {
-        label: "Volume",
-        max: 1,
-        min: 0,
-        onInput: (v) => {
-          project.edit<Song>(
-            doc(),
-            (d) => {
-              const ch = d.channels[cur.ch];
-              if (ch) {
-                ch.volume = v;
-              }
-            },
-            `cvol${cur.ch}`
-          );
-          const idx = engineIndex(c.id);
-          if (idx >= 0) {
-            engine.setChannel(idx, { volume: v });
-          }
-        },
-        step: 0.01,
-        value: c.volume,
-      });
-      rangeField(gc.body, {
-        label: "Pan",
-        max: 1,
-        min: -1,
-        off:
-          chipProfile(s.chip).constraints.pan === "none"
-            ? `${CHIP_THEME[s.chip].short} has no pan`
-            : false,
-        onInput: (v) =>
-          project.edit<Song>(
-            doc(),
-            (d) => {
-              const ch = d.channels[cur.ch];
-              if (ch) {
-                ch.pan = v;
-              }
-            },
-            `cpan${cur.ch}`
-          ),
-        step: 0.01,
-        value: c.pan,
-      });
-      inner.append(gc.el);
-      const open = c.instrument
-        ? project.get("instrument", c.instrument)
-        : undefined;
-      if (open) {
-        inner.append(
-          h(
-            "div",
-            { class: "hint btn-row" },
-            h(
-              "button",
-              {
-                class: "btn small",
-                onclick: () => app.navigate(`#/instrument/${open.id}`),
-              },
-              `Open ${(open.value as Instrument).name}`
-            )
-          )
+          },
+          `cvol${cur.ch}`
         );
-      }
+        const idx = engineIndex(c.id);
+        if (idx >= 0) {
+          engine.setChannel(idx, { volume: v });
+        }
+      },
+      step: 0.01,
+      value: c.volume,
+    });
+    rangeField(gc.body, {
+      label: "Pan",
+      max: 1,
+      min: -1,
+      off:
+        chipProfile(s.chip).constraints.pan === "none"
+          ? `${CHIP_THEME[s.chip].short} has no pan`
+          : false,
+      onInput: (v) =>
+        project.edit<Song>(
+          doc(),
+          (d) => {
+            const ch = d.channels[cur.ch];
+            if (ch) {
+              ch.pan = v;
+            }
+          },
+          `cpan${cur.ch}`
+        ),
+      step: 0.01,
+      value: c.pan,
+    });
+    const out: HTMLElement[] = [gc.el];
+    const open = c.instrument
+      ? project.get("instrument", c.instrument)
+      : undefined;
+    if (open) {
+      out.push(
+        h(
+          "div",
+          { class: "hint btn-row" },
+          h(
+            "button",
+            {
+              class: "btn small",
+              onclick: () => app.navigate(`#/instrument/${open.id}`),
+            },
+            `Open ${(open.value as Instrument).name}`
+          )
+        )
+      );
     }
+    return out;
+  }
+
+  /** The numbers the tracker shows for each instrument, as buttons that open it. */
+  function instrumentLegend(): HTMLElement {
     const legend = h("div", { class: "hint inst-legend" });
     const il = instList();
     legend.append(h("b", {}, "Instrument numbers"));
@@ -1447,7 +1483,22 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       (row.querySelector(".nm") as HTMLElement).textContent = inst?.name ?? iid;
       legend.append(row);
     }
-    inner.append(legend);
+    return legend;
+  }
+
+  function buildInspector(): void {
+    insp.replaceChildren();
+    const s = song();
+    const inner = h("div", { class: "insp-in" });
+    insp.append(inner);
+    const slot = h("div", { class: "issue-slot" });
+    showIssues(slot, doc().issues);
+    inner.append(slot, songGroup(s), masterGroup(s));
+    const c = s.channels[cur.ch];
+    if (c) {
+      inner.append(...channelGroup(s, c));
+    }
+    inner.append(instrumentLegend());
     inner.append(
       h(
         "div",
@@ -1515,14 +1566,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return;
     }
     reloadSong();
-    const slot = insp.querySelector(".issue-slot");
-    if (slot) {
-      slot.replaceChildren();
-      const ib = issuesBox(doc().issues);
-      if (ib) {
-        slot.append(ib);
-      }
-    }
+    showIssues(insp.querySelector(".issue-slot"), doc().issues);
     if (e.cause === "edit" && selfRow !== null) {
       const r = selfRow;
       selfRow = null;
@@ -1546,46 +1590,45 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   };
   const lastNote = new Map<number, number>();
   const flashTimers = new Map<number, ReturnType<typeof setTimeout>>();
-  const offVisual = addVisual((f) => {
-    // events: key lighting, cell pulses
+  /** The strip lights with the notes that start and fades the ones that end; a cell pulses for each note. */
+  function lightNotes(f: Frame): void {
     for (const ev of f.events as readonly EngineEvent[]) {
       if (ev.channel < 0) {
         continue;
       }
+      const n = clamp(Math.round(ev.note), KEY_LO, KEY_HI);
       if (ev.type === "noteOn") {
-        keys.light(
-          clamp(Math.round(ev.note), KEY_LO, KEY_HI),
-          colorOf(ev.channelId),
-          true,
-          f.time
-        );
-        lastNote.set(ev.channel, clamp(Math.round(ev.note), KEY_LO, KEY_HI));
+        keys.light(n, colorOf(ev.channelId), true, f.time);
+        lastNote.set(ev.channel, n);
         pulseCell(ev.channelId);
       } else if (ev.type === "noteOff") {
-        const n = lastNote.get(ev.channel);
-        if (n !== undefined) {
-          keys.release(n, f.time);
+        const held = lastNote.get(ev.channel);
+        if (held !== undefined) {
+          keys.release(held, f.time);
         }
       }
     }
-    // playhead
+  }
+
+  /** The order list marks the pattern that plays; with follow on, the grid moves to it. */
+  function markPlayingOrder(order: number): void {
+    playOrder = order;
+    for (const [i, el] of orderEl.querySelectorAll(".ochip").entries()) {
+      el.classList.toggle("playing", i === order);
+    }
+    if (follow && order !== orderIdx && order < song().order.length) {
+      orderIdx = order;
+      buildOrder();
+      buildGrid();
+      syncBar();
+    }
+  }
+
+  function movePlayhead(f: Frame): void {
     const pos = f.position;
     if (f.playing && pos) {
       if (pos.order !== playOrder) {
-        playOrder = pos.order;
-        for (const [i, el] of orderEl.querySelectorAll(".ochip").entries()) {
-          el.classList.toggle("playing", i === pos.order);
-        }
-        if (
-          follow &&
-          pos.order !== orderIdx &&
-          pos.order < song().order.length
-        ) {
-          orderIdx = pos.order;
-          buildOrder();
-          buildGrid();
-          syncBar();
-        }
+        markPlayingOrder(pos.order);
       }
       if (pos.row !== playRow || pos.order !== playOrderShown) {
         playRowEl(pos.order === orderIdx ? pos.row : -1, f.reduced);
@@ -1598,22 +1641,33 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         el.classList.remove("playing");
       }
     }
-    playBtn.classList.toggle("on", f.playing);
+  }
+
+  function syncPlayButton(playing: boolean): void {
+    playBtn.classList.toggle("on", playing);
     const lab = playBtn.querySelector("span");
-    if (lab && lab.textContent !== (f.playing ? "Pause" : "Play")) {
-      lab.textContent = f.playing ? "Pause" : "Play";
+    if (lab && lab.textContent !== (playing ? "Pause" : "Play")) {
+      lab.textContent = playing ? "Pause" : "Play";
       playBtn.querySelector("svg")?.replaceWith(h("span", { class: "tmp" }));
       playBtn
         .querySelector(".tmp")
-        ?.replaceWith(htmlIcon(f.playing ? "pause" : "play"));
+        ?.replaceWith(htmlIcon(playing ? "pause" : "play"));
     }
-    drawScopes(f);
-    if (keys.busy(f.time) || f.reduced) {
-      keys.draw(f.time);
-    } else if (keysDirty) {
+  }
+
+  function drawKeys(f: Frame): void {
+    if (keys.busy(f.time) || f.reduced || keysDirty) {
       keys.draw(f.time);
       keysDirty = false;
     }
+  }
+
+  const offVisual = addVisual((f) => {
+    lightNotes(f);
+    movePlayhead(f);
+    syncPlayButton(f.playing);
+    drawScopes(f);
+    drawKeys(f);
   });
   let playOrderShown = -1;
   let keysDirty = true;

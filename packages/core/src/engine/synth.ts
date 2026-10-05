@@ -116,6 +116,9 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
   private tickFrames: number;
   private tickK = 0;
   private nextTick = 0;
+  /** Frame the tick grid counts from: 0, or the start of the loop section after `anchorTicks`. */
+  private tickOrigin = 0;
+  private lastTickFrame = -1;
   private handleCounter = 1;
   private seed = 1;
   private soloMask = 0;
@@ -298,8 +301,24 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
 
   private retime(): void {
     this.tickFrames = this.sampleRate / this.tickRate;
+    this.tickOrigin = 0;
     this.tickK = Math.ceil(this.frameNow / this.tickFrames);
     this.nextTick = Math.ceil(this.tickK * this.tickFrames - 1e-6);
+  }
+
+  /**
+   * Count ticks from `frame` on: a tick fires there and the next ones follow every tickFrames. A looped song anchors
+   * the grid at the start of the loop section on its first pass and at every wrap, so every pass puts its notes at the
+   * same distance from a tick. Macros, effects and the FM LFO step on ticks, and a grid that kept running through a
+   * pass whose length is not a whole number of ticks would give each pass different modulation (and the loop a click).
+   */
+  private anchorTicks(frame: number): void {
+    if (this.lastTickFrame !== frame) {
+      this.doTick(frame);
+    }
+    this.tickOrigin = frame;
+    this.tickK = 1;
+    this.nextTick = Math.ceil(frame + this.tickFrames - 1e-6);
   }
 
   private sampleFor(inst: Instrument, _id: string): SampleRt | null {
@@ -724,6 +743,15 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
     }
   }
 
+  /** Offline renders: apply the project's master. `volume` replaces the master gain (null keeps the loaded song's own);
+      the limiter flag applies either way. */
+  setRenderMaster(volume: number | null, limiter: boolean): void {
+    if (volume !== null) {
+      this.masterGain = Math.max(0, Math.min(2, volume));
+    }
+    this.limiter.enabled = limiter;
+  }
+
   setScopeBuffer(buffer: SharedArrayBuffer | null): void {
     this.scopes = createScopeRings(this.scopeFrames, buffer);
   }
@@ -755,7 +783,12 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
     }
   }
 
+  onSection(frame: number): void {
+    this.anchorTicks(frame);
+  }
+
   onLoop(frame: number): void {
+    this.anchorTicks(frame);
     this.events.push("loop", frame, -1, "", 0, 0, 0, "", -1, -1);
   }
 
@@ -767,6 +800,7 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
   // ---------------------------------------------------------------- process
 
   private doTick(frame: number): void {
+    this.lastTickFrame = frame;
     for (let i = 0; i < this.chanCount; i += 1) {
       this.channelList[i]?.tick(frame);
     }
@@ -801,7 +835,9 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
       while (this.nextTick <= f0) {
         this.doTick(this.nextTick);
         this.tickK += 1;
-        this.nextTick = Math.ceil(this.tickK * this.tickFrames - 1e-6);
+        this.nextTick = Math.ceil(
+          this.tickOrigin + this.tickK * this.tickFrames - 1e-6
+        );
       }
       if (this.player.running) {
         this.player.advance(f0, this);
@@ -833,8 +869,6 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
     off: number,
     n: number
   ): void {
-    const mixL = this.mixL;
-    const mixR = this.mixR;
     const sinks = this.sinks;
     const head = this.scopes.head[0] ?? 0;
     if (sinks.enabled) {
@@ -843,6 +877,15 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
       sinks.revL.fill(0, 0, n);
       sinks.revR.fill(0, 0, n);
     }
+    this.renderSongVoices(off, n, head);
+    this.renderSfxVoices(n);
+    this.mixBuses(n);
+    this.finishSegment(left, right, off, n, head);
+  }
+
+  /** Song channels into the song chip's bus (and the stems), with the shared SID filter after them. */
+  private renderSongVoices(off: number, n: number, head: number): void {
+    const sinks = this.sinks;
     const songBus = this.buses[CHIP_IDS.indexOf(this.chip)];
     // SID oscillators render together so ring modulation and sync see their neighbours
     let sidAny = false;
@@ -879,11 +922,34 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
       }
       v.mixTo(n, songBus, stem, sinks, viaSid ? this.sidIn : null);
       writeRing(ring, stem, n, head);
-      if (this.captureStems) {
-        this.blockStems[c]?.set(stem.subarray(0, n), off);
+      this.captureStem(c, stem, off, n);
+    }
+    this.runSidFilter(songBus, routed, n);
+  }
+
+  private captureStem(
+    c: number,
+    stem: Float32Array,
+    off: number,
+    n: number
+  ): void {
+    if (!this.captureStems) {
+      return;
+    }
+    const dst = this.blockStems[c];
+    if (dst) {
+      for (let i = 0; i < n; i += 1) {
+        dst[off + i] = stem[i] ?? 0;
       }
     }
-    // the SID filter: routed voices through the shared SVF, then into the bus
+  }
+
+  /** The SID filter: routed voices through the shared SVF, then into the bus. */
+  private runSidFilter(
+    songBus: ChipBus | undefined,
+    routed: boolean,
+    n: number
+  ): void {
     if (routed && songBus) {
       svfProcess(this.sidSvf, this.sidIn, n);
       songBus.touch(n);
@@ -898,7 +964,10 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
       svfReset(this.sidSvf);
       this.sidRoutedNow = false;
     }
-    // sfx voices feed the bus of their own chip
+  }
+
+  /** Sfx voices feed the bus of their own chip. */
+  private renderSfxVoices(n: number): void {
     for (const v of this.sfxVoices) {
       if (!v.active) {
         continue;
@@ -909,7 +978,12 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
         v.mixTo(n, bus, null, this.noSinks, null);
       }
     }
-    // chip buses: coloring, then the sum
+  }
+
+  /** Chip buses: coloring, then the sum into mixL and mixR. */
+  private mixBuses(n: number): void {
+    const mixL = this.mixL;
+    const mixR = this.mixR;
     mixL.fill(0, 0, n);
     mixR.fill(0, 0, n);
     for (const bus of this.buses) {
@@ -922,7 +996,19 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
         mixR[i] = (mixR[i] ?? 0) + (bus.outR[i] ?? 0);
       }
     }
-    // master effects, then the master gain and the limiter
+  }
+
+  /** Master effects, then the master gain and the limiter, into the caller's buffers and the master scope. */
+  private finishSegment(
+    left: Float32Array,
+    right: Float32Array,
+    off: number,
+    n: number,
+    head: number
+  ): void {
+    const mixL = this.mixL;
+    const mixR = this.mixR;
+    const sinks = this.sinks;
     if (this.echo.enabled) {
       this.echo.process(sinks.echoL, sinks.echoR, mixL, mixR, n);
     }

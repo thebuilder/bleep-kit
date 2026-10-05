@@ -24,9 +24,9 @@ export type EncodeResponse =
     }
   | { id: number; error: string };
 
-export async function runEncode(
-  req: EncodeRequest
-): Promise<Omit<Extract<EncodeResponse, { bytes: Uint8Array }>, "id">> {
+type Encoded = Omit<Extract<EncodeResponse, { bytes: Uint8Array }>, "id">;
+
+export async function runEncode(req: EncodeRequest): Promise<Encoded> {
   const r: RenderResult = {
     channels: req.channels,
     events: [],
@@ -36,37 +36,25 @@ export async function runEncode(
       ? { loopEnd: req.loopEnd, loopStart: req.loopStart }
       : {}),
   };
-  const wav = () => ({
+  const wav = (): Encoded => ({
     bytes: encodeWav(r, { id: req.name }),
-    used: "wav" as const,
+    used: "wav",
   });
-  if (req.format === "ogg") {
-    try {
-      return {
-        bytes: await encodeOgg(r, { quality: req.quality }),
-        used: "ogg",
-      };
-    } catch (err) {
-      return {
-        ...wav(),
-        note: `OGG encoding failed (${(err as Error).message}), wrote WAV`,
-      };
-    }
+  const compressed = {
+    mp3: () => encodeMp3(r, { bitrate: req.bitrate }),
+    ogg: () => encodeOgg(r, { quality: req.quality }),
+  } as const;
+  if (req.format === "wav") {
+    return wav();
   }
-  if (req.format === "mp3") {
-    try {
-      return {
-        bytes: await encodeMp3(r, { bitrate: req.bitrate }),
-        used: "mp3",
-      };
-    } catch (err) {
-      return {
-        ...wav(),
-        note: `MP3 encoding failed (${(err as Error).message}), wrote WAV`,
-      };
-    }
+  try {
+    return { bytes: await compressed[req.format](), used: req.format };
+  } catch (err) {
+    return {
+      ...wav(),
+      note: `${req.format.toUpperCase()} encoding failed (${(err as Error).message}), wrote WAV`,
+    };
   }
-  return wav();
 }
 
 const scope = globalThis as unknown as {

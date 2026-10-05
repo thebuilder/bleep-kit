@@ -882,6 +882,69 @@ describe("song", () => {
     expect(r.value.loop).not.toBeNull();
   });
 
+  describe("the MML loop point L against the document's loop", () => {
+    // two sections of two bars each, so L after the first section is order boundary 1 (pulse 384 * 2 = 768 at 16 rows)
+    const song = (mml: string, loop?: number | null) => {
+      const base = nes();
+      const doc: Record<string, unknown> = {
+        ...base,
+        channels: base.channels.map((c, i) => (i === 0 ? { ...c, mml } : c)),
+        order: [],
+        patterns: {},
+      };
+      if (loop === undefined) {
+        doc.loop = undefined;
+      } else {
+        doc.loop = loop;
+      }
+      return normalizeSong(doc);
+    };
+    const MML = "l8 [c e g e]4 L [d f a f]4";
+    const overrides = (r: Normalized<unknown>) =>
+      r.issues.filter((i) => /overrides loop/.test(i.message));
+
+    it("says nothing when the document has no loop or a null one", () => {
+      for (const loop of [undefined, null]) {
+        const r = song(MML, loop);
+        expect(overrides(r), String(loop)).toEqual([]);
+        expect(r.value.loop).not.toBeNull();
+      }
+    });
+
+    it("says nothing when the document already agrees with L", () => {
+      const where = song(MML, null).value.loop;
+      const r = song(MML, where);
+      expect(overrides(r)).toEqual([]);
+      expect(r.value.loop).toBe(where);
+    });
+
+    it("warns, once, when the document names a different loop and takes L", () => {
+      const where = song(MML, null).value.loop ?? 0;
+      expect(where).toBeGreaterThan(0);
+      const r = song(MML, 0);
+      expect(overrides(r)).toHaveLength(1);
+      has(
+        r,
+        "warning",
+        "/loop",
+        /overrides loop 0, the song loops to order \d/
+      );
+      expect(r.value.loop).toBe(where);
+    });
+
+    it("an MML song with patterns says nothing when it agrees and one thing when it does not", () => {
+      const doc = fixtureJson("song-title.json") as Record<string, unknown>;
+      const first = normalizeSong(doc);
+      expect(overrides(first)).toEqual([]);
+      const idx = first.value.loop ?? 0;
+      const other = idx === 0 ? 1 : 0;
+      const r = normalizeSong({ ...doc, loop: other });
+      // the title's L sits mid pattern, so the disagreement is reported as the rounding of L
+      expect(r.issues.filter((i) => i.path === "/loop")).toHaveLength(1);
+      expect(r.value.loop).toBe(idx);
+    });
+  });
+
   it("accepts the title song with its instruments and round trips", () => {
     const first = normalizeSong(fixtureJson("song-title.json"));
     expect(first.issues).toEqual([]);

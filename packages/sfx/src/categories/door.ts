@@ -7,7 +7,7 @@ import {
   drawDuty,
   setEnvelope,
 } from "../build.ts";
-import { between, chance, round } from "../util.ts";
+import { between, round } from "../util.ts";
 import {
   type Flavor,
   freeHz,
@@ -16,6 +16,7 @@ import {
   phaser,
   pwm,
   runFlavors,
+  setNoiseMode,
   sign,
   slideBy,
   vibrato,
@@ -48,7 +49,7 @@ function creak(ctx: Ctx): void {
 function whoosh(ctx: Ctx): void {
   const { rng, sfx } = ctx;
   applyWave(ctx, "noise");
-  sfx.noise.mode = chance(rng, 0.25) ? "short" : "long";
+  setNoiseMode(ctx, 0.25);
   sfx.frequency.start = freeHz(ctx, 300, 1000);
   const total = between(rng, 0.5, 1);
   const attack = between(rng, 0.12, 0.3);

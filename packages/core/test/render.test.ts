@@ -2,15 +2,25 @@
    note boundaries. */
 
 import { describe, expect, it } from "vitest";
-import type { Instrument, RenderResult } from "../src/index.ts";
 import {
+  quantizeNoiseRate as genesisFixedRate,
+  quantizeTone3NoiseRate as genesisTone3Rate,
+} from "../src/chips/genesis.ts";
+import { compileSfx } from "../src/engine/sfx-compile.ts";
+import type { ChipId, Instrument, RenderResult } from "../src/index.ts";
+import {
+  CHIP_IDS,
   createSynth,
   normalizeInstrument,
+  normalizeSfx,
+  normalizeSong,
   renderInstrumentNote,
   renderSfx,
   renderSong,
 } from "../src/index.ts";
+import { analyze } from "../src/tools.ts";
 import {
+  bandEnergy,
   fixtureDemo,
   fixtureInstruments,
   fixtureJson,
@@ -19,6 +29,7 @@ import {
   peak,
   rms,
   runSynth,
+  toDb,
 } from "./helpers.ts";
 
 const CHIPS = ["gameboy", "c64", "genesis", "adlib", "snes", "custom"] as const;
@@ -85,7 +96,7 @@ describe("renderSong", () => {
     expect(b.frames - a.frames).toBe(48_000);
   });
 
-  it("loops: the loop section is repeated and loopStart and loopEnd bracket one pass", () => {
+  it("loops: the loop section is repeated and loopStart and loopEnd bracket the second pass", () => {
     const { song, instruments } = fixtureSong();
     const one = renderSong(song, instruments, { loops: 1, tail: 0 });
     const three = renderSong(song, instruments, { loops: 3, tail: 0 });
@@ -96,7 +107,18 @@ describe("renderSong", () => {
     expect(one.loopStart).toBe(three.loopStart);
     expect(three.frames - one.frames).toBeGreaterThanOrEqual(2 * pass - 2);
     expect(three.frames - one.frames).toBeLessThanOrEqual(2 * pass + 2);
-    expect(three.events.filter((e) => e.type === "loop")).toHaveLength(2);
+    const loopFrames = (r: RenderResult) =>
+      r.events.filter((e) => e.type === "loop").map((e) => e.frame);
+    // every render plays the loop section at least twice; loops counts the passes after the intro
+    expect(loopFrames(one)).toHaveLength(1);
+    expect(loopFrames(three)).toHaveLength(3);
+    // the loop points bracket the second pass: loopStart is where the first pass ends, loopEnd is one pass later
+    expect(loopFrames(one)[0]).toBe(one.loopStart);
+    expect(one.frames).toBe(one.loopEnd);
+    // fewer than one pass still renders the two minimum
+    const zero = renderSong(song, instruments, { loops: 0, tail: 0 });
+    expect(zero.loopStart).toBe(one.loopStart);
+    expect(zero.loopEnd).toBe(one.loopEnd);
   });
 
   it("the loop is seamless: the audio one pass later matches in level and pitch content", () => {
@@ -110,6 +132,99 @@ describe("renderSong", () => {
     const a = rms(left, ls + 4800, ls + pass - 4800);
     const b = rms(left, ls + pass + 4800, ls + 2 * pass - 4800);
     expect(Math.abs(a - b) / Math.max(a, 1e-9)).toBeLessThan(0.15);
+  });
+
+  it("the loop seam is clean: the audio before loopEnd matches the audio before loopStart (below -40 dB)", () => {
+    const { song, instruments } = fixtureSong();
+    const { loop: title } = analyze(renderSong(song, instruments));
+    expect(title?.seamDiffDb ?? 0).toBeLessThan(-40);
+    for (const chip of CHIPS) {
+      const demo = fixtureDemo(chip);
+      const { loop } = analyze(renderSong(demo.song, demo.instruments));
+      expect(loop, chip).not.toBeNull();
+      expect(loop?.seamDiffDb ?? 0, chip).toBeLessThan(-40);
+    }
+  });
+
+  it("a looped FM voice with an LFO repeats exactly: every pass puts its notes the same distance from a tick", () => {
+    const demo = fixtureDemo("genesis");
+    // three bars at 140 bpm last 308.57 ticks of 1/60 s: a tick grid that ran on through the wrap would shift every pass
+    const mml =
+      "t140 l8 @fmlead o5 [c e g e]2 [f a > c < a]2 L [c e g > c < g e]2 [d f a > d < a f]2";
+    const doc = {
+      ...demo.song,
+      channels: demo.song.channels.map((c) =>
+        c.id === "fm1"
+          ? { ...c, instrument: "fmlead", mml }
+          : { ...c, mml: null }
+      ),
+      order: [],
+      patterns: {},
+    };
+    const song = normalizeSong(doc, demo.instruments);
+    expect(song.ok).toBe(true);
+    expect(demo.instruments.fmlead?.fm?.lfo).not.toBeNull();
+    const r = renderSong(song.value, demo.instruments);
+    const { loop } = analyze(r);
+    expect(loop?.seamDiffDb ?? 0).toBeLessThan(-80);
+    // and the sample step across the wrap is no bigger than the steps either side of it
+    const left = r.channels[0] as Float32Array;
+    const ls = r.loopStart ?? 0;
+    const le = r.loopEnd ?? 0;
+    const across = Math.abs((left[ls] ?? 0) - (left[le - 1] ?? 0));
+    let local = 0;
+    for (let i = ls - 400; i < ls + 400; i += 1) {
+      local = Math.max(local, Math.abs((left[i + 1] ?? 0) - (left[i] ?? 0)));
+    }
+    expect(across).toBeLessThanOrEqual(local * 1.05 + 1e-4);
+  });
+
+  it("an FM note sounds the same whatever the voice played before it", () => {
+    const demo = fixtureDemo("genesis");
+    const inst = demo.instruments.fmlead as Instrument;
+    const after = renderInstrumentNote(inst, 69, {
+      chip: "genesis",
+      duration: 0.2,
+      release: 0.05,
+    });
+    const again = renderInstrumentNote(inst, 69, {
+      chip: "genesis",
+      duration: 0.2,
+      release: 0.05,
+    });
+    expect(
+      Array.from((after.channels[0] as Float32Array).subarray(0, 4000))
+    ).toEqual(
+      Array.from((again.channels[0] as Float32Array).subarray(0, 4000))
+    );
+    // two song notes on one voice, the same note twice: the second starts from the same state as the first
+    // 120 bpm: four quarter notes are 120 ticks exactly, so both notes start on a tick
+    const mml = "t120 @fmlead o4 c4 r4 r4 r4 c4 r4";
+    const song = normalizeSong(
+      {
+        ...demo.song,
+        channels: demo.song.channels.map((c) =>
+          c.id === "fm1"
+            ? { ...c, instrument: "fmlead", mml }
+            : { ...c, mml: null }
+        ),
+        loop: null,
+        order: [],
+        patterns: {},
+      },
+      demo.instruments
+    );
+    const r = renderSong(song.value, demo.instruments, { tail: 0 });
+    const ch = r.channels[0] as Float32Array;
+    const noteOns = r.events
+      .filter((e) => e.type === "noteOn")
+      .map((e) => e.frame);
+    expect(noteOns).toHaveLength(2);
+    const [a, b] = noteOns as [number, number];
+    // the first note also has the limiter's start-up latency, so compare once that is past
+    for (let i = 400; i < 2400; i += 1) {
+      expect(ch[b + i] ?? 0).toBeCloseTo(ch[a + i] ?? 0, 5);
+    }
   });
 
   it("songs without a loop have no loop points", () => {
@@ -220,6 +335,134 @@ describe("renderSfx", () => {
     expect(
       Array.from((a.channels[0] as Float32Array).subarray(0, 2000))
     ).toEqual(Array.from((b.channels[0] as Float32Array).subarray(0, 2000)));
+  });
+
+  function squareSfx(chip: ChipId, volume = 1) {
+    const r = normalizeSfx({
+      category: "custom",
+      chip,
+      duty: { start: 0.5, sweep: 0 },
+      envelope: { attack: 0, decay: 0.05, punch: 0, sustain: 0.4 },
+      frequency: { deltaSlide: 0, min: 0, slide: 0, start: 440 },
+      name: "sq",
+      seed: 1,
+      version: 1,
+      volume,
+      wave: "square",
+    });
+    if (!r.ok) {
+      throw new Error("bad sfx");
+    }
+    return r.value;
+  }
+
+  it("a full-volume square peaks at -12 dBFS, within 1.5 dB, on every chip", () => {
+    for (const chip of CHIP_IDS) {
+      const r = renderSfx(squareSfx(chip));
+      expect(Math.abs(toDb(peak(r.channels)) + 12), chip).toBeLessThan(1.5);
+    }
+  });
+
+  it("sfx use the project master: the volume scales the render and the default is 0.8", () => {
+    const sfx = squareSfx("nes");
+    const base = peak(renderSfx(sfx).channels);
+    const same = peak(
+      renderSfx(sfx, { master: { limiter: true, volume: 0.8 } }).channels
+    );
+    const half = peak(
+      renderSfx(sfx, { master: { limiter: true, volume: 0.4 } }).channels
+    );
+    expect(same).toBeCloseTo(base, 5);
+    expect(half / base).toBeCloseTo(0.5, 2);
+  });
+
+  it("the FM index is in radians: the first sideband follows J1(index) / J0(index)", () => {
+    const render = (index: number) => {
+      const r = normalizeSfx({
+        category: "custom",
+        chip: "custom",
+        envelope: { attack: 0, decay: 0.05, punch: 0, sustain: 0.6 },
+        fm: { index, indexDecay: 0, ratio: 3 },
+        frequency: { deltaSlide: 0, min: 0, slide: 0, start: 500 },
+        name: "fm",
+        seed: 1,
+        version: 1,
+        volume: 0.8,
+        wave: "fm",
+      });
+      if (!r.ok) {
+        throw new Error("bad sfx");
+      }
+      return renderSfx(r.value).channels[0] as Float32Array;
+    };
+    // carrier 500 Hz, modulator 1500 Hz: 500 Hz holds J0 and 2000 Hz holds J1 (and no other term lands on either)
+    const ratio = (index: number) => {
+      const out = render(index);
+      const at = (hz: number) =>
+        bandEnergy(out, 48_000, hz - 40, hz + 40, 4800, 16_384);
+      return at(2000) / at(500);
+    };
+    // J1(2)^2 / J0(2)^2 = 6.6; a phase swing of 2 cycles (2 pi times the radians) would give about 1
+    expect(ratio(2)).toBeGreaterThan(5);
+    expect(ratio(2)).toBeLessThan(8.5);
+    // J1(1)^2 / J0(1)^2 = 0.33
+    expect(ratio(1)).toBeGreaterThan(0.25);
+    expect(ratio(1)).toBeLessThan(0.45);
+  });
+
+  describe("Genesis noise", () => {
+    function noiseSfx(chip: ChipId, slide: number, mode: "long" | "short") {
+      const r = normalizeSfx({
+        category: "explosion",
+        chip,
+        envelope: { attack: 0, decay: 0.2, punch: 0, sustain: 0.6 },
+        frequency: { deltaSlide: 0, min: 0, slide, start: 300 },
+        name: "n",
+        noise: { mode },
+        seed: 1,
+        version: 1,
+        volume: 0.8,
+        wave: "noise",
+      });
+      if (!r.ok) {
+        throw new Error("bad sfx");
+      }
+      return r.value;
+    }
+
+    it("a noise sfx whose pitch moves clocks the PSG noise from tone 3, a steady one keeps a fixed rate", () => {
+      expect(
+        compileSfx(noiseSfx("genesis", -2, "long"), 48_000).noiseTone3
+      ).toBe(true);
+      expect(
+        compileSfx(noiseSfx("genesis", 0, "long"), 48_000).noiseTone3
+      ).toBe(false);
+      expect(compileSfx(noiseSfx("nes", -2, "long"), 48_000).noiseTone3).toBe(
+        false
+      );
+    });
+
+    it("tone 3 mode reaches many rates where the fixed register has three", () => {
+      const tone3 = new Set<number>();
+      const fixed = new Set<number>();
+      for (let i = 0; i < 60; i += 1) {
+        const hz = 100 * 8 ** (i / 59);
+        const rate = genesisTone3Rate(hz);
+        tone3.add(rate);
+        fixed.add(genesisFixedRate(hz));
+        expect(Math.abs(Math.log(rate / (hz * 16)))).toBeLessThan(0.05);
+      }
+      expect(fixed.size).toBe(3);
+      expect(tone3.size).toBeGreaterThan(30);
+    });
+
+    it("renders both modes without gaps or non-finite samples", () => {
+      for (const slide of [-2, 0]) {
+        const r = renderSfx(noiseSfx("genesis", slide, "long"));
+        expect(allFinite(r)).toBe(true);
+        expect(peak(r.channels)).toBeGreaterThan(0.05);
+      }
+    });
   });
 
   it("tail 0 trims right after the sound and a long tail is trimmed back to silence", () => {

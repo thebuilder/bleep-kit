@@ -8,6 +8,9 @@ import { fuzzy } from "../src/ui/palette.ts";
 import { keyToOffset } from "../src/ui/piano.ts";
 import { highlightTs } from "../src/views/project.ts";
 import { crc32, readZip, writeZip } from "../src/zip.ts";
+import { drawLog, installCanvasStub, settle, until } from "./helpers.ts";
+
+installCanvasStub();
 
 /* ------------------------------------------------------------------ pure units */
 
@@ -194,65 +197,6 @@ describe("LocalStore", () => {
   });
 });
 
-/* ------------------------------------------------------------------ canvas stub */
-
-/** A 2D context that records what is drawn instead of drawing it. */
-function recordingContext(log: string[]): CanvasRenderingContext2D {
-  const target: Record<string | symbol, unknown> = {};
-  return new Proxy(target, {
-    get(t, key) {
-      if (key in t) {
-        return t[key];
-      }
-      if (key === "canvas") {
-        return null;
-      }
-      if (key === "measureText") {
-        return () => ({ width: 5 });
-      }
-      if (key === "createLinearGradient" || key === "createRadialGradient") {
-        return () => ({ addColorStop: () => undefined });
-      }
-      if (key === "getImageData" || key === "createImageData") {
-        return (w: number, h: number) => ({
-          data: new Uint8ClampedArray(Math.max(1, w * h * 4)),
-          height: h,
-          width: w,
-        });
-      }
-      return (...args: unknown[]) => {
-        log.push(`${String(key)}(${args.length})`);
-      };
-    },
-    set(t, key, value) {
-      t[key] = value;
-      return true;
-    },
-  }) as unknown as CanvasRenderingContext2D;
-}
-
-const drawLog: string[] = [];
-beforeAll(() => {
-  HTMLCanvasElement.prototype.getContext = function getContext() {
-    return recordingContext(drawLog);
-  } as unknown as HTMLCanvasElement["getContext"];
-  if (typeof globalThis.OffscreenCanvas === "undefined") {
-    class FakeOffscreen {
-      width: number;
-      height: number;
-      constructor(w: number, h: number) {
-        this.width = w;
-        this.height = h;
-      }
-      getContext() {
-        return recordingContext(drawLog);
-      }
-    }
-    (globalThis as unknown as { OffscreenCanvas: unknown }).OffscreenCanvas =
-      FakeOffscreen;
-  }
-});
-
 describe("canvas drawing", () => {
   it("draws a waveform on a surface", async () => {
     const { surface } = await import("../src/visuals/canvas.ts");
@@ -289,19 +233,22 @@ describe("the studio app", () => {
   let appMod: typeof import("../src/app.ts");
   const sent: { type: string; [k: string]: unknown }[] = [];
 
-  const settle = async (ms = 60) => {
-    await new Promise((r) => setTimeout(r, ms));
-  };
-  const until = async (fn: () => boolean, ms = 3000) => {
-    const t0 = Date.now();
-    while (!fn() && Date.now() - t0 < ms) {
-      // biome-ignore lint/performance/noAwaitInLoops: polling, each wait must finish before the next check
-      await settle(20);
-    }
-    return fn();
+  // the loop reads prefers-reduced-motion once and then follows this query's change events
+  const reducedQuery = {
+    listeners: [] as ((e: { matches: boolean }) => void)[],
+    matches: false,
   };
 
   beforeAll(async () => {
+    vi.stubGlobal("matchMedia", (media: string) => ({
+      addEventListener: (
+        _type: string,
+        fn: (e: { matches: boolean }) => void
+      ) => reducedQuery.listeners.push(fn),
+      matches: reducedQuery.matches && media.includes("reduce"),
+      media,
+      removeEventListener: () => undefined,
+    }));
     (
       window as unknown as { happyDOM?: { setURL: (url: string) => void } }
     ).happyDOM?.setURL("http://localhost:3000/?engine=fake&store=local#/pads");
@@ -439,14 +386,20 @@ describe("the studio app", () => {
   });
 
   it("goes quiet under prefers-reduced-motion", () => {
-    loopMod.setReduced(true);
+    const setReduced = (on: boolean) => {
+      reducedQuery.matches = on;
+      for (const fn of reducedQuery.listeners) {
+        fn({ matches: on });
+      }
+    };
+    setReduced(true);
     expect(document.documentElement.dataset.reduced).toBe("1");
     const frames: boolean[] = [];
     const off = loopMod.addVisual((f) => frames.push(f.reduced));
     loopMod.tickOnce(performance.now() + 500);
     off();
     expect(frames).toEqual([true]);
-    loopMod.setReduced(false);
+    setReduced(false);
     expect(document.documentElement.dataset.reduced).toBe("0");
   });
 

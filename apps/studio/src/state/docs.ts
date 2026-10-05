@@ -48,7 +48,7 @@ export interface Doc<T = AnyDoc> {
   value: T;
 }
 
-export type ProjectEvent =
+type ProjectEvent =
   | { type: "list" }
   | {
       type: "doc";
@@ -67,7 +67,7 @@ const KIND_ALIASES: Partial<Record<string, DocKind[]>> = {
   songs: ["song"],
 };
 
-export class ProjectState {
+class ProjectState {
   store!: ProjectStore;
   project: Project = defaultProject();
   root = "";

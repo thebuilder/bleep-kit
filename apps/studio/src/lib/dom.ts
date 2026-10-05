@@ -42,7 +42,7 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   return el;
 }
 
-export function append(el: Element, children: readonly Child[]): void {
+function append(el: Element, children: readonly Child[]): void {
   for (const c of children) {
     if (c === null || c === undefined || c === false) {
       continue;
@@ -57,35 +57,8 @@ export function append(el: Element, children: readonly Child[]): void {
   }
 }
 
-/** Parse trusted markup (icons, static chunks) into one element. */
-export function html(markup: string): HTMLElement {
-  const t = document.createElement("template");
-  t.innerHTML = markup.trim();
-  return t.content.firstElementChild as HTMLElement;
-}
-
-const ENTITIES: Record<string, string> = {
-  "'": "&#39;",
-  '"': "&quot;",
-  "&": "&amp;",
-  "<": "&lt;",
-  ">": "&gt;",
-};
-export const esc = (s: unknown): string =>
-  String(s).replace(/[&<>"']/g, (c) => ENTITIES[c] ?? c);
-
-export function $(id: string): HTMLElement {
-  const el = document.getElementById(id);
-  if (!el) {
-    throw new Error(`Missing element #${id}`);
-  }
-  return el;
-}
-
 export const clamp = (v: number, lo: number, hi: number): number =>
   Math.min(hi, Math.max(lo, v));
-export const lerp = (a: number, b: number, t: number): number =>
-  a + (b - a) * t;
 
 /** The value of the first rule whose condition holds, else `otherwise`: `a ? x : b ? y : z` without the nesting.
  * Every value is evaluated, so only pass cheap, side-effect free ones. */
@@ -170,7 +143,7 @@ export const reducedMotion = (): boolean =>
   typeof matchMedia === "function" &&
   matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-export function safe<T>(fn: () => T, fallback: T): T {
+function safe<T>(fn: () => T, fallback: T): T {
   try {
     return fn();
   } catch {

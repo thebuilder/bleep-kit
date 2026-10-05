@@ -66,7 +66,7 @@ function req<T>(r: IDBRequest<T>): Promise<T> {
   });
 }
 
-export async function idbBackend(): Promise<FileBackend | null> {
+async function idbBackend(): Promise<FileBackend | null> {
   if (typeof indexedDB === "undefined") {
     return null;
   }
@@ -98,6 +98,33 @@ export async function idbBackend(): Promise<FileBackend | null> {
     return null;
   }
 }
+
+/** Where a dropped document belongs, told by which keys it has. */
+function folderOfShape(
+  json: unknown
+): "sfx" | "instruments" | "songs" | "project" | null {
+  if (!json || typeof json !== "object") {
+    return null;
+  }
+  if ("envelope" in json && "frequency" in json) {
+    return "sfx";
+  }
+  if ("macros" in json && "kind" in json) {
+    return "instruments";
+  }
+  if ("patterns" in json || "order" in json) {
+    return "songs";
+  }
+  return "export" in json && "chip" in json ? "project" : null;
+}
+
+/** A file name as a document id: lower case, runs of other characters become one hyphen. */
+const idFromFileName = (name: string): string =>
+  name
+    .replace(JSON_EXT, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "imported";
 
 export class LocalStore implements ProjectStore {
   readonly mode = "local" as const;
@@ -260,7 +287,7 @@ export class LocalStore implements ProjectStore {
     return wanted.length;
   }
 
-  /** A single JSON document dropped in: put it where its shape says (sfx, instrument or song). */
+  /** A single JSON document dropped in: put it where its shape says (sfx, instrument, song or project). */
   async importDocument(name: string, text: string): Promise<string | null> {
     let json: unknown;
     try {
@@ -268,34 +295,14 @@ export class LocalStore implements ProjectStore {
     } catch {
       return null;
     }
-    const o = json as Record<string, unknown> | null;
-    const id =
-      name
-        .replace(JSON_EXT, "")
-        .toLowerCase()
-        .replace(/[^a-z0-9-]+/g, "-")
-        .replace(/^-+|-+$/g, "") || "imported";
-    let dir: string | null = null;
-    if (o && typeof o === "object") {
-      if ("envelope" in o && "frequency" in o) {
-        dir = "sfx";
-      } else if ("macros" in o && "kind" in o) {
-        dir = "instruments";
-      } else if ("patterns" in o || "order" in o) {
-        dir = "songs";
-      } else if ("export" in o && "chip" in o) {
-        await this.backend.put({
-          mtime: Date.now(),
-          path: "project.json",
-          text: stringify(json),
-        });
-        return "project.json";
-      }
-    }
+    const dir = folderOfShape(json);
     if (!dir) {
       return null;
     }
-    const path = `${dir}/${id}.json`;
+    const path =
+      dir === "project"
+        ? "project.json"
+        : `${dir}/${idFromFileName(name)}.json`;
     await this.backend.put({ mtime: Date.now(), path, text: stringify(json) });
     return path;
   }

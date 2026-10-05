@@ -19,6 +19,8 @@ export class Limiter {
   private pos = 0;
   private env = 1;
   private sum: number;
+  /** Minimum of the last `look` input gains, kept incrementally. */
+  private gmin = 1;
   private readonly relCoef: number;
   /** Lowest gain applied since reset, for tests. */
   minGain = 1;
@@ -46,6 +48,7 @@ export class Limiter {
     let pos = this.pos;
     let env = this.env;
     let sum = this.sum;
+    let gmin = this.gmin;
     const rel = this.relCoef;
     let minGain = this.minGain;
     for (let i = 0; i < n; i += 1) {
@@ -55,15 +58,23 @@ export class Limiter {
       const b = r < 0 ? -r : r;
       const peak = a > b ? a : b;
       const g = peak > LIMITER_CEILING ? LIMITER_CEILING / peak : 1;
+      // The gain leaving the window of `look` inputs (read before its slot is reused).
+      const leaving = gin[(pos - look) & mask] ?? 1;
       xl[pos] = l;
       xr[pos] = r;
       gin[pos] = g;
-      // minimum over the last `look` input gains
-      let gmin = 1;
-      for (let k = 0; k < look; k += 1) {
-        const v = gin[(pos - k) & mask] ?? 1;
-        if (v < gmin) {
-          gmin = v;
+      // Minimum over the last `look` input gains, updated incrementally: a new low replaces it, and only when the
+      // current low leaves the window is the window searched again (rare, since most gains are 1).
+      const stored = gin[pos] ?? 1;
+      if (stored <= gmin) {
+        gmin = stored;
+      } else if (leaving === gmin && gmin < 1) {
+        gmin = 1;
+        for (let k = 0; k < look; k += 1) {
+          const v = gin[(pos - k) & mask] ?? 1;
+          if (v < gmin) {
+            gmin = v;
+          }
         }
       }
       // instant attack, exponential release
@@ -84,6 +95,7 @@ export class Limiter {
     this.pos = pos;
     this.env = env;
     this.sum = sum;
+    this.gmin = gmin;
     this.minGain = minGain;
   }
 }

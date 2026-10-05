@@ -16,6 +16,7 @@ import {
 import {
   quantizeHz as genesisQuantizeHz,
   quantizeNoiseRate as genesisQuantizeNoiseRate,
+  quantizeTone3NoiseRate as genesisQuantizeTone3Rate,
 } from "../chips/genesis.ts";
 import { CHIPS } from "../chips/index.ts";
 import {
@@ -155,6 +156,7 @@ const STEAL_SECONDS = 0.002;
 const SFX_END_FADE = 0.001;
 /** Throwaway output for replaying the noise register up to the frame an envelope fell idle. */
 const NOISE_SCRATCH = new Float32Array(BLOCK);
+const TWO_PI = 2 * Math.PI;
 
 export class Voice {
   readonly sr: number;
@@ -233,6 +235,8 @@ export class Voice {
   wave: Float32Array = new Float32Array(32);
   noiseSeed = 1;
   noiseDirty = true;
+  /** Genesis noise clocked by tone channel 3 (a sweepable rate) instead of one of the three fixed rates. */
+  noiseTone3 = false;
   fmReleasing = false;
 
   // sfx program state
@@ -331,6 +335,7 @@ export class Voice {
     this.declickPending = this.active && !this.isSfx;
     this.isSfx = false;
     this.prog = null;
+    this.noiseTone3 = false;
     this.generation += 1;
     this.bindInstrument(rt, false);
     this.note = note;
@@ -516,7 +521,9 @@ export class Voice {
       return gbQuantizeNoiseRate(hz);
     }
     if (period && this.chipIdx === CI_GENESIS) {
-      return genesisQuantizeNoiseRate(hz);
+      return this.noiseTone3
+        ? genesisQuantizeTone3Rate(hz)
+        : genesisQuantizeNoiseRate(hz);
     }
     return Math.min(1_000_000, Math.max(1, hz) * 16);
   }
@@ -630,6 +637,7 @@ export class Voice {
     this.generation += 1;
     this.setChip(prog.chip);
     this.src = prog.src;
+    this.noiseTone3 = prog.noiseTone3;
     this.sfxFrame = 0;
     this.sfxRepeatFrame = 0;
     this.sfxAbs = 0;
@@ -719,7 +727,9 @@ export class Voice {
     return Math.min(20_000, Math.max(8, hz));
   }
 
-  /** Program the source for an sfx pitch. FM sfx put the carrier at hz and the modulator at hz * ratio, index decaying. */
+  /** Program the source for an sfx pitch. FM sfx put the carrier at hz and the modulator at hz * ratio, index decaying.
+      The sfx index is the peak phase deviation in radians (the sfxr-like "amount of modulation"); the voice
+      keeps it in cycles, which is what the sine lookup takes. */
   private applySfxPitch(p: SfxProgram, hz: number, t: number): void {
     if (this.src !== SRC_FM) {
       this.applyHz(hz);
@@ -727,10 +737,11 @@ export class Voice {
     }
     const sr = this.sr;
     const f = this.fm;
-    this.fmIndexNow =
+    const index =
       p.fmIndexDecay > 0
         ? p.fmIndex * Math.max(0, 1 - t / p.fmIndexDecay)
         : p.fmIndex;
+    this.fmIndexNow = index / TWO_PI;
     f.inc[0] = Math.min(0.49, (hz * p.fmRatio) / sr);
     f.inc[1] = Math.min(0.49, hz / sr);
   }
@@ -967,10 +978,20 @@ export class Voice {
     }
     // 4. amplitude: smoothed control gain, gate or stepped volume
     this.amplitude(n);
-    if (!externalSource) {
-      this.xbuf.set(this.wx.subarray(0, n), off);
+    const wx = this.wx;
+    const wg = this.wg;
+    const xbuf = this.xbuf;
+    const gbuf = this.gbuf;
+    if (externalSource) {
+      for (let i = 0; i < n; i += 1) {
+        gbuf[off + i] = wg[i] ?? 0;
+      }
+    } else {
+      for (let i = 0; i < n; i += 1) {
+        xbuf[off + i] = wx[i] ?? 0;
+        gbuf[off + i] = wg[i] ?? 0;
+      }
     }
-    this.gbuf.set(this.wg.subarray(0, n), off);
     // 5. voice end. A one shot sample falls silent at its exact last frame, whatever the block size.
     if (this.sampleEndAt >= 0 && !this.isSfx) {
       this.wg.fill(0, this.sampleEndAt, n);
@@ -1192,15 +1213,14 @@ export class Voice {
   private renderSfxFm(x: Float32Array, n: number): void {
     const f = this.fm;
     const sine = sineTable();
-    const idx = this.fmIndexNow;
-    const cycles = idx / (2 * Math.PI);
+    const cycles = this.fmIndexNow;
     let pm = f.phase[0] ?? 0;
     let pc = f.phase[1] ?? 0;
     const im = f.inc[0] ?? 0;
     const ic = f.inc[1] ?? 0;
     for (let i = 0; i < n; i += 1) {
       const m = sineAt(sine, pm);
-      const c = sineAt(sine, pc + m * cycles * 2 * Math.PI);
+      const c = sineAt(sine, pc + m * cycles);
       x[i] = c;
       pm += im;
       if (pm >= 1) {

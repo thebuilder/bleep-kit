@@ -11,7 +11,6 @@ import {
   type ChannelKind,
   type ChipId,
   type EngineEvent,
-  type FmOperator,
   type Instrument,
   type Macro,
   type SampleGeneratorSpec,
@@ -24,6 +23,7 @@ import {
   SAMPLE_GENERATORS,
 } from "../lib/core.ts";
 import { choose, clamp, debounce, fire, h, prefs } from "../lib/dom.ts";
+import { fitFmOps, toggleSidWave } from "../lib/instrument-edits.ts";
 import { playInstrumentDoc, releaseNote, stopEverything } from "../playback.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
@@ -36,9 +36,10 @@ import {
   textField,
   toggleField,
 } from "../ui/fields.ts";
-import { algorithmSvg, drawOpEnvelope, dutySvg } from "../ui/fm.ts";
+import { dutySvg } from "../ui/fm.ts";
+import { buildFmPanel } from "../ui/fm-panel.ts";
 import { icon } from "../ui/icons.ts";
-import { issuesBox } from "../ui/issues.ts";
+import { showIssues } from "../ui/issues.ts";
 import {
   type MacroEditor,
   type MacroSpec,
@@ -52,7 +53,7 @@ import {
   UPPER_KEYS,
 } from "../ui/piano.ts";
 import { presetTable, waveGrid } from "../ui/wavegrid.ts";
-import { addVisual } from "../visuals/loop.ts";
+import { addVisual, type Frame } from "../visuals/loop.ts";
 
 /** The sample generator spec for an id that may not be a known generator (a hand edited document). */
 function generatorSpec(id: string): SampleGeneratorSpec | undefined {
@@ -462,18 +463,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
         w
       );
       b.addEventListener("click", () => {
-        edit((x) => {
-          if (!x.sid) {
-            return;
-          }
-          const has = x.sid.waveforms.includes(w);
-          if (has && x.sid.waveforms.length === 1) {
-            return;
-          }
-          x.sid.waveforms = has
-            ? x.sid.waveforms.filter((v) => v !== w)
-            : [...x.sid.waveforms, w];
-        }, "sidwave");
+        edit((x) => toggleSidWave(x, w), "sidwave");
         refresh();
       });
       row.append(b);
@@ -607,183 +597,14 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
   }
 
   function buildFm(body: HTMLElement): void {
-    const { fm } = inst();
-    if (!fm) {
-      return;
-    }
-    const nOps = fm.ops.length === 2 ? 2 : 4;
-    const waveOk = chipProfile(chipOf()).fmWaveforms;
-    const algRow = h("div", {
-      "aria-label": "FM algorithm",
-      class: "alg-row",
-      role: "radiogroup",
-    });
-    const count = nOps === 2 ? 2 : 8;
-    for (let a = 0; a < count; a += 1) {
-      const b = h("button", {
-        "aria-checked": String(a === fm.algorithm),
-        class: `alg${a === fm.algorithm ? " on" : ""}`,
-        "data-a": a,
-        role: "radio",
-        title: `Algorithm ${a}`,
-      });
-      b.innerHTML = `${algorithmSvg(a, nOps as 2 | 4)}<small class="mono">${a}</small>`;
-      b.addEventListener("click", () => {
-        edit((x) => {
-          if (x.fm) {
-            x.fm.algorithm = a;
-          }
-        }, "alg");
-        for (const el of algRow.querySelectorAll<HTMLElement>(".alg")) {
-          const on = Number(el.dataset.a) === a;
-          el.classList.toggle("on", on);
-          el.setAttribute("aria-checked", String(on));
-        }
-      });
-      algRow.append(b);
-    }
-    body.append(algRow);
-    const top = h("div", { class: "fields two" });
-    body.append(top);
-    rangeField(top, {
-      label: "Feedback",
-      max: 7,
-      min: 0,
-      onInput: (v) =>
-        edit((x) => {
-          if (x.fm) {
-            x.fm.feedback = Math.round(v);
-          }
-        }, "fb"),
-      step: 1,
-      title: "How much operator 1 feeds back into itself",
-      value: fm.feedback,
-    });
-    toggleField(top, {
-      label: "LFO",
-      onInput: (on) => {
-        edit((x) => {
-          if (x.fm) {
-            x.fm.lfo = on
-              ? (x.fm.lfo ?? { ampDepth: 0, pitchDepth: 10, rate: 5 })
-              : null;
-          }
-        }, "lfo");
-        for (const hd of lfoHandles) {
-          hd.setOff(on ? false : "Turn the LFO on first");
-        }
+    buildFmPanel(body, {
+      edit,
+      hex,
+      inst,
+      waveSelect: {
+        chipName: chipName(),
+        ok: chipProfile(chipOf()).fmWaveforms,
       },
-      value: fm.lfo !== null,
-    });
-    const lfoHandles: FieldHandle[] = [];
-    for (const [k, label, min, max, step] of [
-      ["rate", "LFO rate (Hz)", 0, 20, 0.1],
-      ["pitchDepth", "Pitch depth (cents)", 0, 100, 1],
-      ["ampDepth", "Amp depth", 0, 1, 0.01],
-    ] as const) {
-      lfoHandles.push(
-        rangeField(top, {
-          label,
-          max,
-          min,
-          off: fm.lfo ? false : "Turn the LFO on first",
-          onInput: (v) =>
-            edit((x) => {
-              if (x.fm?.lfo) {
-                x.fm.lfo[k] = v;
-              }
-            }, `lfo${k}`),
-          step,
-          value: fm.lfo?.[k] ?? 0,
-        })
-      );
-    }
-    const strips = h("div", { class: "op-grid" });
-    body.append(strips);
-    fm.ops.forEach((op, oi) => {
-      const strip = h("div", { class: "op" });
-      const cv = h("canvas", {
-        "aria-label": `Operator ${oi + 1} envelope`,
-        class: "op-env",
-        height: 32,
-        width: 96,
-      });
-      strip.append(
-        h(
-          "div",
-          { class: "op-h" },
-          h("b", { class: "pxh" }, `Op ${oi + 1}`),
-          cv
-        )
-      );
-      const fb = h("div", { class: "fields" });
-      strip.append(fb);
-      const redraw = () => {
-        const cur = inst().fm?.ops[oi];
-        if (cur) {
-          drawOpEnvelope(cv, cur, hex());
-        }
-      };
-      const O = <K extends keyof FmOperator>(
-        key: K,
-        label: string,
-        min: number,
-        max: number,
-        step: number,
-        off?: string | false
-      ) => {
-        rangeField(fb, {
-          label,
-          max,
-          min,
-          step,
-          value: Number(op[key] ?? 0),
-          ...(off === undefined ? {} : { off }),
-          onInput: (v) => {
-            edit(
-              (x) => {
-                const o = x.fm?.ops[oi];
-                if (o) {
-                  (o[key] as number) = v;
-                }
-              },
-              `op${oi}${String(key)}`
-            );
-            redraw();
-          },
-        });
-      };
-      O("mult", "Multiple", 0, 15, 1);
-      O("detune", "Detune", -3, 3, 1);
-      O("level", "Level", 0, 1, 0.01);
-      O("attack", "Attack rate", 0, 31, 1);
-      O("decay", "Decay rate", 0, 31, 1);
-      O("sustainLevel", "Sustain level", 0, 1, 0.01);
-      O("sustainRate", "Sustain rate", 0, 31, 1);
-      O("release", "Release rate", 0, 15, 1);
-      O("keyScale", "Key scale", 0, 3, 1);
-      O(
-        "waveform",
-        "Waveform",
-        0,
-        7,
-        1,
-        waveOk ? false : `${chipName()} has no waveform select`
-      );
-      toggleField(fb, {
-        label: "Fixed pitch",
-        onInput: (on) => {
-          edit((x) => {
-            const o = x.fm?.ops[oi];
-            if (o) {
-              o.fixedHz = on ? (o.fixedHz ?? 440) : null;
-            }
-          }, `op${oi}fixon`);
-        },
-        value: op.fixedHz !== null,
-      });
-      strips.append(strip);
-      requestAnimationFrame(redraw);
     });
   }
 
@@ -1289,20 +1110,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     const chip = v === "" ? null : (v as ChipId);
     project.edit<Instrument>(doc(), (x) => {
       x.chip = chip;
-      if (x.kind === "fm" && x.fm && chip) {
-        const want = chipProfile(chip).channels.find(
-          (c) => c.kind === "fm"
-        )?.fmOps;
-        if (want && x.fm.ops.length !== want) {
-          if (want === 2) {
-            x.fm.ops = x.fm.ops.slice(0, 2);
-            x.fm.algorithm = Math.min(x.fm.algorithm, 1);
-          } else {
-            const extra = defaultInstrument("fm", chip).fm?.ops ?? [];
-            x.fm.ops = [...x.fm.ops, ...extra.slice(x.fm.ops.length, 4)];
-          }
-        }
-      }
+      fitFmOps(x, chip);
     });
     rebuildAll();
   }
@@ -1326,15 +1134,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     buildKindPanel();
     buildMacros();
     buildInspector();
-    showIssues();
-  }
-  function showIssues(): void {
-    const slot = q("#iIssues");
-    slot.replaceChildren();
-    const ib = issuesBox(doc().issues);
-    if (ib) {
-      slot.append(ib);
-    }
+    showIssues(q("#iIssues"), doc().issues);
   }
 
   /* ----- wiring ----- */
@@ -1374,7 +1174,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       return;
     }
     engine.setInstrument(id, inst());
-    showIssues();
+    showIssues(q("#iIssues"), doc().issues);
     syncHeader();
     if (e.cause !== "edit") {
       rebuildAll();
@@ -1382,41 +1182,44 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
   });
 
   /* ----- visuals ----- */
-  const offVisual = addVisual((f) => {
+  /** Light the keys of the notes this instrument just played, when they are inside the two visible octaves. */
+  function lightKeys(f: Frame): void {
+    const lo = (octave + 1) * 12;
     for (const ev of f.events as readonly EngineEvent[]) {
-      if (ev.channel < 0) {
+      if (ev.channel < 0 || ev.type !== "noteOn" || ev.id !== id) {
         continue;
       }
-      const lo = (octave + 1) * 12;
-      if (ev.type === "noteOn" && ev.id === id) {
-        const n = Math.round(ev.note);
-        if (n >= lo && n < lo + 24) {
-          piano.light(n, hex(), true, f.time);
-        }
+      const n = Math.round(ev.note);
+      if (n >= lo && n < lo + 24) {
+        piano.light(n, hex(), true, f.time);
       }
     }
-    if (piano.busy(f.time) || f.reduced) {
-      piano.draw(f.time);
-    }
-    // macro playheads
-    const now = performance.now();
+  }
+  /** Move the macro playheads and the wavetable marker along with the note being held. */
+  function movePlayheads(now: number): void {
     const active =
       wasHeld.note >= 0 && (wasHeld.released === null || now < wasHeld.until);
     for (const m of macros.values()) {
       const def = m.get();
-      if (!(def && active)) {
-        m.ed.mark(-1);
-        continue;
-      }
-      m.ed.mark(macroTick(def, now - wasHeld.since, 60, wasHeld.released));
+      m.ed.mark(
+        def && active
+          ? macroTick(def, now - wasHeld.since, 60, wasHeld.released)
+          : -1
+      );
     }
     if (!active && wasHeld.note >= 0) {
       wasHeld.note = -1;
     }
-    // wavetable marker while a note plays
     if (wavePreview && inst().kind === "wave") {
       wavePreview.mark(active ? (((now - wasHeld.since) / 1000) * 6) % 1 : -1);
     }
+  }
+  const offVisual = addVisual((f) => {
+    lightKeys(f);
+    if (piano.busy(f.time) || f.reduced) {
+      piano.draw(f.time);
+    }
+    movePlayheads(performance.now());
   });
 
   rebuildAll();

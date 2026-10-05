@@ -7,9 +7,11 @@ import {
   type Flavor,
   freeHz,
   lowpass,
+  noiseHz,
   noteHz,
   phaser,
   runFlavors,
+  setNoiseMode,
   slideBy,
   vibrato,
   w,
@@ -18,8 +20,10 @@ import {
 function boom(ctx: Ctx): void {
   const { rng, sfx } = ctx;
   applyWave(ctx, "noise");
-  sfx.noise.mode = chance(rng, 0.3) ? "short" : "long";
-  sfx.frequency.start = freeHz(ctx, 100, 700);
+  // The 8-bit chips only get a boom from the long register at the bottom of the rate table.
+  const lowTable = ctx.chip === "nes" || ctx.chip === "gameboy";
+  setNoiseMode(ctx, lowTable ? 0 : 0.3);
+  sfx.frequency.start = noiseHz(ctx, [100, 700], [60, 250]);
   const total = between(rng, 0.6, 1.6);
   const attack = between(rng, 0, 0.01);
   const sustain = between(rng, 0.05, 0.3);
@@ -41,7 +45,8 @@ function boom(ctx: Ctx): void {
 function crunch(ctx: Ctx): void {
   const { rng, sfx } = ctx;
   applyWave(ctx, "noise");
-  sfx.noise.mode = chance(rng, 0.75) ? "short" : "long";
+  // The crunch is the metallic one: the 8-bit chips only play it from the short register.
+  setNoiseMode(ctx, ctx.chip === "nes" || ctx.chip === "gameboy" ? 1 : 0.75);
   sfx.frequency.start = freeHz(ctx, 500, 2000);
   const total = between(rng, 0.3, 0.7);
   const sustain = between(rng, 0.03, 0.15);
@@ -55,7 +60,7 @@ function big(ctx: Ctx): void {
   const { rng, sfx } = ctx;
   applyWave(ctx, "noise");
   sfx.noise.mode = "long";
-  sfx.frequency.start = freeHz(ctx, 60, 300);
+  sfx.frequency.start = noiseHz(ctx, [60, 300], [60, 250]);
   const total = between(rng, 1.3, 2.2);
   const attack = between(rng, 0, 0.02);
   const sustain = between(rng, 0.2, 0.5);

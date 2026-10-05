@@ -2,10 +2,10 @@
 import { clamp, h } from "../lib/dom.ts";
 import { rgba } from "../visuals/canvas.ts";
 
-export const TABLE_LEN = 32;
-export const TABLE_MAX = 15;
+const TABLE_LEN = 32;
+const TABLE_MAX = 15;
 
-export const PRESETS: Record<string, (i: number) => number> = {
+const PRESETS: Record<string, (i: number) => number> = {
   organ: (i) =>
     clamp(
       Math.round(

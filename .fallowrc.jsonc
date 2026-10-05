@@ -1,7 +1,10 @@
 {
   "$schema": "./node_modules/fallow/schema.json",
-  // docs/ is prose, not code.
-  "ignorePatterns": ["docs/**"],
+  // docs/ is prose, not code. apps/studio/src/pixelkit/ is Pixelkit's ejected code: vendored, managed by Pixelkit's own
+  // CLI (`pixelkit diff` shows how it differs from upstream), so its unused exports, complexity and clones are
+  // upstream's to fix and editing them here would only make the next diff noisy. The studio's own code that imports it
+  // (src/backdrop) is still analyzed.
+  "ignorePatterns": ["docs/**", "apps/studio/src/pixelkit/**"],
   // Class members are reached through typed arrays and fields (`this.channelList[i]?.tick(frame)`, `bus.process(n)`).
   // The syntactic pass cannot see through those and calls the methods unused, so Fallow reads the packages' types.
   "typeAware": {
@@ -10,7 +13,8 @@
       "packages/core/tsconfig.json",
       "packages/sfx/tsconfig.json",
       "packages/player/tsconfig.json",
-      "packages/cli/tsconfig.json"
+      "packages/cli/tsconfig.json",
+      "apps/studio/tsconfig.json"
     ]
   },
   "rules": {
@@ -74,13 +78,31 @@
         "maxCyclomatic": 41,
         "reason": "A voice's per-sample mixing, source rendering, amplitude stage and sfx envelope."
       },
+      // The studio's canvas drawing. Each of these paints one picture in one pass (the pixels of the backdrop, the
+      // columns of a waveform, the bars of a spectrum), where the branches are the picture's parts: which layer, which
+      // channel, which half of the range. Splitting them into a helper per branch would scatter a drawing across
+      // functions that only make sense together and add a call to a loop that runs per pixel. The ceilings sit just
+      // above today's values so they cannot grow.
       {
-        "files": ["packages/core/src/engine/synth.ts"],
-        "functions": ["renderSegment"],
-        "maxCognitive": 51,
+        "files": ["apps/studio/src/backdrop/reactive.ts"],
+        "functions": ["render"],
+        "maxCognitive": 46,
         "maxCrap": 45,
-        "maxCyclomatic": 43,
-        "reason": "The synth's inner render loop: it walks the voices of a segment and mixes them into the chip buses."
+        "maxCyclomatic": 26,
+        "reason": "The reactive backdrop layer: the pulse glow, the rings, the sparkle bursts and the lightning, each a loop over pixels of one frame."
+      },
+      {
+        "files": ["apps/studio/src/visuals/waveform.ts"],
+        "functions": ["drawWaveform"],
+        "maxCognitive": 38,
+        "maxCyclomatic": 28,
+        "reason": "The waveform picture: the grid, the peaks, the playhead, the loop markers and the time axis."
+      },
+      {
+        "files": ["apps/studio/src/visuals/strip.ts"],
+        "functions": ["drawSpectrum"],
+        "maxCognitive": 30,
+        "reason": "The spectrum strip: one pass over the bars, each with its level from the FFT bins, its fall and peak hold, and its lit segments."
       }
     ]
   }

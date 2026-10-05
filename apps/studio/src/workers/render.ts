@@ -18,8 +18,14 @@ export type Source =
   | { type: "song"; song: Song; instruments: Record<string, Instrument> }
   | { type: "note"; inst: Instrument; note: number };
 
+/** The project's master: its volume scales sfx renders, and its limiter setting applies to songs too. */
+export interface RenderMaster {
+  limiter: boolean;
+  volume: number;
+}
+
 export type RenderRequest =
-  | { id: number; kind: "sfx"; sfx: Sfx; rate: number }
+  | { id: number; kind: "sfx"; sfx: Sfx; rate: number; master: RenderMaster }
   | {
       id: number;
       kind: "song";
@@ -27,8 +33,8 @@ export type RenderRequest =
       instruments: Record<string, Instrument>;
       rate: number;
       stems: boolean;
+      master: RenderMaster;
     }
-  | { id: number; kind: "note"; inst: Instrument; note: number; rate: number }
   | {
       id: number;
       kind: "analysis";
@@ -36,6 +42,7 @@ export type RenderRequest =
       rate: number;
       file: string;
       width: number;
+      master: RenderMaster;
     };
 
 export interface AnalysisBundle {
@@ -54,30 +61,33 @@ export type RenderResponse =
   | { id: number; bundle: AnalysisBundle }
   | { id: number; error: string };
 
-function renderSource(s: Source, rate: number, stems: boolean): RenderResult {
+function renderSource(
+  s: Source,
+  rate: number,
+  master: RenderMaster
+): RenderResult {
+  const opts = { master, sampleRate: rate };
   if (s.type === "sfx") {
-    return renderSfx(s.sfx, { sampleRate: rate });
+    return renderSfx(s.sfx, opts);
   }
   if (s.type === "song") {
-    return renderSong(s.song, s.instruments, { sampleRate: rate, stems });
+    return renderSong(s.song, s.instruments, { ...opts, stems: true });
   }
-  return renderInstrumentNote(s.inst, s.note, { sampleRate: rate });
+  return renderInstrumentNote(s.inst, s.note, opts);
 }
 
 export function runRequest(req: RenderRequest): RenderResult | AnalysisBundle {
   if (req.kind === "sfx") {
-    return renderSfx(req.sfx, { sampleRate: req.rate });
+    return renderSfx(req.sfx, { master: req.master, sampleRate: req.rate });
   }
   if (req.kind === "song") {
     return renderSong(req.song, req.instruments, {
+      master: req.master,
       sampleRate: req.rate,
       stems: req.stems,
     });
   }
-  if (req.kind === "note") {
-    return renderInstrumentNote(req.inst, req.note, { sampleRate: req.rate });
-  }
-  const result = renderSource(req.source, req.rate, req.source.type === "song");
+  const result = renderSource(req.source, req.rate, req.master);
   const analysis = analyze(result, { file: req.file });
   const opts = { width: req.width };
   const safe = <T>(fn: () => T): T | null => {
@@ -104,6 +114,38 @@ export function runRequest(req: RenderRequest): RenderResult | AnalysisBundle {
   };
 }
 
+const isBundle = (out: RenderResult | AnalysisBundle): out is AnalysisBundle =>
+  "analysis" in out;
+
+/** The pixel and sample buffers an answer holds, handed over to the page instead of copied. */
+function buffersOf(out: RenderResult | AnalysisBundle): Transferable[] {
+  if (isBundle(out)) {
+    return [
+      ...Object.values(out.images).flatMap((img) =>
+        img ? [img.data.buffer] : []
+      ),
+      ...(out.result?.channels ?? []).map((c) => c.buffer),
+    ];
+  }
+  return [...out.channels, ...(out.stems ?? [])].map((c) => c.buffer);
+}
+
+/** Run a request and post the answer, or the error, tagged with the request's id. */
+export function respond(
+  req: RenderRequest,
+  post: (message: RenderResponse, transfer?: Transferable[]) => void
+): void {
+  try {
+    const out = runRequest(req);
+    post(
+      isBundle(out) ? { bundle: out, id: req.id } : { id: req.id, result: out },
+      buffersOf(out)
+    );
+  } catch (err) {
+    post({ error: (err as Error).message, id: req.id });
+  }
+}
+
 const scope = globalThis as unknown as {
   onmessage: ((e: MessageEvent<RenderRequest>) => void) | null;
   postMessage: (m: unknown, t?: Transferable[]) => void;
@@ -113,42 +155,5 @@ if (
   typeof scope.document === "undefined" &&
   typeof scope.postMessage === "function"
 ) {
-  scope.onmessage = (e) => {
-    try {
-      const out = runRequest(e.data);
-      const transfer: Transferable[] = [];
-      if ("bundle" in out || "analysis" in out) {
-        const b = out as AnalysisBundle;
-        for (const img of Object.values(b.images)) {
-          if (img) {
-            transfer.push(img.data.buffer);
-          }
-        }
-        for (const c of b.result?.channels ?? []) {
-          transfer.push(c.buffer);
-        }
-        scope.postMessage(
-          { bundle: b, id: e.data.id } satisfies RenderResponse,
-          transfer
-        );
-        return;
-      }
-      const result = out as RenderResult;
-      for (const c of result.channels) {
-        transfer.push(c.buffer);
-      }
-      for (const s of result.stems ?? []) {
-        transfer.push(s.buffer);
-      }
-      scope.postMessage(
-        { id: e.data.id, result } satisfies RenderResponse,
-        transfer
-      );
-    } catch (err) {
-      scope.postMessage({
-        error: (err as Error).message,
-        id: e.data.id,
-      } satisfies RenderResponse);
-    }
-  };
+  scope.onmessage = (e) => respond(e.data, scope.postMessage.bind(scope));
 }

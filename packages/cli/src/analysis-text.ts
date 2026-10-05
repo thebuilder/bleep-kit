@@ -30,6 +30,17 @@ function asciiEnvelope(
     .join("");
 }
 
+/** Below this the seam is inaudible: the music before the loop end matches the music before the loop start. */
+const CLEAN_SEAM_DB = -40;
+
+function seamText(seamDiffDb: number | null): string {
+  if (seamDiffDb === null) {
+    return "seam not measured (the loop starts too early to compare)";
+  }
+  const verdict = seamDiffDb < CLEAN_SEAM_DB ? "clean" : "audible jump";
+  return `seam difference ${fmtDb(seamDiffDb)} (${verdict}, below ${CLEAN_SEAM_DB} dB is clean)`;
+}
+
 export function analysisText(a: Analysis, label?: string): string {
   const lines: string[] = [];
   lines.push(
@@ -61,7 +72,7 @@ export function analysisText(a: Analysis, label?: string): string {
   }
   if (a.loop) {
     lines.push(
-      `  loop     ${fmtSeconds(a.loop.start)} to ${fmtSeconds(a.loop.end)}, seam difference ${fmtDb(a.loop.seamDiffDb)}`
+      `  loop     ${fmtSeconds(a.loop.start)} to ${fmtSeconds(a.loop.end)}, ${seamText(a.loop.seamDiffDb)}`
     );
   }
   const env = asciiEnvelope(a.envelope);

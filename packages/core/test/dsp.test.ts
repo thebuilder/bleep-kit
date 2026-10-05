@@ -23,6 +23,7 @@ import {
   NOISE_NES_SHORT,
   NOISE_PSG_PERIODIC,
   newNoise,
+  renderNoise,
   seedNoise,
   stepNoise,
 } from "../src/dsp/noise.ts";
@@ -43,7 +44,7 @@ import {
   renderInstrumentNote,
 } from "../src/index.ts";
 import { mulberry32 } from "../src/prng.ts";
-import { bandEnergy, fftPeakHz, toDb, zeroCrossingHz } from "./helpers.ts";
+import { bandEnergy, fftPeakHz, rms, toDb, zeroCrossingHz } from "./helpers.ts";
 
 const SR = 48_000;
 
@@ -331,6 +332,22 @@ describe("LFSR noise", () => {
     expect(period(NOISE_GB_SHORT, 1, 400)).toBe(127);
     expect(period(NOISE_PSG_PERIODIC, 1, 400)).toBe(15);
   });
+
+  it("averaging lifts the level by sqrt(steps) capped at 2, so a fast hiss is quieter than a slow boom", () => {
+    const level = (stepsPerSample: number) => {
+      const s = newNoise();
+      seedNoise(s, NOISE_NES_LONG, 1);
+      s.stepsPerSample = stepsPerSample;
+      const out = new Float32Array(48_000);
+      renderNoise(s, out, out.length);
+      return rms(out);
+    };
+    // sixteen steps are quieter than four by the averaging (1/4 against 1/2) times the lift ratio: with the lift capped
+    // at 2 the two are about 0.6 apart (LFSR bits are not independent), the old cap of 3 made it about 0.9
+    expect(level(1)).toBeCloseTo(1, 1);
+    expect(level(16) / level(4)).toBeGreaterThan(0.4);
+    expect(level(16) / level(4)).toBeLessThan(0.7);
+  });
 });
 
 describe("SID filter", () => {
@@ -463,6 +480,49 @@ describe("fm constants", () => {
     expect(rateSeconds(0)).toBe(10);
     expect(rateSeconds(25)).toBeCloseTo(10 * 2 ** -10, 9);
     expect(rateSeconds(31)).toBeLessThan(0.02);
+  });
+
+  /** One carrier (operator 1 on the all-carrier algorithm) at A-4, the others at their quietest. */
+  function carrier(level: number, sustainLevel: number): Float32Array {
+    const inst = defaultInstrument("fm");
+    if (inst.fm) {
+      inst.fm.algorithm = 7;
+      inst.fm.feedback = 0;
+      inst.fm.ops.forEach((op, i) => {
+        op.attack = 31;
+        op.decay = 31;
+        op.sustainRate = 0;
+        op.mult = i === 0 ? 1 : 15;
+        op.level = i === 0 ? level : 0;
+        op.sustainLevel = i === 0 ? sustainLevel : 0;
+      });
+    }
+    inst.envelope = { attack: 0, decay: 0.1, release: 0.05, sustain: 1 };
+    const r = renderInstrumentNote(inst, 69, {
+      chip: "custom",
+      duration: 0.6,
+      release: 0.05,
+      sampleRate: SR,
+    });
+    return r.channels[0] ?? new Float32Array();
+  }
+
+  it("operator level is a linear amplitude: 0.5 is 6 dB down, 0.25 is 12 dB down", () => {
+    const full = rms(carrier(1, 1), 14_400, 24_000);
+    expect(toDb(rms(carrier(0.5, 1), 14_400, 24_000) / full)).toBeCloseTo(
+      -6.02,
+      0
+    );
+    expect(toDb(rms(carrier(0.25, 1), 14_400, 24_000) / full)).toBeCloseTo(
+      -12.04,
+      0
+    );
+  });
+
+  it("the sustain level is a linear amplitude too: a decay that stops at 0.25 settles 12 dB down", () => {
+    const flat = rms(carrier(1, 1), 14_400, 24_000);
+    const settled = rms(carrier(1, 0.25), 14_400, 24_000);
+    expect(toDb(settled / flat)).toBeCloseTo(-12.04, 0);
   });
 
   it("a higher modulation level adds spectral energy at the sidebands", () => {

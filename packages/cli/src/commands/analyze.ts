@@ -50,9 +50,11 @@ function analyzeFile(
       `cannot read ${file} as WAV: ${(error as Error).message}`
     );
   }
+  // a bare file does not say what made it, so no duty cycle is reported
   const analysis = analyze(result, {
     file: display(ctx.cwd, abs),
     ...(window ? { pitchWindow: window } : {}),
+    wave: null,
   });
   analysis.file = display(ctx.cwd, abs);
   if (images) {

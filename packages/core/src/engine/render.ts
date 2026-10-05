@@ -65,6 +65,13 @@ function copyEvents(src: EngineEvent[], into: EngineEvent[]): void {
   src.length = 0;
 }
 
+/** Song and instrument renders keep their own master volume; a master in the options only sets the limiter. */
+function applyRenderMaster(synth: SynthImpl, opts?: RenderOptions): void {
+  if (opts?.master) {
+    synth.setRenderMaster(null, opts.master.limiter);
+  }
+}
+
 interface Run {
   aborted: boolean;
   readonly bufL: Float32Array;
@@ -190,6 +197,9 @@ export function renderSfx(sfx: Sfx, opts?: RenderOptions): RenderResult {
   const seed = opts?.seed ?? 1;
   const tail = opts?.tail ?? 0.25;
   const run = newRun(sr, seed, 0, 1);
+  if (opts?.master) {
+    run.synth.setRenderMaster(opts.master.volume, opts.master.limiter);
+  }
   const prog = compileSfx(sfx, sr);
   run.synth.loadSfx("sfx", sfx);
   run.synth.trigger("sfx", { seed });
@@ -225,34 +235,77 @@ export function renderSfx(sfx: Sfx, opts?: RenderOptions): RenderResult {
 function songFrameEstimate(
   tl: SongTimeline,
   sr: number,
-  loops: number,
+  passes: number,
   tail: number
 ): number {
   const end = pulseToFrame(tl, sr, tl.totalPulses);
   const passFrames =
     tl.loopPulse === null ? 0 : end - pulseToFrame(tl, sr, tl.loopPulse);
-  return end + passFrames * (loops - 1) + Math.round(tail * sr);
+  return end + passFrames * (passes - 1) + Math.round(tail * sr);
+}
+
+/** The frame of the first loop event and of the next one (or the end): the pass a game loops over. */
+function loopPoints(events: EngineEvent[]): [number, number] | null {
+  const first = events.find((e) => e.type === "loop");
+  if (!first) {
+    return null;
+  }
+  const next =
+    events.find((e) => e.type === "loop" && e.frame > first.frame) ??
+    events.find((e) => e.type === "end");
+  return next ? [first.frame, next.frame] : null;
 }
 
 /** What a song render adds to the result: the loop points in frames, and the stems when they were asked for. */
 function songExtras(
   song: Song,
   tl: SongTimeline,
-  sr: number,
   frames: number,
-  stemRun: Run | null
+  run: Run,
+  withStems: boolean
 ): Partial<RenderResult> {
   const extra: Partial<RenderResult> = {};
-  if (tl.loopPulse !== null) {
-    extra.loopStart = pulseToFrame(tl, sr, tl.loopPulse);
-    extra.loopEnd = pulseToFrame(tl, sr, tl.totalPulses);
+  // The loop is the second pass: it starts with the release tails of the first pass still sounding and ends where the
+  // third pass would begin, so wrapping from its end to its start continues the music instead of cutting it.
+  const points = tl.loopPulse === null ? null : loopPoints(run.events);
+  if (points) {
+    [extra.loopStart, extra.loopEnd] = points;
   }
-  if (stemRun) {
+  if (withStems) {
     const ids = chipChannels(song).slice(0, 10);
     extra.stemIds = ids.map((c) => c.id);
-    extra.stems = stemRun.stems.map((g) => g.take(0, frames));
+    extra.stems = run.stems.map((g) => g.take(0, frames));
   }
   return extra;
+}
+
+/** Passes a looping song renders: the first after the intro, then the one a game repeats; `loops` counts the passes
+    after the first, so 1 (the default) is that minimum and 3 adds two more. */
+function songPasses(opts?: RenderOptions): number {
+  return Math.max(1, Math.floor(opts?.loops ?? 1)) + 1;
+}
+
+/** Run a prepared song render until the sequencer ends, then through `tail` seconds of release. */
+function driveSong(
+  run: Run,
+  opts: RenderOptions | undefined,
+  latency: number,
+  estimate: () => number
+): number {
+  const sr = run.synth.sampleRate;
+  const maxFrames = Math.round(MAX_SECONDS * sr);
+  while (!run.synth.ended && run.left.len < maxFrames) {
+    if (!runFrames(run, BLOCK, opts, estimate)) {
+      break;
+    }
+  }
+  const endFrame =
+    run.events.find((e) => e.type === "end")?.frame ?? run.left.len;
+  const desired = endFrame + Math.round((opts?.tail ?? 1) * sr) + latency;
+  if (!run.aborted && run.left.len < desired) {
+    runFrames(run, desired - run.left.len, opts, estimate);
+  }
+  return Math.min(run.left.len, desired) - latency;
 }
 
 export function renderSong(
@@ -261,31 +314,22 @@ export function renderSong(
   opts?: RenderOptions
 ): RenderResult {
   const sr = opts?.sampleRate ?? DEFAULT_RATE;
-  const seed = opts?.seed ?? 1;
-  const tail = opts?.tail ?? 1;
-  const loops = Math.max(1, Math.floor(opts?.loops ?? 1));
   const stemCount = opts?.stems ? chipChannels(song).length : 0;
-  const run = newRun(sr, seed, Math.min(stemCount, 10), 1);
+  const run = newRun(sr, opts?.seed ?? 1, Math.min(stemCount, 10), 1);
   const synth = run.synth;
   synth.loadSong(song, instruments);
+  applyRenderMaster(synth, opts);
   const tl = compileSong(song, instruments);
   const latency = synth.latency;
-  const maxFrames = Math.round(MAX_SECONDS * sr);
-  const estimate = songFrameEstimate(tl, sr, loops, tail);
-  synth.playForRender(loops);
-  while (!synth.ended && run.left.len < maxFrames) {
-    if (!runFrames(run, BLOCK, opts, () => estimate)) {
-      break;
-    }
-  }
-  const endFrame =
-    run.events.find((e) => e.type === "end")?.frame ?? run.left.len;
-  const desired = endFrame + Math.round(tail * sr) + latency;
-  if (!run.aborted && run.left.len < desired) {
-    runFrames(run, desired - run.left.len, opts, () => estimate);
-  }
-  const frames = Math.max(0, Math.min(run.left.len, desired) - latency);
-  const extra = songExtras(song, tl, sr, frames, opts?.stems ? run : null);
+  const looping = tl.loopPulse !== null;
+  const passes = looping ? songPasses(opts) : 1;
+  const estimate = songFrameEstimate(tl, sr, passes, opts?.tail ?? 1);
+  synth.playForRender(passes);
+  const frames = Math.max(
+    0,
+    driveSong(run, opts, latency, () => estimate)
+  );
+  const extra = songExtras(song, tl, frames, run, Boolean(opts?.stems));
   return finish(run, sr, latency, frames, extra);
 }
 
@@ -308,6 +352,7 @@ export function renderInstrumentNote(
   const run = newRun(sr, seed, 0, 1);
   const synth = run.synth;
   synth.loadSong(song, { inst });
+  applyRenderMaster(synth, opts);
   const latency = synth.latency;
   synth.noteOn(Math.max(0, index), note, 1, "inst");
   runFrames(run, Math.round(duration * sr), opts, () =>

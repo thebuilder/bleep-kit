@@ -8,18 +8,23 @@ import type { ChipId, ChipProfile } from "../types.ts";
 const BLOCK = 128;
 
 /** Linear gain applied after the NES mixer formula: the APU's output is tiny (about 0.26 for two full pulses). */
-const NES_MIXER_SCALE = 4;
+const NES_MIXER_SCALE = 3.42;
 const SID_ASYMMETRY = 0.03;
 
-/** Linear gain of each chip's voice sum, so a typical single voice peaks around -12 dBFS before the master gain. */
+/**
+ * Gain staging, done once here: the linear gain of each chip's voice sum, tuned so that a full volume square sfx peaks at
+ * -12 dBFS on every chip (through the default master of 0.8, a test pins it within 1.5 dB). The nes has no entry that
+ * matters: its pulse and tnd groups go through the APU mixer formula and NES_MIXER_SCALE instead. Nothing downstream
+ * (the sfx generators, the CLI) compensates for the chip any more.
+ */
 const CHIP_GAIN: Readonly<Record<ChipId, number>> = {
-  adlib: 0.34,
-  c64: 0.5,
-  custom: 0.45,
-  gameboy: 0.42,
-  genesis: 0.4,
+  adlib: 0.413,
+  c64: 0.418,
+  custom: 0.412,
+  gameboy: 0.344,
+  genesis: 0.411,
   nes: 1,
-  snes: 0.65,
+  snes: 0.413,
 };
 /** A bus keeps running this long after its last voice so filters and holds settle, then it is reset and skipped. */
 const TAIL_SECONDS = 0.25;

@@ -1,62 +1,30 @@
 /* Calls the encode worker (or encodes on the main thread when there are no workers, as in tests). */
+
 import type { RenderResult } from "./lib/contract.ts";
+import { workerLink } from "./lib/worker-link.ts";
 import type { EncodeRequest, EncodeResponse } from "./workers/encode.ts";
 import { runEncode } from "./workers/encode.ts";
 
-let worker: Worker | null | undefined;
-let nextId = 1;
-const pending = new Map<
-  number,
-  {
-    resolve: (r: {
-      bytes: Uint8Array;
-      used: "wav" | "ogg" | "mp3";
-      note?: string;
-    }) => void;
-    reject: (e: Error) => void;
-  }
->();
-
-function getWorker(): Worker | null {
-  if (worker !== undefined) {
-    return worker;
-  }
-  try {
-    if (typeof Worker === "undefined") {
-      worker = null;
-    } else {
-      worker = new Worker(new URL("./workers/encode.ts", import.meta.url), {
-        type: "module",
-      });
-      worker.onmessage = (e: MessageEvent<EncodeResponse>) => {
-        const p = pending.get(e.data.id);
-        if (!p) {
-          return;
-        }
-        pending.delete(e.data.id);
-        if ("error" in e.data) {
-          p.reject(new Error(e.data.error));
-        } else {
-          p.resolve({
-            bytes: e.data.bytes,
-            used: e.data.used,
-            ...(e.data.note ? { note: e.data.note } : {}),
-          });
-        }
-      };
-      worker.onerror = () => {
-        worker = null;
-        for (const [, p] of pending) {
-          p.reject(new Error("encode worker failed"));
-        }
-        pending.clear();
-      };
-    }
-  } catch {
-    worker = null;
-  }
-  return worker;
+interface Encoded {
+  bytes: Uint8Array;
+  note?: string;
+  used: "wav" | "ogg" | "mp3";
 }
+
+const link = workerLink<EncodeResponse, Encoded>(
+  () =>
+    new Worker(new URL("./workers/encode.ts", import.meta.url), {
+      type: "module",
+    }),
+  "encode",
+  (res) => {
+    const { bytes, note, used } = res as Extract<
+      EncodeResponse,
+      { bytes: Uint8Array }
+    >;
+    return { bytes, used, ...(note ? { note } : {}) };
+  }
+);
 
 export function encodeAudio(
   r: RenderResult,
@@ -66,7 +34,7 @@ export function encodeAudio(
     bitrate: number;
     name: string;
   }
-): Promise<{ bytes: Uint8Array; used: "wav" | "ogg" | "mp3"; note?: string }> {
+): Promise<Encoded> {
   const req: Omit<EncodeRequest, "id" | "channels"> = {
     bitrate: o.bitrate,
     format: o.format,
@@ -77,19 +45,14 @@ export function encodeAudio(
     quality: o.quality,
     sampleRate: r.sampleRate,
   };
-  const w = getWorker();
-  if (!w) {
-    return runEncode({ ...req, channels: r.channels, id: 0 });
-  }
-  nextId += 1;
-  const id = nextId;
-  return new Promise((resolve, reject) => {
-    pending.set(id, { reject, resolve });
-    // copies, so the cached render stays usable
-    const channels = r.channels.map((c) => c.slice());
-    w.postMessage(
-      { ...req, channels, id },
-      channels.map((c) => c.buffer)
-    );
-  });
+  return (
+    link.request((w, id) => {
+      // copies, so the cached render stays usable
+      const channels = r.channels.map((c) => c.slice());
+      w.postMessage(
+        { ...req, channels, id },
+        channels.map((c) => c.buffer)
+      );
+    }) ?? runEncode({ ...req, channels: r.channels, id: 0 })
+  );
 }

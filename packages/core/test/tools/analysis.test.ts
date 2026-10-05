@@ -142,6 +142,23 @@ describe("analyze", () => {
       expect(a.loop?.seamDiffDb ?? -120).toBeGreaterThan(-12);
     });
 
+    it("has no seam reading when the loop starts too early to look back from, or ends past the file", () => {
+      const s = sine(SR, 2, 100, 0.5);
+      const early = analyze(
+        render(SR, s, s, { loopEnd: 480 * 150, loopStart: 0 })
+      );
+      expect(early.loop?.seamDiffDb).toBeNull();
+      expect(early.loop?.start).toBe(0);
+      const short = analyze(
+        render(SR, s, s, { loopEnd: 480 * 150, loopStart: 24 })
+      );
+      expect(short.loop?.seamDiffDb).toBeNull();
+      const past = analyze(
+        render(SR, s, s, { loopEnd: SR * 3, loopStart: 480 * 30 })
+      );
+      expect(past.loop?.seamDiffDb).toBeNull();
+    });
+
     it("is null without loop points", () => {
       expect(analyze(render(SR, sine(SR, 0.5, 100, 0.5))).loop).toBeNull();
     });
@@ -216,6 +233,15 @@ describe("analyze", () => {
       expect(
         Math.abs((analyze(render(SR, s)).dutyCycle ?? 0) - 0.5)
       ).toBeLessThan(0.02);
+    });
+
+    it("is null when the source is known not to be a square, and measured when it is", () => {
+      const s = pulse(SR, 0.5, 220, 0.4, 0.25);
+      expect(
+        analyze(render(SR, s), { wave: "square" }).dutyCycle
+      ).not.toBeNull();
+      expect(analyze(render(SR, s), { wave: "saw" }).dutyCycle).toBeNull();
+      expect(analyze(render(SR, s), { wave: null }).dutyCycle).toBeNull();
     });
 
     it("is null for a sine, for noise and for silence", () => {

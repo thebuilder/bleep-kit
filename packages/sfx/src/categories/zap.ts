@@ -7,7 +7,7 @@ import {
   drawDuty,
   setEnvelope,
 } from "../build.ts";
-import { between, chance, intBetween, pick, round } from "../util.ts";
+import { between, intBetween, pick, round } from "../util.ts";
 import {
   arpeggio,
   type Flavor,
@@ -15,6 +15,7 @@ import {
   highpass,
   noteHz,
   runFlavors,
+  setNoiseMode,
   sign,
   slideBy,
   vibrato,
@@ -59,7 +60,7 @@ function buzz(ctx: Ctx): void {
 function crackle(ctx: Ctx): void {
   const { rng, sfx } = ctx;
   applyWave(ctx, "noise");
-  sfx.noise.mode = chance(rng, 0.6) ? "short" : "long";
+  setNoiseMode(ctx, 0.6);
   sfx.frequency.start = freeHz(ctx, 1500, 6000);
   const total = between(rng, 0.08, 0.3);
   const sustain = between(rng, 0.01, 0.08);

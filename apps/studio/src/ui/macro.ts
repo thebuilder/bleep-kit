@@ -12,7 +12,7 @@ export interface MacroSpec {
   scale: MacroScale;
 }
 
-export const macroRange = (
+const macroRange = (
   s: MacroSpec
 ): { lo: number; hi: number; step: number; neutral: number; dflt: number } => {
   switch (s.scale) {

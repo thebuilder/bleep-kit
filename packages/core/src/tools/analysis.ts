@@ -14,7 +14,7 @@ export interface Analysis {
   dcOffset: number;
   /** Seconds. */
   duration: number;
-  /** Share of time spent high, for a pitched two level (square or pulse) signal; otherwise null. */
+  /** Share of time spent high, for a pitched two level (square or pulse) signal; null for anything else. */
   dutyCycle: number | null;
   /** RMS per step (10 ms, widened so there are at most 1000 points); `time` is where the step starts. */
   envelope: { time: number; db: number }[];
@@ -23,8 +23,11 @@ export interface Analysis {
   images?: { waveform: string; spectrogram: string; scopes?: string };
   /** Seconds under -60 dBFS at each end (both equal the duration for a silent file). */
   leadingSilence: number;
-  /** Seconds. seamDiffDb: RMS difference (dBFS) between the 5 ms either side of loopEnd and the same stretches at loopStart. */
-  loop: { start: number; end: number; seamDiffDb: number } | null;
+  /**
+   * Seconds. seamDiffDb: RMS difference (dBFS) between the 5 ms before loopEnd and the 5 ms before loopStart; below
+   * -40 dB the seam is clean. Null when the loop starts too close to the beginning of the file to compare.
+   */
+  loop: { start: number; end: number; seamDiffDb: number | null } | null;
   /** K-weighted integrated loudness (BS.1770, gated). */
   lufs: number;
   peakDb: number;
@@ -52,6 +55,12 @@ export interface AnalyzeOptions {
   maxTrack?: number;
   /** YIN window in samples; default 2048. */
   pitchWindow?: number;
+  /**
+   * What produced the audio, so the duty cycle is only reported for a pulse. An sfx wave name ("square" measures the
+   * duty, every other wave reports null); null when the source is not a single oscillator (a song) or is unknown
+   * (a bare file). Left out, the signal itself decides: it must be a pitched two level wave.
+   */
+  wave?: string | null;
 }
 
 const CLIP_LEVEL = 0.999;
@@ -178,22 +187,17 @@ function loopOf(r: RenderResult): Analysis["loop"] {
   const len = Math.max(1, Math.round(SEAM_SECONDS * r.sampleRate));
   const start = r.loopStart;
   const end = r.loopEnd;
-  let squares = 0;
-  let count = 0;
-  // the 5 ms before loopEnd against the 5 ms before loopStart (needs room before the loop start)
+  // The 5 ms before loopEnd against the 5 ms before loopStart: when the loop is seamless the music reaches loopEnd in
+  // the state it was in when it reached loopStart, so playing on from loopStart continues it. A loop that starts at
+  // the very beginning of the file has nothing before its start to compare with.
+  let seamDiffDb: number | null = null;
   if (start >= len && end <= r.frames) {
-    squares += seamSquares(r.channels, end - len, start - len, len);
-    count += len * r.channels.length;
+    const squares = seamSquares(r.channels, end - len, start - len, len);
+    seamDiffDb = round(powerToDb(squares / (len * r.channels.length)), 2);
   }
-  // the 5 ms after loopEnd against the 5 ms after loopStart (needs audio past the loop end)
-  if (end + len <= r.frames) {
-    squares += seamSquares(r.channels, end, start, len);
-    count += len * r.channels.length;
-  }
-  const db = count > 0 ? powerToDb(squares / count) : DB_FLOOR;
   return {
     end: round(end / r.sampleRate, 4),
-    seamDiffDb: round(db, 2),
+    seamDiffDb,
     start: round(start / r.sampleRate, 4),
   };
 }
@@ -312,6 +316,18 @@ function dutyOf(mono: Float32Array, sampleRate: number): number | null {
   return duty === null ? null : round(duty, 4);
 }
 
+/** The duty cycle, for a source that can be a pulse wave and a signal that is one. */
+function dutyFor(
+  mono: Float32Array,
+  sampleRate: number,
+  wave: string | null | undefined
+): number | null {
+  if (wave !== undefined && wave !== "square") {
+    return null;
+  }
+  return dutyOf(mono, sampleRate);
+}
+
 /** Measure a render: levels, loudness, clipping, silence, loop seam, spectrum, pitch, envelope and duty cycle. */
 export function analyze(r: RenderResult, opts: AnalyzeOptions = {}): Analysis {
   const levels = measureLevels(r);
@@ -327,7 +343,7 @@ export function analyze(r: RenderResult, opts: AnalyzeOptions = {}): Analysis {
     crestDb: round(peakDb - rmsDb, 2),
     dcOffset: round(levels.sum / samples, 6),
     duration: round(duration, 6),
-    dutyCycle: dutyOf(mono, r.sampleRate),
+    dutyCycle: dutyFor(mono, r.sampleRate, opts.wave),
     envelope: envelopeOf(r),
     file: opts.file ?? "",
     frames: r.frames,

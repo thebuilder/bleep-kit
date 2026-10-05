@@ -144,7 +144,8 @@ function entryLines(ctx: Ctx, pc: ProjectCtx, e: Entry): string[] {
 
 export const renderCommand: CommandSpec = {
   description:
-    "Renders documents to out/<kind>/<id>.wav (16-bit master, with loop points for looping songs) plus <id>.meta.json " +
+    "Renders documents to out/<kind>/<id>.wav (16-bit master, with loop points for looping songs: the loop is the " +
+    "second pass through the loop section, so wrapping from its end to its start continues the music) plus <id>.meta.json " +
     "(hash sidecar) and, for songs, <id>.events.json. A render whose inputs did not change (document, referenced " +
     "instruments, project settings, options) is skipped and reported as up to date; --force renders anyway. With no " +
     "refs every sfx and song is rendered. --format also writes an .ogg or .mp3 next to the wav. --stems writes one mono " +
@@ -166,7 +167,8 @@ export const renderCommand: CommandSpec = {
     },
     {
       default: "1",
-      description: "songs: times to play the loop section",
+      description:
+        "songs: passes through the loop section after the first (the second pass is the loop a game repeats, 1 renders just that)",
       name: "loops",
       type: "number",
       valueName: "<n>",

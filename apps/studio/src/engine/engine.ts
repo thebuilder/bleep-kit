@@ -25,10 +25,10 @@ const WORKLETS = import.meta.glob(
 ) as Record<string, string>;
 const WORKLET_URL = Object.values(WORKLETS)[0] ?? null;
 
-export type EngineStatus = "starting" | "locked" | "running" | "error";
+type EngineStatus = "starting" | "locked" | "running" | "error";
 
 /** The channel kinds hosted when no song is loaded (keyboard and instrument previews). */
-export const PREVIEW_KINDS = [
+const PREVIEW_KINDS = [
   "pulse",
   "triangle",
   "noise",
@@ -38,7 +38,7 @@ export const PREVIEW_KINDS = [
   "sample",
 ] as const;
 
-export class Engine {
+class Engine {
   ctx: AudioContext | null = null;
   node: EngineNodeLike | null = null;
   fake = false as boolean;

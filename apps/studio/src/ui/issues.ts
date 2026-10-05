@@ -194,6 +194,21 @@ export function fieldLabel(path: string): string {
   return parts.map(tail).join(" / ");
 }
 
+/** Put the issues box, or nothing, into an inspector's issue slot. */
+export function showIssues(
+  slot: Element | null,
+  issues: readonly Issue[]
+): void {
+  if (!slot) {
+    return;
+  }
+  slot.replaceChildren();
+  const box = issuesBox(issues);
+  if (box) {
+    slot.append(box);
+  }
+}
+
 export function issuesBox(issues: readonly Issue[]): HTMLElement | null {
   if (issues.length === 0) {
     return null;
