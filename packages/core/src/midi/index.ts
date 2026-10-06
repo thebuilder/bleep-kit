@@ -12,3 +12,4 @@ export {
   parseMidi,
 } from "./parse.ts";
 export { type PartInfo, parseMidiMap } from "./parts.ts";
+export { CHORD_MODES, type ChordMode } from "./reduce.ts";

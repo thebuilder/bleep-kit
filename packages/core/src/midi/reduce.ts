@@ -1,6 +1,7 @@
 /* From the notes of the parts on one chip channel to that channel's rows: quantize to the row grid, keep one note at a
    time (the top note, or the bass note), fold the notes into the channel's range, and count what was lost. */
 
+import type { Effect } from "../types.ts";
 import type { MidiNote } from "./parse.ts";
 import type { Part } from "./parts.ts";
 import { type DrumVoice, drumVoice, type Range } from "./plan.ts";
@@ -23,6 +24,8 @@ export interface GridNote {
 export interface ChannelEvent {
   /** The drum hit, so the sample chip can pick an instrument per drum. */
   drum?: DrumVoice;
+  /** Effects written on the row (the arpeggio of a chord, or the `000` that ends it). */
+  fx?: Effect[];
   /** A MIDI note number, or "off". */
   note: number | "off";
   row: number;
@@ -42,7 +45,34 @@ export interface Loss {
   shortened: number;
 }
 
+/** How chords are handled: `top` keeps one note, `spread` puts the extra notes on free channels, `arpeggio` turns them
+ *  into a `0xy` effect, `auto` spreads first and arpeggiates what is left. */
+export const CHORD_MODES = ["auto", "spread", "arpeggio", "top"] as const;
+export type ChordMode = (typeof CHORD_MODES)[number];
+
+/** A note of a chord that the channel's own line does not keep. */
+export interface ChordNote {
+  end: number;
+  /** MIDI note, moved by the part's octave shift but not yet folded into any channel's range. */
+  note: number;
+  tick: number;
+  velocity: number;
+}
+
+/** Notes that start on one row of a melodic channel: the line keeps `primary`, `extras` wait to be placed. */
+export interface Chord {
+  /** Row where the longest note of the chord ends. */
+  end: number;
+  /** The other notes, the one furthest from the primary first. */
+  extras: ChordNote[];
+  /** The note the line plays (already in the channel's range): the top note, or the lowest on the bass. */
+  primary: number;
+  row: number;
+}
+
 export interface Reduced {
+  /** Chords still to place (always empty in `top` mode, and for drums). */
+  chords: Chord[];
   events: ChannelEvent[];
   loss: Loss;
 }
@@ -154,20 +184,26 @@ function chooseShift(notes: GridNote[], range: Range): number {
   return best;
 }
 
+/** A note moved by whole octaves into a range. */
+export function foldInto(note: number, range: Range): number {
+  const [low, high] = range;
+  let v = note;
+  while (v < low) {
+    v += 12;
+  }
+  while (v > high) {
+    v -= 12;
+  }
+  return v;
+}
+
 /** One octave shift for the whole part (the contour stays), then single notes folded in what still sticks out. */
 function fitRange(notes: GridNote[], range: Range, loss: Loss): GridNote[] {
-  const [low, high] = range;
   const shift = chooseShift(notes, range);
   loss.shiftOctaves = shift;
   return notes.map((n) => {
     const start = n.note + shift * 12;
-    let v = start;
-    while (v < low) {
-      v += 12;
-    }
-    while (v > high) {
-      v -= 12;
-    }
+    const v = foldInto(start, range);
     if (v !== start) {
       loss.folded += 1;
     }
@@ -190,28 +226,110 @@ function lineEvents(picks: GridNote[], loss: Loss): ChannelEvent[] {
   return events;
 }
 
+/** The note of a group the line keeps, and the rest ordered by distance from it (furthest first, then lower first). */
+function splitGroup(
+  group: GridNote[],
+  better: (a: GridNote, b: GridNote) => boolean
+): { extras: GridNote[]; primary: GridNote } {
+  let primary = group[0] as GridNote;
+  for (const n of group.slice(1)) {
+    if (better(n, primary)) {
+      primary = n;
+    }
+  }
+  const extras = group
+    .filter((n) => n !== primary)
+    .sort(
+      (a, b) =>
+        Math.abs(b.note - primary.note) - Math.abs(a.note - primary.note) ||
+        a.note - b.note
+    );
+  return { extras, primary };
+}
+
+/** The chord of a group once the part's octave shift is known; notes that repeat a pitch are dropped here. */
+function chordOf(
+  primary: GridNote,
+  extras: GridNote[],
+  group: GridNote[],
+  fitted: GridNote,
+  shift: number,
+  loss: Loss
+): Chord | null {
+  const seen = new Set([primary.note + shift * 12]);
+  const kept: ChordNote[] = [];
+  for (const n of extras) {
+    const note = n.note + shift * 12;
+    if (seen.has(note)) {
+      noteDropped(loss, n);
+    } else {
+      seen.add(note);
+      kept.push({ end: n.end, note, tick: n.tick, velocity: n.velocity });
+    }
+  }
+  if (kept.length === 0) {
+    return null;
+  }
+  return {
+    end: Math.max(...group.map((n) => n.end)),
+    extras: kept,
+    primary: fitted.note,
+    row: primary.row,
+  };
+}
+
 /**
  * A melodic channel plays one note at a time. Notes that start on the same row are a chord: the top one stays (the
- * lowest for the bass channel). A note that starts while an earlier one is still held takes over from it.
+ * lowest for the bass channel). In `top` mode the others are dropped; otherwise they come back as `chords` for the
+ * placement step (spread to free channels, or an arpeggio). A note that starts while an earlier one is still held
+ * takes over from it.
  */
 export function reduceMelodic(
   notes: GridNote[],
-  opts: { bass: boolean; range: Range }
+  opts: { bass: boolean; chords?: ChordMode; range: Range }
 ): Reduced {
   const loss = emptyLoss();
   const better = opts.bass
     ? (a: GridNote, b: GridNote) => a.note < b.note
     : (a: GridNote, b: GridNote) => a.note > b.note;
-  const picks = groupByRow(notes).map((g) => choose(g, better, loss));
-  const fitted = fitRange(picks, opts.range, loss);
-  return { events: lineEvents(fitted, loss), loss };
+  const groups = groupByRow(notes);
+  if ((opts.chords ?? "top") === "top") {
+    const picks = groups.map((g) => choose(g, better, loss));
+    const fitted = fitRange(picks, opts.range, loss);
+    return { chords: [], events: lineEvents(fitted, loss), loss };
+  }
+  const split = groups.map((g) => splitGroup(g, better));
+  const fitted = fitRange(
+    split.map((s) => s.primary),
+    opts.range,
+    loss
+  );
+  const chords: Chord[] = [];
+  for (const [i, s] of split.entries()) {
+    const chord = chordOf(
+      s.primary,
+      s.extras,
+      groups[i] as GridNote[],
+      fitted[i] as GridNote,
+      loss.shiftOctaves,
+      loss
+    );
+    if (chord) {
+      chords.push(chord);
+    }
+  }
+  return { chords, events: lineEvents(fitted, loss), loss };
 }
 
-/** The pitched notes of a drum channel: one hit per row, the most important drum wins. */
+/** The pitched notes of a drum channel: one hit per row. The most important drum wins (kick, snare, toms, hats and
+ *  cymbals), and between equal drums the louder hit. */
 export function reduceDrums(notes: GridNote[]): Reduced {
   const loss = emptyLoss();
-  const better = (a: GridNote, b: GridNote) =>
-    (a.voice?.priority ?? 0) > (b.voice?.priority ?? 0);
+  const better = (a: GridNote, b: GridNote) => {
+    const pa = a.voice?.priority ?? 0;
+    const pb = b.voice?.priority ?? 0;
+    return pa > pb || (pa === pb && a.velocity > b.velocity);
+  };
   const picks = groupByRow(notes).map((g) => choose(g, better, loss));
   const events: ChannelEvent[] = picks.map((n) => {
     const e: ChannelEvent = {
@@ -224,5 +342,5 @@ export function reduceDrums(notes: GridNote[]): Reduced {
     }
     return e;
   });
-  return { events, loss };
+  return { chords: [], events, loss };
 }

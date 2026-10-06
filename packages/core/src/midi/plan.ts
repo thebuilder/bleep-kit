@@ -92,17 +92,17 @@ export interface DrumVoice {
   generator: "kick" | "snare" | "hat" | "tom" | "crash" | "clap";
   /** The note a drum hit plays on a pitched drum channel (noise period, SID noise, FM voice): low is a thud, high is a hiss. */
   pitch: number;
-  /** When two drums hit on the same row only one fits a channel: the higher priority stays. */
+  /** When two drums hit on the same row only one fits a channel: the higher priority stays (kick, snare, toms, then hats and cymbals; equal priority goes to the louder hit). */
   priority: number;
 }
 
-const KICK: DrumVoice = { generator: "kick", pitch: 36, priority: 5 };
+const KICK: DrumVoice = { generator: "kick", pitch: 36, priority: 6 };
 const SNARE: DrumVoice = { generator: "snare", pitch: 62, priority: 5 };
-const CLAP: DrumVoice = { generator: "clap", pitch: 70, priority: 4 };
+const CLAP: DrumVoice = { generator: "clap", pitch: 70, priority: 5 };
 const HAT: DrumVoice = { generator: "hat", pitch: 84, priority: 2 };
 const OPEN_HAT: DrumVoice = { generator: "hat", pitch: 78, priority: 2 };
-const CRASH: DrumVoice = { generator: "crash", pitch: 96, priority: 3 };
-const RIDE: DrumVoice = { generator: "crash", pitch: 90, priority: 3 };
+const CRASH: DrumVoice = { generator: "crash", pitch: 96, priority: 2 };
+const RIDE: DrumVoice = { generator: "crash", pitch: 90, priority: 2 };
 const PERCUSSION: DrumVoice = { generator: "hat", pitch: 88, priority: 1 };
 
 const GM_DRUMS: Record<number, DrumVoice> = {
@@ -129,7 +129,7 @@ const TOM_NOTES = [41, 43, 45, 47, 48, 50] as const;
 /** The drum a General MIDI percussion note number means. Toms keep their own pitch, anything unknown is a light tick. */
 export function drumVoice(note: number): DrumVoice {
   if ((TOM_NOTES as readonly number[]).includes(note)) {
-    return { generator: "tom", pitch: note, priority: 4 };
+    return { generator: "tom", pitch: note, priority: 3 };
   }
   return GM_DRUMS[note] ?? PERCUSSION;
 }

@@ -2,7 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   CHIP_IDS,
+  CHORD_MODES,
   type ChipId,
+  type ChordMode,
   type Instrument,
   type Issue,
   midiToSong,
@@ -58,6 +60,20 @@ function chipFor(pc: ProjectCtx, flag: string | undefined): ChipId {
   return chip === "custom" ? "nes" : chip;
 }
 
+function chordsFor(flag: string | undefined): ChordMode {
+  const mode = flag ?? "auto";
+  if (!(CHORD_MODES as readonly string[]).includes(mode)) {
+    throw new CliError(
+      "usage",
+      `--chords must be one of ${CHORD_MODES.join(", ")} (was "${mode}")`,
+      {
+        hint: "auto spreads chords over free channels, then arpeggiates the rest; top keeps one note per chord.",
+      }
+    );
+  }
+  return mode as ChordMode;
+}
+
 function readMap(text: string | undefined): Record<string, string> {
   if (text === undefined) {
     return {};
@@ -101,6 +117,12 @@ function writeInstruments(
   return out;
 }
 
+function issueSection(title: string, issues: Issue[]): string[] {
+  return issues.length === 0
+    ? []
+    : [`${title} (${issues.length}):`, ...issues.map(issueLine)];
+}
+
 function issueLine(i: Issue): string {
   return `  ${i.severity} ${i.path === "" ? "" : `${i.path}: `}${i.message}`;
 }
@@ -120,8 +142,12 @@ export const importCommand: CommandSpec = {
   description:
     "Imports a Standard MIDI File (format 0 or 1) as a song. MIDI channel 10 becomes the chip's drums (noise, a SID noise " +
     "voice, an FM voice, or one sample per drum), the lowest busy part the bass, the busiest high part the lead, and the " +
-    "other parts fill the remaining channels. Each channel plays one note at a time: chords keep the top note (the bass " +
-    "keeps the lowest), and every note that could not sound is counted in the issues. Notes are rounded to rows " +
+    "other parts fill the remaining channels. Each channel plays one note at a time, so chords are handled the way 80s and " +
+    "90s composers did (--chords): the extra notes go on channels that are free at that moment (most useful on genesis and " +
+    "adlib), and what cannot be spread becomes a 0xy arpeggio on the part's own channel (the lowest note plays, x and y " +
+    "are the next two chord tones). Several drums on one row keep the most important one (kick, snare, toms, then hats and " +
+    "cymbals). The issues list what was converted (info) separately from every note that was dropped (warning). Notes " +
+    "are rounded to rows " +
     "(--rows-per-beat), velocity becomes the volume column, the tempo comes from the file (later tempo changes become " +
     "tempo effects), and notes move by octaves into each channel's range. Controllers, pitch bend, program changes and " +
     "lyrics are ignored. Writes songs/<id>.json and any new instruments (midi-<chip>-lead, -bass, -drums, -harmony; " +
@@ -155,6 +181,14 @@ export const importCommand: CommandSpec = {
       name: "rows-per-beat",
       type: "number",
       valueName: "<n>",
+    },
+    {
+      default: "auto",
+      description: `what to do with chords: ${CHORD_MODES.join(", ")}. auto spreads the extra notes over free channels, then turns the rest into a 0xy arpeggio; spread only spreads; arpeggio only arpeggiates; top keeps one note (the top, the lowest on the bass)`,
+      name: "chords",
+      type: "string",
+      valueName: "<mode>",
+      values: CHORD_MODES,
     },
     {
       description:
@@ -203,9 +237,11 @@ export const importCommand: CommandSpec = {
       });
     }
     const chip = chipFor(pc, args.str("chip"));
+    const chords = chordsFor(args.str("chords"));
     const bytes = readMidi(path.resolve(ctx.cwd, file), file);
     const result = midiToSong(bytes, {
       chip,
+      chords,
       loop: args.bool("loop") ?? true,
       map: readMap(args.str("map")),
       name: args.str("name") ?? id,
@@ -238,16 +274,19 @@ export const importCommand: CommandSpec = {
         "Parts:",
         ...result.parts.map(partLine),
         `Instruments: ${created.length > 0 ? `wrote ${created.join(", ")}` : "none written"}${reused.length > 0 ? `; kept your existing ${reused.join(", ")}` : ""}`,
-        ...(result.issues.length > 0
-          ? [
-              `Lost or changed (${result.issues.length}):`,
-              ...result.issues.map(issueLine),
-            ]
-          : []),
+        ...issueSection(
+          "Converted",
+          result.issues.filter((i) => i.severity === "info")
+        ),
+        ...issueSection(
+          "Lost or changed",
+          result.issues.filter((i) => i.severity !== "info")
+        ),
         `Next: bleepkit render song/${id} --analyze --images`,
       ].join("\n"),
       json: {
         chip,
+        chords,
         doc: song.value,
         instruments,
         issues: result.issues,

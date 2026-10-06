@@ -60,7 +60,7 @@ export { parseEffect, formatEffect, parseRowString, formatRowString } from "./no
 // notes and notation
 export { noteToHz, hzToNote, noteName, parseNoteName, NOTE_NAMES } from "./notes.ts";
 export { parseMml, formatMml, mmlToTrack, patternToMml } from "./mml/index.ts";
-export { midiToSong, parseMidi, parseMidiMap } from "./midi/index.ts";            // MIDI import (section 2.8)
+export { CHORD_MODES, midiToSong, parseMidi, parseMidiMap } from "./midi/index.ts"; // MIDI import (section 2.8)
 export { makeInstrument, INSTRUMENT_PRESETS } from "./presets.ts";                      // preset instruments (lead, bass, drums, pad, bell)
 export { compileSong, type SongTimeline, type TimelineEvent } from "./engine/timeline.ts";
 
@@ -242,13 +242,13 @@ Every document has `version: 1`. `FORMAT_VERSION` is `1`. normalize accepts a mi
 ### 2.1 The normalize contract
 
 ```ts
-export interface Issue { severity: "error" | "warning"; path: string; message: string }
+export interface Issue { severity: "error" | "warning" | "info"; path: string; message: string }
 export interface Normalized<T> { ok: boolean; value: T; issues: Issue[] }
 ```
 
 - `path` is a JSON Pointer (RFC 6901): `""` for the root, `/envelope/attack`, `/patterns/intro/tracks/pulse1/3/fx/0`.
 - `value` is always a complete, valid document, whatever came in. Unknown fields are dropped (warning). Missing fields get defaults (silent, except when a required field is missing: `error`). Out of range numbers are clamped (warning, with the value that came in). Wrong types are replaced by the default (error). A non-object input yields the default document and one error at `""`.
-- `ok` is `issues.every(i => i.severity !== "error")`. Callers must refuse to save or render when `ok` is false; warnings never block.
+- `ok` is `issues.every(i => i.severity !== "error")`. Callers must refuse to save or render when `ok` is false; warnings never block. `info` is not a problem: the MIDI importer uses it to report what it converted (section 2.8); normalize itself never writes one.
 - normalize is pure and deterministic, and returns a fresh object (never the input).
 - `normalizeSong` with an `instruments` map also checks that every instrument the song references exists and has a kind the channel accepts (error at `/channels/<i>/instrument` or `/patterns/<p>/tracks/<ch>/<r>/inst`). Without the map it only checks ids are well formed.
 - Message style: imperative, says the rule and the offending value: `must be 0 to 1 (was 3)`, `unknown field "foo" was dropped`, `instrument "lead" is kind "fm" but channel "pulse1" is "pulse"`.
@@ -784,7 +784,7 @@ export interface Synth {
 
 /* ---------- normalize ---------- */
 
-export interface Issue { severity: "error" | "warning"; path: string; message: string }
+export interface Issue { severity: "error" | "warning" | "info"; path: string; message: string }
 export interface Normalized<T> { ok: boolean; value: T; issues: Issue[] }
 
 /* ---------- worklet protocol (section 5) ---------- */
@@ -1054,9 +1054,9 @@ A song with every channel in MML and no patterns is allowed: `patterns: {}`, `or
 
 ### 2.8 MIDI import
 
-`midiToSong(bytes, opts)` turns a Standard MIDI File into a normalized `Song` plus the instruments it plays. It is pure and dependency free (`parseMidi` is its parser) and never throws: the result is `{ song, instruments, issues, parts }`, and an `error` issue means there is no usable song (the song is then the chip's default). Every warning says what the chip could not keep, so a person knows what was lost.
+`midiToSong(bytes, opts)` turns a Standard MIDI File into a normalized `Song` plus the instruments it plays. It is pure and dependency free (`parseMidi` is its parser) and never throws: the result is `{ song, instruments, issues, parts }`, and an `error` issue means there is no usable song (the song is then the chip's default). Issues keep two things apart so nothing is silently lost: an `info` issue says what was converted (chords that became arpeggios or were spread to other channels), a `warning` says what the chip could not keep.
 
-Options: `chip` (default `nes`; every chip but `custom`), `rowsPerBeat` (default 4, a whole number from 1 to 16), `map`, `name` (default "Imported MIDI") and `loop` (default true: the song loops to order 0; false plays once).
+Options: `chip` (default `nes`; every chip but `custom`), `rowsPerBeat` (default 4, a whole number from 1 to 16), `chords` (`"auto"` default, `"spread"`, `"arpeggio"` or `"top"`, see Chords below), `map`, `name` (default "Imported MIDI") and `loop` (default true: the song loops to order 0; false plays once).
 
 The file. Formats 0 and 1 (format 2 is read as 1), running status, tempo and time signature metas, note on with velocity 0 as note off, several tracks. A note struck again while held ends where the second begins; notes still held at the end of a track end with it. SMPTE time division has no beats and is read as 120 BPM. Controllers, pitch bend, program changes, sysex, lyrics and markers are ignored.
 
@@ -1078,7 +1078,15 @@ Placement. `map` is `{ selector: chipChannelId | "-" }`; a selector is a MIDI ch
 | adlib | fm2 to fm8 | fm1 | fm9, an FM drum voice (melody when there are no drums) |
 | snes | ch1 to ch6 | ch7 | ch8, one sample instrument per drum (kick, snare, hat, tom, crash, clap), chosen by the `inst` column |
 
-One note at a time. Every chip channel plays one note, so polyphony is reduced: notes that start on the same row keep only the top note (the lowest on the bass channel), a note that starts while an earlier one is still held takes over from it (the held note is cut short and does not come back), and drums on one row keep the most important drum (kick and snare over toms, cymbals and hats). Dropped and shortened notes are counted per channel in an issue (`/channels/<id>`), with the bar and beat of the first one.
+One note at a time, and chords. Every chip channel plays one note, so a chord (notes that start on the same row of one channel) is handled the way 80s and 90s composers did it, as set by `chords`:
+
+1. Spread first (`auto`, `spread`). The extra notes go on channels that are free at that moment as real notes, with the harmony instrument. A channel may take them when it is a harmony channel (every melodic channel of the plan except the first, the lead; the sample, SID and FM drum channel counts too when the file has no drums), nothing plays on it at the chord's row (a part may sit on it, the notes only go into its rests), and the chord's part is not on it. The lead, the bass and the drums the file has are never taken. Channels free for the whole chord come first, then channels of the same kind as the part's (FM before PSG on genesis), then the plan's order; a spread note is cut short where its channel is needed again, and that is reported. Chords are placed in time order. The part keeps the top note (the lowest on the bass) and the notes furthest from it are spread first, each into its channel's range.
+2. Arpeggio second (`auto`, `arpeggio`). The notes that found no channel, plus the part's own note, become a `0xy` arpeggio on the part's channel: the lowest of them plays, `x` and `y` are the semitone offsets of the two most characteristic other tones, in rising order. Each offset is 1 to 15: an offset above 15 is folded down by octaves (+16 is +4), one tone per pitch class (the octave doubling counts least), and with more than three notes the third (or, without one, the most distinct interval) and then the seventh, the fifth and the colour tones are kept (C7 keeps +4 and +10). A two note chord writes the one offset as both (`077`), so the steps are base, tone, tone. The next note of the channel that has no arpeggio of its own gets `000` so the arpeggio does not run into it; a note off stops it by itself. The effect goes in the first free effect slot of the row.
+3. `top` is the old behavior: one note per chord (the top one, the lowest on the bass), the others dropped and counted. `spread` drops what could not be spread, `arpeggio` never spreads.
+
+A note that starts while an earlier one is still held takes over from it (the held note is cut short and does not come back). Drums on one row keep the most important drum (kick, then snare, then toms, then hats and cymbals, and between equal drums the louder hit); the others are counted as dropped in an issue (`/channels/<id>`) with the bar and beat of the first one, as are chord notes the chosen mode could not place (an arpeggio holds three notes, a repeated pitch is played once).
+
+Reports. What was converted is an `info` issue per channel, in words such as "12 chords on piano became arpeggios on pulse1, 4 chords spread to pulse2" (the part's track name, or its reference when it has none), plus the number of arpeggio intervals that were folded to fit 0 to 15. What was lost or changed stays a `warning` (dropped notes, cut short, moved by octaves, parts left out). The CLI prints the two as "Converted" and "Lost or changed"; the studio notice names the conversion and counts what was dropped, and its Details list them under separate headings.
 
 Time. A note starts on row `round(tick * rowsPerBeat / ppq)` and lasts at least one row; the note off goes on the row it ends on unless the next note starts there. When more than 10 percent of the notes start over a quarter row off the grid, an issue suggests a finer `rowsPerBeat`. The song tempo is the first tempo of the file (two decimals, 20 to 400); later tempo changes become tempo effects on their rows (whole BPM, 32 to 255), and a restore of the first tempo on row 0 so a loop starts right. A pattern is whole bars of the first time signature, up to 64 rows (a later time signature change is reported and ignored); identical patterns are stored once; the last pattern is cut at the end of the song, which is the end of the last note extended to the end of its bar when the file's own end allows. A note that would end after the last row ends one row early. At most 256 patterns are written; the rest is cut and reported.
 
@@ -1341,7 +1349,7 @@ Binary `bleepkit`, built with esbuild into `packages/cli/dist/index.mjs` like Pi
 | `bleepkit new sfx <id> --category coin [--chip] [--seed] [--name]` | generates with `@bleepkit/sfx`, writes `sfx/<id>.json`, exits 1 if it exists (`--force` overwrites) | `{ ok, path, doc, description }` |
 | `bleepkit new instrument <id> --kind pulse [--chip] [--preset lead|bass|drums|pad|bell]` | writes a default instrument | `{ ok, path, doc }` |
 | `bleepkit new song <id> [--chip] [--tempo 120] [--mml "<ch>=<mml>" ...] [--template empty|loop8]` | writes a song; `--mml pulse1="o4 l8 cdefgab>c"` sets a channel's MML; `loop8` is 8 bars of empty patterns with a loop at order 0 | `{ ok, path, doc }` |
-| `bleepkit import <file.mid> [--id <id>] [--chip nes] [--rows-per-beat 4] [--map "1=pulse1,2=triangle,10=noise"] [--name] [--no-loop] [--force]` | imports a Standard MIDI file with `midiToSong` (section 2.8): writes `songs/<id>.json` (id defaults to the file name) and the `midi-<chip>-*` instruments the project lacks; the chip defaults to the project's (nes for a custom project); exits 1 on an unreadable file or an existing id without `--force`; the `issues` list what the chip could not play | `{ ok, chip, path, doc, instruments: [{ id, path, created }], issues, parts: [{ ref, name, notes, target }] }` |
+| `bleepkit import <file.mid> [--id <id>] [--chip nes] [--rows-per-beat 4] [--chords auto\|spread\|arpeggio\|top] [--map "1=pulse1,2=triangle,10=noise"] [--name] [--no-loop] [--force]` | imports a Standard MIDI file with `midiToSong` (section 2.8): writes `songs/<id>.json` (id defaults to the file name) and the `midi-<chip>-*` instruments the project lacks; the chip defaults to the project's (nes for a custom project); exits 1 on an unreadable file or an existing id without `--force`; the `issues` list what was converted (`info`: chord spreads and arpeggios, `--chords` default `auto`) and what the chip could not play (`warning`) | `{ ok, chip, chords, path, doc, instruments: [{ id, path, created }], issues, parts: [{ ref, name, notes, target }] }` |
 | `bleepkit mutate <ref> [--amount 0.15] [--count 1] [--seed] [--out <id>]` | sfx only today; writes `<id>-m1.json`... (or `--out`) and prints descriptions | `{ ok, results: [{ id, path, description }] }` |
 | `bleepkit validate [ref...]` | normalizes every document (or the named ones) with the instrument map; exit 1 when any error | `{ ok, documents: [{ ref, ok, issues }] }` |
 | `bleepkit list [sfx|songs|instruments]` | lists documents with name, chip, category or kind, duration when a render exists in `out/` | `{ ok, sfx: [...], songs: [...], instruments: [...] }` |
@@ -1496,7 +1504,7 @@ Vite app, vanilla TypeScript, one `index.html` with the styles inline like Pixel
 
 The whole page sits on the Pixelkit backdrop (section 11.5), with the panels at 92% opacity over it so the backdrop glows through the gaps. The stage canvas views are opaque.
 
-Import MIDI (section 2.8): an "Import MIDI" button next to New in the Songs section of the sidebar, an "Import MIDI file" command in the palette, and a `.mid` file dropped anywhere on the window all open a small dialog that asks for the chip (the project's chip is preselected). The studio then creates the instruments the project lacks and the song through its store, opens the song, and shows a notice with a Details button listing what the chip could not keep. Other dropped files are ignored (and never opened by the browser).
+Import MIDI (section 2.8): an "Import MIDI" button next to New in the Songs section of the sidebar, an "Import MIDI file" command in the palette, and a `.mid` file dropped anywhere on the window all open a small dialog that asks for the chip (the project's chip is preselected) and for how chords are handled (spread, then arpeggio is preselected; spread only, arpeggio only and top note only are the others). The studio then creates the instruments the project lacks and the song through its store, opens the song, and shows a notice that names what was converted and counts what was dropped, with a Details button listing both under separate headings. Other dropped files are ignored (and never opened by the browser).
 
 ### 11.2 Views
 

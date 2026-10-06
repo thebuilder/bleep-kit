@@ -524,7 +524,7 @@ export interface Synth {
 
 /* ---------- normalize ---------- */
 
-export interface Issue { severity: "error" | "warning"; path: string; message: string }
+export interface Issue { severity: "error" | "warning" | "info"; path: string; message: string }
 export interface Normalized<T> { ok: boolean; value: T; issues: Issue[] }
 
 /* ---------- worklet protocol (section 5) ---------- */

@@ -23,6 +23,8 @@ export {
   type TimelineEvent,
 } from "./engine/timeline.ts";
 export {
+  CHORD_MODES,
+  type ChordMode,
   type MidiFile,
   type MidiImport,
   type MidiNote,

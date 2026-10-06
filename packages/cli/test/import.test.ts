@@ -70,6 +70,18 @@ function tune(): Uint8Array {
   ]);
 }
 
+/** One melodic part: a C major chord on the first beat (96 ticks), then a single high note. */
+function chordTune(): Uint8Array {
+  const body = [
+    ...[60, 64, 67].map((n) => ev(0, 0x90, n, 100)),
+    ...[60, 64, 67].map((n, i) => ev(i === 0 ? 96 : 0, 0x80, n, 0)),
+    ev(0, 0x90, 72, 100),
+    ev(96, 0x80, 72, 0),
+  ];
+  const t = track(...body);
+  return Uint8Array.from([...HEADER, 0, 0, 0, 1, 0, 96, ...t]);
+}
+
 function writeTune(dir: string, name = "tune.mid"): string {
   const file = path.join(dir, name);
   fs.writeFileSync(file, tune());
@@ -319,6 +331,96 @@ describe("bleepkit import", () => {
     expect(badId.code).toBe(2);
   });
 
+  it("spreads chords over free channels, or arpeggiates them, as --chords says", async () => {
+    const { project, repo } = await makeProject();
+    fs.writeFileSync(path.join(repo, "chords.mid"), chordTune());
+    const spread = await run(repo, [
+      "import",
+      "chords.mid",
+      "--chip",
+      "genesis",
+      "--json",
+    ]);
+    const out = spread.json as Imported & { chords: string };
+    expect(out.chords).toBe("auto");
+    expect(out.issues.map((i) => [i.severity, i.message])).toEqual([
+      ["info", "1 chord on t1ch1 spread to fm3 and fm4"],
+    ]);
+    const song = readJson(path.join(project, "songs", "chords.json")) as {
+      patterns: Record<string, { tracks: Record<string, { note: unknown }[]> }>;
+    };
+    const tracks = Object.values(song.patterns)[0]?.tracks ?? {};
+    expect(Object.keys(tracks).sort()).toEqual(["fm2", "fm3", "fm4"]);
+
+    const arp = await run(repo, [
+      "import",
+      "chords.mid",
+      "--chip",
+      "nes",
+      "--chords",
+      "arpeggio",
+      "--id",
+      "arp",
+      "--json",
+    ]);
+    expect((arp.json as Imported).issues.map((i) => i.message)).toEqual([
+      "1 chord on t1ch1 became an arpeggio on pulse1",
+    ]);
+    const nes = readJson(path.join(project, "songs", "arp.json")) as {
+      patterns: Record<
+        string,
+        { tracks: { pulse1: { fx: unknown[]; note: number }[] } }
+      >;
+    };
+    const first = Object.values(nes.patterns)[0]?.tracks.pulse1[0];
+    expect(first?.note).toBe(60);
+    expect(first?.fx).toEqual([{ type: "arp", x: 4, y: 7 }]);
+
+    const top = await run(repo, [
+      "import",
+      "chords.mid",
+      "--chords",
+      "top",
+      "--id",
+      "top",
+      "--json",
+    ]);
+    expect(
+      (top.json as Imported).issues.map((i) => [i.severity, i.message])
+    ).toEqual([
+      [
+        "warning",
+        "pulse1: 2 notes dropped (chords and notes on one row keep only the top note), first at bar 1 beat 1",
+      ],
+    ]);
+
+    const human = await run(repo, [
+      "import",
+      "chords.mid",
+      "--chip",
+      "genesis",
+      "--id",
+      "human",
+    ]);
+    expect(human.stdout).toContain("Converted (1):");
+    expect(human.stdout).toContain(
+      "info /channels/fm2: 1 chord on t1ch1 spread to fm3 and fm4"
+    );
+    expect(human.stdout).not.toContain("Lost or changed");
+
+    const bad = await run(repo, [
+      "import",
+      "chords.mid",
+      "--chords",
+      "stack",
+      "--id",
+      "bad",
+      "--json",
+    ]);
+    expect(bad.code).toBe(2);
+    expect(bad.json.error.message).toContain("--chords must be one of");
+  });
+
   it("is in the help, the workflow page and prints a readable summary", async () => {
     const { repo } = await makeProject();
     const overview = await run(repo, ["help"]);
@@ -328,6 +430,7 @@ describe("bleepkit import", () => {
     const help = await run(repo, ["import", "--help"]);
     expect(help.stdout).toContain("--rows-per-beat");
     expect(help.stdout).toContain("--map");
+    expect(help.stdout).toContain("--chords");
     writeTune(repo);
     const human = await run(repo, ["import", "tune.mid"]);
     expect(human.code, human.stderr).toBe(0);

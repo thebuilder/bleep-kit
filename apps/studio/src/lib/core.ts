@@ -2,6 +2,8 @@
 /* The studio's view of @bleepkit/core, @bleepkit/core/tools and @bleepkit/sfx. Every view imports from here, so a
    rename in a package is fixed in one place. */
 export {
+  CHORD_MODES,
+  type ChordMode,
   chipChannels,
   chipProfile,
   defaultInstrument,

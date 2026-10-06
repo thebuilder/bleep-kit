@@ -4,7 +4,12 @@
 import { app } from "../app.ts";
 import type { ChipId } from "../lib/contract.ts";
 import { CHIP_IDS } from "../lib/contract.ts";
-import { chipProfile, midiToSong } from "../lib/core.ts";
+import {
+  CHORD_MODES,
+  type ChordMode,
+  chipProfile,
+  midiToSong,
+} from "../lib/core.ts";
 import { fire, h } from "../lib/dom.ts";
 import { project } from "../state/docs.ts";
 import { openModal } from "./modal.ts";
@@ -22,32 +27,68 @@ const chips = CHIP_IDS.filter((c) => c !== "custom");
 const songName = (file: string): string =>
   file.replace(MIDI_NAME, "").trim() || "MIDI song";
 
+const CHORD_LABELS: Record<ChordMode, string> = {
+  arpeggio: "Arpeggio only (0xy on the part's channel)",
+  auto: "Spread to free channels, then arpeggio",
+  spread: "Spread to free channels only",
+  top: "Top note only (the rest is dropped)",
+};
+
 /** The project's chip when a song can be imported for it, else the NES. */
 function defaultChip(): ChipId {
   const { chip } = project.project;
   return chip === "custom" ? "nes" : chip;
 }
 
-function showIssues(name: string, lines: string[]): void {
+function section(title: string, lines: string[]): HTMLElement[] {
+  if (lines.length === 0) {
+    return [];
+  }
   const list = h("ul", { class: "muted" });
   for (const line of lines) {
     list.append(h("li", {}, line));
   }
+  return [h("p", {}, title), list];
+}
+
+/** What became of the file: what was converted (chords spread or arpeggiated), then what the chip could not keep. */
+function showIssues(name: string, converted: string[], lost: string[]): void {
   openModal(
     h(
       "div",
       { class: "confirm" },
-      h("p", {}, `What the chip could not keep of ${name}:`),
-      list
+      ...section(`What was converted in ${name}:`, converted),
+      ...section(`What the chip could not keep of ${name}:`, lost)
     ),
     { cls: "wide" }
   );
 }
 
+const things = (n: number, what: string): string =>
+  `${n} ${n === 1 ? "thing was" : "things were"} ${what}`;
+
+/** The notice after an import: the conversions first (named when there is one), then the count of what was dropped. */
+function noticeOf(name: string, converted: string[], lost: string[]): string {
+  const parts: string[] = [];
+  if (converted.length === 1) {
+    parts.push(converted[0] as string);
+  } else if (converted.length > 1) {
+    parts.push(things(converted.length, "converted"));
+  }
+  if (lost.length > 0) {
+    parts.push(things(lost.length, "dropped or changed"));
+  }
+  return `Imported ${name}: ${parts.join("; ")}`;
+}
+
 /** Converts, creates the instruments the project lacks, creates the song and opens it. False when it cannot be imported. */
-export async function importMidi(src: Source, chip: ChipId): Promise<boolean> {
+export async function importMidi(
+  src: Source,
+  chip: ChipId,
+  chords: ChordMode = "auto"
+): Promise<boolean> {
   const name = songName(src.name);
-  const result = midiToSong(src.bytes, { chip, name });
+  const result = midiToSong(src.bytes, { chip, chords, name });
   const error = result.issues.find((i) => i.severity === "error");
   if (error) {
     app.toast(`Could not import ${src.name}: ${error.message}`);
@@ -65,15 +106,17 @@ export async function importMidi(src: Source, chip: ChipId): Promise<boolean> {
     result.song
   );
   app.navigate(`#/song/${doc.id}`);
-  const lines = result.issues.map((i) => i.message);
-  if (lines.length === 0) {
+  const converted = result.issues
+    .filter((i) => i.severity === "info")
+    .map((i) => i.message);
+  const lost = result.issues
+    .filter((i) => i.severity !== "info")
+    .map((i) => i.message);
+  if (converted.length === 0 && lost.length === 0) {
     app.toast(`Imported ${name}`);
   } else {
-    const n = lines.length;
-    app.toast(
-      `Imported ${name}: ${n} ${n === 1 ? "thing was" : "things were"} dropped or changed`,
-      "Details",
-      () => showIssues(name, lines)
+    app.toast(noticeOf(name, converted, lost), "Details", () =>
+      showIssues(name, converted, lost)
     );
   }
   return true;
@@ -93,6 +136,11 @@ export function openImportDialog(src: Source): void {
     select.append(h("option", { value: chip }, chipProfile(chip).label));
   }
   select.value = defaultChip();
+  const chordSelect = h("select", { "aria-label": "Chords" });
+  for (const mode of CHORD_MODES) {
+    chordSelect.append(h("option", { value: mode }, CHORD_LABELS[mode]));
+  }
+  chordSelect.value = "auto";
   let close: () => void = () => undefined;
   const go = h(
     "button",
@@ -100,22 +148,32 @@ export function openImportDialog(src: Source): void {
       class: "btn primary",
       onclick: () => {
         close();
-        fire(importMidi(src, select.value as ChipId));
+        fire(
+          importMidi(
+            src,
+            select.value as ChipId,
+            chordSelect.value as ChordMode
+          )
+        );
       },
     },
     "Import"
   );
-  select.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      go.click();
-    }
-  });
+  for (const el of [select, chordSelect]) {
+    el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        go.click();
+      }
+    });
+  }
   close = openModal(
     h(
       "div",
       { class: "confirm" },
       h("p", {}, `Import ${src.name} as a song for this chip:`),
       select,
+      h("p", {}, "Chords (a channel plays one note at a time):"),
+      chordSelect,
       h(
         "div",
         { class: "confirm-btns" },

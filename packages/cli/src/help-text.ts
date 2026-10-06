@@ -211,6 +211,7 @@ note you actually made; loop.seamDiffDb below -40 dB is a clean music loop (null
 leading/trailing silence should be near 0 for sfx.
 Songs: write MML first (help formats mml), render, then check duration and loop.start/loop.end against what you meant.
 Have a MIDI file? bleepkit import tune.mid --chip nes   makes songs/tune.json plus midi-<chip>-* instruments, and lists
-what the chip could not play (chords keep the top note, notes dropped, parts left out). Re-run with --map "1=pulse1,2=triangle,10=noise"
-or --rows-per-beat 8 to steer it, then render --analyze --images and look at the scopes.
+what was converted (chords spread over free channels or turned into 0xy arpeggios, --chords auto|spread|arpeggio|top) and what the
+chip could not play (notes dropped, parts left out). Re-run with --map "1=pulse1,2=triangle,10=noise" or --rows-per-beat 8 to steer it,
+then render --analyze --images and look at the scopes.
 Every command has an example: bleepkit <command> --help.`;

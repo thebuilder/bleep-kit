@@ -1,6 +1,7 @@
 /* Importing a MIDI file in the studio: the sidebar button, the palette command, dropping a .mid on the window, the chip
    dialog, and what lands in the project. The app runs on the fake engine and the browser store, like studio.test.ts. */
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import type { Song } from "../src/lib/contract.ts";
 import { installCanvasStub, settle, until } from "./helpers.ts";
 
 installCanvasStub();
@@ -26,6 +27,43 @@ function tune(): Uint8Array<ArrayBuffer> {
     ...ev(0, 0xff, 0x2f, 0),
   ];
   // delta times above 127 need two bytes: every delta here is 0 or 96, so the file stays single byte
+  const head = [..."MThd"].map((c) => c.charCodeAt(0));
+  const trk = [..."MTrk"].map((c) => c.charCodeAt(0));
+  return Uint8Array.from([
+    ...head,
+    0,
+    0,
+    0,
+    6,
+    0,
+    0,
+    0,
+    1,
+    0,
+    96,
+    ...trk,
+    0,
+    0,
+    0,
+    body.length,
+    ...body,
+  ]);
+}
+
+/* One melodic part, 96 ppq: a C major chord for one beat, then a single high note. */
+function chordTune(): Uint8Array<ArrayBuffer> {
+  const ev = (delta: number, ...data: number[]) => [delta, ...data];
+  const body = [
+    ...ev(0, 0x90, 60, 100),
+    ...ev(0, 0x90, 64, 100),
+    ...ev(0, 0x90, 67, 100),
+    ...ev(96, 0x80, 60, 0),
+    ...ev(0, 0x80, 64, 0),
+    ...ev(0, 0x80, 67, 0),
+    ...ev(0, 0x90, 72, 100),
+    ...ev(96, 0x80, 72, 0),
+    ...ev(0, 0xff, 0x2f, 0),
+  ];
   const head = [..."MThd"].map((c) => c.charCodeAt(0));
   const trk = [..."MTrk"].map((c) => c.charCodeAt(0));
   return Uint8Array.from([
@@ -198,6 +236,81 @@ describe("importing a MIDI file", () => {
     details?.click();
     expect(document.querySelector(".overlay")?.textContent).toContain(
       "psgNoise: 1 drum hits dropped"
+    );
+    closeOverlays();
+  });
+
+  it("asks how chords are handled (spread, then arpeggio by default) and says what was converted apart from what was dropped", async () => {
+    const { project } = docsMod;
+    const chordSelect = () =>
+      document.querySelector<HTMLSelectElement>(
+        '.overlay select[aria-label="Chords"]'
+      );
+    const importAs = async (chip: string, chords: string, id: string) => {
+      document.body.dispatchEvent(
+        dropEvent([new File([chordTune()], `${id}.mid`)])
+      );
+      await until(() => dialogSelect() !== null);
+      (dialogSelect() as HTMLSelectElement).value = chip;
+      (chordSelect() as HTMLSelectElement).value = chords;
+      document
+        .querySelector<HTMLButtonElement>(".overlay .confirm-btns .btn.primary")
+        ?.click();
+      await until(() => project.get("song", id) !== undefined);
+    };
+    document.body.dispatchEvent(
+      dropEvent([new File([chordTune()], "probe.mid")])
+    );
+    await until(() => chordSelect() !== null);
+    expect([...(chordSelect()?.options ?? [])].map((o) => o.value)).toEqual([
+      "auto",
+      "spread",
+      "arpeggio",
+      "top",
+    ]);
+    expect(chordSelect()?.value).toBe("auto");
+    closeOverlays();
+
+    // genesis: the chord spreads over free FM channels, and the notice names it (nothing was dropped)
+    await importAs("genesis", "auto", "spread-chord");
+    const spread = project.get("song", "spread-chord")?.value as {
+      patterns: Record<string, { tracks: Record<string, unknown> }>;
+    };
+    expect(
+      Object.keys(Object.values(spread.patterns)[0]?.tracks ?? {})
+    ).toEqual(["fm2", "fm3", "fm4"]);
+    expect(
+      await until(() => toastText().includes("Imported spread-chord"))
+    ).toBe(true);
+    expect(toastText()).toContain("1 chord on t1ch1 spread to fm3 and fm4");
+    expect(toastText()).not.toContain("dropped");
+    closeOverlays();
+
+    // nes with arpeggio only: the chord is an arpeggio effect on the lead
+    await importAs("nes", "arpeggio", "arp-chord");
+    const arp = project.get("song", "arp-chord")?.value as Song | undefined;
+    const first = Object.values(arp?.patterns ?? {})[0]?.tracks.pulse1?.[0];
+    expect(first?.note).toBe(60);
+    expect(first?.fx).toEqual([{ type: "arp", x: 4, y: 7 }]);
+    closeOverlays();
+
+    // top: today's behaviour, two notes dropped, and the notice says dropped, not converted
+    await importAs("nes", "top", "top-chord");
+    expect(await until(() => toastText().includes("Imported top-chord"))).toBe(
+      true
+    );
+    expect(toastText()).toContain("1 thing was dropped or changed");
+    expect(toastText()).not.toContain("converted");
+    closeOverlays();
+
+    // the details list what was converted under its own heading (a dropped list follows when something was dropped)
+    await importAs("nes", "auto", "mixed-chord");
+    const details = [
+      ...document.querySelectorAll<HTMLButtonElement>("#toast button"),
+    ].find((b) => b.textContent === "Details");
+    details?.click();
+    expect(document.querySelector(".overlay")?.textContent).toContain(
+      "What was converted in mixed-chord:"
     );
     closeOverlays();
   });

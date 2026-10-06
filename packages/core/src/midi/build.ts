@@ -19,11 +19,14 @@ export interface PatternPlan {
   /** Pattern ids in play order. */
   order: string[];
   patterns: Record<string, Pattern>;
+  /** Tempo changes that found no free effect slot on their row (a row holds 4 effects), as song rows. */
+  tempoSkipped: number[];
   /** The row where the song was cut because the order list is full, or null. */
   truncatedAt: number | null;
 }
 
 const MAX_ORDER = 256;
+const MAX_FX = 4;
 const MAX_VOLUME = 15;
 const MAX_VELOCITY = 127;
 
@@ -45,7 +48,7 @@ function noteRow(
   const inst =
     channel.drumInstrument && e.drum ? channel.drumInstrument(e.drum) : null;
   const row: Row = {
-    fx: [],
+    fx: e.fx ? e.fx.map((f) => ({ ...f })) : [],
     inst: inst !== null && inst !== last.inst ? inst : null,
     note: e.note,
     row: local,
@@ -69,14 +72,18 @@ function channelRows(
   );
 }
 
-/** Puts tempo effects on the first channel that plays in this pattern (or the first channel), as rows of their own. */
+/**
+ * Puts tempo effects on the first channel that plays in this pattern (or the first channel), as rows of their own.
+ * They take the next free effect slot of a row that already has an arpeggio; returns the rows with no slot left.
+ */
 function attachTempo(
   tracks: Record<string, Row[]>,
   host: string,
   tempo: Map<number, Effect>,
   start: number,
   length: number
-): void {
+): number[] {
+  const skipped: number[] = [];
   const rows = tracks[host] ?? [];
   for (const [row, fx] of tempo) {
     if (row < start || row >= start + length) {
@@ -84,7 +91,9 @@ function attachTempo(
     }
     const local = row - start;
     const existing = rows.find((r) => r.row === local);
-    if (existing) {
+    if (existing && existing.fx.length >= MAX_FX) {
+      skipped.push(row);
+    } else if (existing) {
       existing.fx.push(fx);
     } else {
       rows.push({ fx: [fx], inst: null, note: null, row: local, vol: null });
@@ -94,6 +103,7 @@ function attachTempo(
   if (rows.length > 0) {
     tracks[host] = rows;
   }
+  return skipped;
 }
 
 /** Events of each channel, bucketed by the pattern they fall into. */
@@ -120,7 +130,12 @@ export function buildPatterns(opts: {
   const { channels, patternLength, tempo, totalRows } = opts;
   const buckets = channels.map((c) => bucket(c.events, patternLength));
   const host = channels.find((c) => c.events.length > 0)?.id ?? channels[0]?.id;
-  const plan: PatternPlan = { order: [], patterns: {}, truncatedAt: null };
+  const plan: PatternPlan = {
+    order: [],
+    patterns: {},
+    tempoSkipped: [],
+    truncatedAt: null,
+  };
   const seen = new Map<string, string>();
   for (let start = 0; start < totalRows; start += patternLength) {
     if (plan.order.length >= MAX_ORDER) {
@@ -137,7 +152,9 @@ export function buildPatterns(opts: {
       }
     }
     if (host) {
-      attachTempo(tracks, host, tempo, start, length);
+      plan.tempoSkipped.push(
+        ...attachTempo(tracks, host, tempo, start, length)
+      );
     }
     const key = `${length}:${JSON.stringify(tracks)}`;
     let id = seen.get(key);

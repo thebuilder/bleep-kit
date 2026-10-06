@@ -13,6 +13,7 @@ import type {
   Song,
 } from "../types.ts";
 import { type BuiltChannel, buildPatterns } from "./build.ts";
+import { type ChordHost, type ChordStats, placeChords } from "./chords.ts";
 import {
   type Built,
   drumInstrument,
@@ -30,6 +31,9 @@ import {
 } from "./parts.ts";
 import { type ChipPlan, channelRange, type DrumVoice, PLANS } from "./plan.ts";
 import {
+  CHORD_MODES,
+  type ChordMode,
+  emptyLoss,
   type Grid,
   type GridNote,
   gridError,
@@ -43,6 +47,13 @@ import {
 export interface MidiToSongOptions {
   /** Target chip (default "nes"). */
   chip?: ChipId;
+  /**
+   * What happens to the notes of a chord, which a channel cannot play together (default "auto"). `spread` puts the
+   * extra notes on channels that are free at that moment, `arpeggio` turns them into a `0xy` arpeggio on the part's
+   * own channel, `auto` spreads first and arpeggiates what is left, `top` keeps only one note (the top one, the lowest
+   * on the bass) and drops the rest.
+   */
+  chords?: ChordMode;
   /** Loop the song from the start (default true); false plays it once. */
   loop?: boolean;
   /**
@@ -60,7 +71,10 @@ export interface MidiToSongOptions {
 export interface MidiImport {
   /** Instruments the song uses, by id; none of them exists yet. Write them next to the song. */
   instruments: Record<string, Instrument>;
-  /** What was lost or changed, and anything wrong with the file. An `error` means there is no usable song. */
+  /**
+   * What was converted (severity `info`: chords that became arpeggios or spread to other channels), what was lost or
+   * changed (`warning`), and anything wrong with the file (`error` means there is no usable song).
+   */
   issues: Issue[];
   /** Every part of the file with the chip channel it went to (null: dropped). */
   parts: PartInfo[];
@@ -121,13 +135,17 @@ function meterOf(file: MidiFile): Meter {
 
 /* ---------- per channel ---------- */
 
+/** One chip channel while the song is built: the parts on it, its notes, and what happened to its chords. */
 interface Channel {
   built: BuiltChannel;
   channel: ChipChannel;
   instruments: Built[];
+  /** Names of the parts on it, for messages ("piano", or the part's reference when it has no name). */
+  label: string;
   parts: Part[];
   reduced: Reduced;
   role: Role;
+  stats: ChordStats;
 }
 
 /** Chooses the instruments of a channel and, for drums on a sample chip, one per drum that is hit. */
@@ -151,44 +169,51 @@ function channelInstruments(
   return { drumInstrument: null, list: [roleInstrument(chip, channel, role)] };
 }
 
-function reduceChannel(
-  grid: Grid,
-  chip: ChipId,
-  channel: ChipChannel,
-  parts: Part[],
-  isBass: boolean,
-  asDrums: boolean
-): Reduced {
-  const notes: GridNote[] = parts.flatMap((p) =>
-    p.notes.map((n) => toGrid(grid, p, n))
-  );
-  return asDrums
-    ? reduceDrums(notes)
-    : reduceMelodic(notes, {
-        bass: isBass,
-        range: channelRange(chip, channel.id, channel.kind),
-      });
+/** A chip channel before its chords are placed: notes reduced to one line, chords waiting. */
+interface Lane {
+  asDrums: boolean;
+  channel: ChipChannel;
+  order: number;
+  parts: Part[];
+  reduced: Reduced;
+  role: Role;
 }
 
-function buildChannel(
-  grid: Grid,
-  chip: ChipId,
-  plan: ChipPlan,
+function reduceLane(
+  setup: Setup,
   channel: ChipChannel,
+  order: number,
   parts: Part[]
-): Channel {
+): Lane {
+  const { chip, grid, plan } = setup;
   const drumsUsed = parts.some((p) => p.drums);
   const asDrums =
     channel.kind === "noise" || (channel.id === plan.drums && drumsUsed);
   const role = roleOf(plan, channel.id, asDrums);
-  const reduced = reduceChannel(
-    grid,
-    chip,
-    channel,
-    parts,
-    role === "bass",
-    asDrums
+  const notes: GridNote[] = parts.flatMap((p) =>
+    p.notes.map((n) => toGrid(grid, p, n))
   );
+  let reduced: Reduced = { chords: [], events: [], loss: emptyLoss() };
+  if (parts.length > 0) {
+    reduced = asDrums
+      ? reduceDrums(notes)
+      : reduceMelodic(notes, {
+          bass: role === "bass",
+          chords: setup.chords,
+          range: channelRange(chip, channel.id, channel.kind),
+        });
+  }
+  return { asDrums, channel, order, parts, reduced, role };
+}
+
+/** The names of the parts on a channel, for messages. */
+function partsLabel(parts: Part[]): string {
+  return parts.map((p) => p.name ?? p.ref).join(" and ");
+}
+
+function buildChannel(setup: Setup, lane: Lane, stats: ChordStats): Channel {
+  const { chip } = setup;
+  const { channel, parts, reduced, role } = lane;
   const hit = reduced.events.flatMap((e) => (e.drum ? [e.drum] : []));
   const { drumInstrument: byDrum, list } = channelInstruments(
     chip,
@@ -205,23 +230,111 @@ function buildChannel(
     },
     channel,
     instruments: list,
+    label: partsLabel(parts),
     parts,
     reduced,
     role,
+    stats,
   };
+}
+
+/**
+ * Channels that may take spread chord notes: the harmony channels (never the lead, the bass or the drums the file
+ * really has). A drum channel that can play melody counts when the file has no drums.
+ */
+function openChannels(plan: ChipPlan, drumsUsed: boolean): Set<string> {
+  const open = new Set(plan.melodic.slice(1));
+  if (plan.drumsFlex && !drumsUsed) {
+    open.add(plan.drums);
+  }
+  return open;
+}
+
+/** Places the chords of every lane (spread, arpeggio) and builds the channels that play something. */
+function placeAndBuild(setup: Setup, lanes: Lane[]): Channel[] {
+  const mode = setup.chords;
+  const drumsUsed = lanes.some((l) => l.asDrums && l.parts.length > 0);
+  const open = openChannels(setup.plan, drumsUsed);
+  const hosts: ChordHost[] = lanes.map((l) => ({
+    chords: l.reduced.chords,
+    events: l.reduced.events,
+    id: l.channel.id,
+    kind: l.channel.kind,
+    loss: l.reduced.loss,
+    open: mode !== "arpeggio" && !l.asDrums && open.has(l.channel.id),
+    order: l.order,
+    range: channelRange(setup.chip, l.channel.id, l.channel.kind),
+  }));
+  const stats =
+    mode === "top" ? new Map<string, ChordStats>() : placeChords(hosts, mode);
+  const none = (): ChordStats => ({
+    arps: 0,
+    folded: 0,
+    spread: 0,
+    targets: new Map(),
+  });
+  return lanes
+    .filter((l) => l.parts.length > 0 || l.reduced.events.length > 0)
+    .map((l) => buildChannel(setup, l, stats.get(l.channel.id) ?? none()));
 }
 
 /* ---------- issues ---------- */
 
-function lossIssues(c: Channel, meter: Meter): Issue[] {
+/** Why notes were dropped, in the words of the chord mode that dropped them. */
+function droppedWhat(c: Channel, mode: ChordMode): string {
+  if (c.role === "drums") {
+    return "drum hits dropped (one drum per row: the kick wins over the snare, toms, then hats and cymbals; equal drums keep the louder hit)";
+  }
+  const keep = c.role === "bass" ? "lowest" : "top";
+  if (mode === "top") {
+    return `notes dropped (chords and notes on one row keep only the ${keep} note)`;
+  }
+  if (mode === "spread") {
+    return `chord notes dropped (no free channel to spread them to: the channel keeps the ${keep} note)`;
+  }
+  return "chord notes dropped (an arpeggio holds three notes, and a pitch that repeats is not played twice)";
+}
+
+/** Names of channels as a list: "pulse2", "fm3 and fm4", "fm3, fm4 and fm5". */
+function joinNames(names: string[]): string {
+  if (names.length <= 1) {
+    return names.join("");
+  }
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
+/** What became of the chords of a channel: arpeggios on it, notes spread to others. Converted, not lost. */
+function chordIssues(c: Channel): Issue[] {
+  const { arps, folded, spread, targets } = c.stats;
+  const { id } = c.channel;
+  const pieces: string[] = [];
+  if (arps > 0) {
+    pieces.push(
+      `${plural(arps, "chord")} on ${c.label} became ${arps === 1 ? "an arpeggio" : "arpeggios"} on ${id}`
+    );
+  }
+  if (spread > 0) {
+    const to = joinNames([...targets.keys()]);
+    pieces.push(
+      `${plural(spread, "chord")}${pieces.length === 0 ? ` on ${c.label}` : ""} spread to ${to}`
+    );
+  }
+  if (pieces.length === 0) {
+    return [];
+  }
+  const fold =
+    folded > 0
+      ? `; ${plural(folded, "arpeggio interval")} folded down by octaves to fit 0 to 15 semitones`
+      : "";
+  return [issue("info", `/channels/${id}`, `${pieces.join(", ")}${fold}`)];
+}
+
+function lossIssues(c: Channel, meter: Meter, mode: ChordMode): Issue[] {
   const { loss } = c.reduced;
   const at = `/channels/${c.channel.id}`;
   const out: Issue[] = [];
   if (loss.dropped > 0) {
-    const what =
-      c.role === "drums"
-        ? "drum hits dropped (one drum per row: kick and snare win over toms, cymbals and hats)"
-        : `notes dropped (chords and notes on one row keep only the ${c.role === "bass" ? "lowest" : "top"} note)`;
+    const what = droppedWhat(c, mode);
     const first =
       loss.firstDropped === null
         ? ""
@@ -389,8 +502,21 @@ function fitEnd(events: Reduced["events"], totalRows: number): void {
 
 /* ---------- the song ---------- */
 
-function checkOptions(chip: ChipId, rowsPerBeat: number): Issue[] {
+function checkOptions(
+  chip: ChipId,
+  rowsPerBeat: number,
+  chords: string
+): Issue[] {
   const issues: Issue[] = [];
+  if (!(CHORD_MODES as readonly string[]).includes(chords)) {
+    issues.push(
+      issue(
+        "error",
+        "/chords",
+        `chords must be one of ${CHORD_MODES.join(", ")} (was "${chords}")`
+      )
+    );
+  }
   if (chip === "custom" || !(chip in PLANS)) {
     issues.push(
       issue(
@@ -416,6 +542,7 @@ function checkOptions(chip: ChipId, rowsPerBeat: number): Issue[] {
 
 interface Setup {
   chip: ChipId;
+  chords: ChordMode;
   grid: Grid;
   plan: ChipPlan;
 }
@@ -426,7 +553,7 @@ function layOut(
   map: Record<string, string>,
   issues: Issue[]
 ): { channels: Channel[]; parts: PartInfo[] } {
-  const { chip, grid, plan } = setup;
+  const { chip, plan } = setup;
   const profile = CHIPS[chip].channels;
   const parts = buildParts(file);
   const assignment = assignParts(
@@ -437,13 +564,15 @@ function layOut(
     issues
   );
   issues.push(...droppedPartIssues(assignment.dropped, chip));
-  const channels: Channel[] = [];
-  for (const channel of profile) {
-    const onChannel = assignment.byChannel.get(channel.id);
-    if (onChannel) {
-      channels.push(buildChannel(grid, chip, plan, channel, onChannel));
-    }
-  }
+  const lanes = profile.map((channel, order) =>
+    reduceLane(
+      setup,
+      channel,
+      order,
+      assignment.byChannel.get(channel.id) ?? []
+    )
+  );
+  const channels = placeAndBuild(setup, lanes);
   const target = new Map<Part, string>();
   for (const [id, list] of assignment.byChannel) {
     for (const p of list) {
@@ -484,6 +613,15 @@ function assembleSong(
     tempo: tempoEffects(file, grid, totalRows, issues),
     totalRows,
   });
+  if (plan.tempoSkipped.length > 0) {
+    issues.push(
+      issue(
+        "warning",
+        "",
+        `${plural(plan.tempoSkipped.length, "tempo change")} could not be written: the row already holds 4 effects (first at row ${Math.min(...plan.tempoSkipped)})`
+      )
+    );
+  }
   if (plan.truncatedAt !== null) {
     issues.push(
       issue(
@@ -517,9 +655,11 @@ function assembleSong(
 
 /**
  * Imports a Standard MIDI File. Channel 10 becomes the chip's drums, the lowest busy part the bass, the busiest high
- * part the lead and the rest fill the remaining channels; every channel plays one note at a time (chords keep the top
- * note, the bass keeps the lowest), notes are rounded to rows, velocity becomes the volume column, tempo comes from
- * the file, and notes move by octaves into each channel's range. Whatever that loses is listed in `issues`.
+ * part the lead and the rest fill the remaining channels. Every channel plays one note at a time, so a chord is spread
+ * over free channels and what is left becomes an arpeggio (`chords`, default "auto"; "top" keeps the top note, the
+ * bass its lowest). Notes are rounded to rows, velocity becomes the volume column, tempo comes from the file, and notes
+ * move by octaves into each channel's range. What was converted (`info`) and what was lost (`warning`) is listed in
+ * `issues`.
  */
 export function midiToSong(
   bytes: Uint8Array,
@@ -527,7 +667,8 @@ export function midiToSong(
 ): MidiImport {
   const chip = opts.chip ?? "nes";
   const rowsPerBeat = opts.rowsPerBeat ?? DEFAULT_ROWS_PER_BEAT;
-  const bad = checkOptions(chip, rowsPerBeat);
+  const chords = opts.chords ?? "auto";
+  const bad = checkOptions(chip, rowsPerBeat, chords);
   if (bad.length > 0) {
     return failure(chip === "custom" || !(chip in PLANS) ? "nes" : chip, bad);
   }
@@ -538,6 +679,7 @@ export function midiToSong(
   }
   const setup: Setup = {
     chip,
+    chords,
     grid: { ppq: file.ppq, rowsPerBeat },
     plan: PLANS[chip as keyof typeof PLANS],
   };
@@ -554,7 +696,10 @@ export function midiToSong(
   );
   const meter = meterOf(file);
   for (const c of channels) {
-    issues.push(...lossIssues(c, meter));
+    issues.push(...chordIssues(c));
+  }
+  for (const c of channels) {
+    issues.push(...lossIssues(c, meter, setup.chords));
   }
   const kept = channels.flatMap((c) =>
     c.parts.flatMap((p) => p.notes.map((n) => ({ tick: n.start })))
