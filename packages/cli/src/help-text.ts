@@ -109,7 +109,7 @@ const instrument = `INSTRUMENT  instruments/<id>.json
     "params": {}, "seed": 3, "baseNote": 60, "loop": false }
   sid patch: { "waveforms": ["tri"|"saw"|"pulse"|"noise", ...], "pulseWidth": 0..1, "pwmRate": 0..20, "pwmDepth": 0..1,
     "ring": false, "sync": false, "filter": { "mode": "off"|"lp"|"bp"|"hp", "cutoff": 0..1, "resonance": 0..1, "sweep": 0 } }
-Start with \`bleepkit new instrument <id> --kind pulse --preset lead\` (presets: lead bass drums pad bell).`;
+Start with \`bleepkit new instrument <id> --kind pulse --preset lead\` (presets: lead bass bass-pulse drums pad bell; bass picks the chip's bass voice when --kind is left out).`;
 
 const song = `SONG  songs/<id>.json
 { "version": 1, "name": "Title", "chip": "nes", "tempo": 150, "rowsPerBeat": 4, "tickRate": 60,

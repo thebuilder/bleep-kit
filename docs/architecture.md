@@ -61,7 +61,7 @@ export { parseEffect, formatEffect, parseRowString, formatRowString } from "./no
 export { noteToHz, hzToNote, noteName, parseNoteName, NOTE_NAMES } from "./notes.ts";
 export { parseMml, formatMml, mmlToTrack, patternToMml } from "./mml/index.ts";
 export { CHORD_MODES, midiToSong, parseMidi, parseMidiMap } from "./midi/index.ts"; // MIDI import (section 2.8)
-export { makeInstrument, INSTRUMENT_PRESETS } from "./presets.ts";                      // preset instruments (lead, bass, drums, pad, bell)
+export { makeInstrument, bassKind, INSTRUMENT_PRESETS } from "./presets.ts";            // preset instruments (lead, bass, bass-pulse, drums, pad, bell)
 export { compileSong, type SongTimeline, type TimelineEvent } from "./engine/timeline.ts";
 
 // chips
@@ -210,7 +210,8 @@ src/notes.ts              note names and frequencies
 src/normalize/            issues.ts (Issue, Normalized, helpers), project.ts, sfx.ts, instrument.ts, song.ts, effects.ts (fx string <-> typed), index.ts
 src/mml/                  lexer.ts, parser.ts, format.ts, index.ts
 src/midi/                 parse.ts (SMF reader), parts.ts (parts, --map selectors, automatic placement), plan.ts (per chip channel plan, ranges, GM drums), reduce.ts (rows, one note at a time, range), build.ts (patterns), instruments.ts, convert.ts (midiToSong), index.ts
-src/presets.ts            instrument presets shared by the CLI (`new instrument`, `init`) and the MIDI importer
+src/presets.ts            instrument presets shared by the CLI (`new instrument`, `init`), the MIDI importer and the studio starter project
+src/presets-bass.ts       the bass presets, one real bass per chip (section 2.5)
 src/chips/                nes.ts, gameboy.ts, c64.ts, genesis.ts, adlib.ts, snes.ts, custom.ts, index.ts
 src/dsp/                  tables.ts (sine, exp), osc.ts, noise.ts, envelope.ts, macro.ts, fm.ts, sid-filter.ts, svf.ts, echo.ts, reverb.ts, color.ts, limiter.ts, resampler.ts
 src/samples/              one file per generator plus index.ts
@@ -905,6 +906,20 @@ Example, `sfx/coin.json`:
 - For `triangle` the envelope and volume macro act as a gate: level above 0.5 is on, else off (NES triangle has no volume). Documented in the studio inspector too.
 - `send` is ignored unless the chip has `masterFx`.
 
+Presets. `makeInstrument(kind, chip, preset, name)` (`src/presets.ts`, bass data in `src/presets-bass.ts`) builds the starter for `new instrument --preset`, `init`, the MIDI importer and the studio's starter project. `bassKind(chip)` names the channel kind a bass wants (nes `triangle`, gameboy `wave`, c64 and custom `sid`, genesis and adlib `fm`, snes `sample`); `new instrument --preset bass` uses it when `--kind` is left out. The bass is a real bass on each, built so that a line written in octaves 1 and 2 (A-1 is 55 Hz) has its fundamental on the written note and most of its energy under 250 Hz:
+
+| chip | bass preset |
+| --- | --- |
+| nes | triangle, a plain gate (no volume on hardware: the note length is the shape, gate `sustain` 1, release 20 ms) |
+| gameboy | wave channel with a fat 32 step table: a rounded square (tanh of a sine) mixed 3 to 1 with a sine over the whole 4 bit range, third harmonic 14 dB under the fundamental, no even harmonics |
+| c64 | pulse (width 0.4) with slow PWM (0.7 Hz) through the lowpass: cutoff 0.6, resonance 0.4, sweep -0.008 per tick, so the filter starts open and closes (a pluck; the cutoff clamps at 0, so a note held longer than about a second and a quarter goes dark) |
+| genesis | 4 op, algorithm 4 (two stacks added): operator 1 (feedback 6) over operator 2 at 1:1 with a modulator that falls 18 dB in about 0.1 s, plus operator 3 (ratio 0.5) over operator 4; carriers sustain at 0.8 and above |
+| adlib | 2 op, feedback 6, 1:1, modulator decaying (rate 11) to 0.14 of its level, carrier sustain 0.88 |
+| snes | the `bass` sample generator tuned so written pitch sounds at pitch (base note 60: the generator's saw is C-4, with a sine an octave below), cutoff 0.22, sub 0.25, looped, a fast decay (70 ms) to a 0.78 sustain for the attack transient |
+| custom | a square through a lowpass at about 160 Hz (SID voice, resonance 0.2); the instrument format has no drive control, so the resonance is the bite |
+
+`bass-pulse` is the support voice for a pulse channel: a 50% pulse at volume 0.35, played an octave above the bass (a bass on a free pulse channel adds edge on small speakers without taking over). On a kind with no pulse block it is the plain bass. Lowest notes (the period registers clamp below them): NES triangle A0 (27.3 Hz), NES pulse A1 (54.6 Hz), Game Boy wave C1 (32 Hz) and pulse C2, Genesis PSG A2 (109 Hz); the FM, SID, sample and custom voices have no floor in the engine.
+
 Example, `instruments/lead.json` (NES pulse lead with a Famitracker-style volume and arp macro):
 
 ```json
@@ -1172,7 +1187,7 @@ One operator: phase accumulator at `hz * (mult === 0 ? 0.5 : mult) * detuneFacto
 
 A key on restarts everything that shapes the note: operator phases, the feedback memory, the envelope levels and the voice's LFO pitch offset all reset to zero, so a note sounds the same whatever the voice played before it (the voice hides the resulting step with its short declick when it was still sounding). Without that a looped song's second pass would differ from its first and the loop would click at the seam.
 
-Patches are tuned to be measured, not guessed. A modulator that decays faster than its carrier gives a bright attack that settles into a duller sustain: on the starter bass (genesis) the spectral centroid is about 600 Hz in the first 90 ms and 220 Hz in the sustain, on the fixture bass 560 Hz against 340 Hz, and the lead keeps its second harmonic within 7 dB of the fundamental throughout. `defaultFmPatch` (modulators near 0.3 to 0.5, carriers 0.9 to 1) is the baseline for a new FM instrument; the CLI's per-preset starters (lead, bass, drums, pad, bell) are in `packages/cli/src/presets.ts`.
+Patches are tuned to be measured, not guessed. A modulator that decays faster than its carrier gives a bright attack that settles into a duller sustain: on the bass preset (genesis, A-2 at 110 Hz) the spectral centroid is about 150 Hz in the first 90 ms and 115 Hz in the sustain (at A-1 90 Hz against 58 Hz), on the fixture bass 560 Hz against 340 Hz, and the lead keeps its second harmonic within 7 dB of the fundamental throughout. `defaultFmPatch` (modulators near 0.3 to 0.5, carriers 0.9 to 1) is the baseline for a new FM instrument; the per-preset starters (lead, bass, bass-pulse, drums, pad, bell) are in `packages/core/src/presets.ts` and `presets-bass.ts` (section 2.5).
 
 FM runs at the host rate with a sine table of 4096 entries and linear interpolation; no oversampling. Aliasing at high modulation indexes is accepted as part of the character.
 
@@ -1347,7 +1362,7 @@ Binary `bleepkit`, built with esbuild into `packages/cli/dist/index.mjs` like Pi
 | --- | --- | --- |
 | `bleepkit init [dir] [--chip nes] [--name <s>] [--force]` | creates the folder (default `audio`), `project.json`, empty `sfx/ instruments/ songs/ out/`, a `.gitignore` with `out/`, three starter instruments and one starter sfx for the chip | `{ ok, dir, files: string[] }` |
 | `bleepkit new sfx <id> --category coin [--chip] [--seed] [--name]` | generates with `@bleepkit/sfx`, writes `sfx/<id>.json`, exits 1 if it exists (`--force` overwrites) | `{ ok, path, doc, description }` |
-| `bleepkit new instrument <id> --kind pulse [--chip] [--preset lead|bass|drums|pad|bell]` | writes a default instrument | `{ ok, path, doc }` |
+| `bleepkit new instrument <id> --kind pulse [--chip] [--preset lead|bass|bass-pulse|drums|pad|bell]` | writes a preset instrument; without `--kind`, `bass` uses the chip's bass voice and `bass-pulse` a pulse (section 2.5) | `{ ok, path, doc }` |
 | `bleepkit new song <id> [--chip] [--tempo 120] [--mml "<ch>=<mml>" ...] [--template empty|loop8]` | writes a song; `--mml pulse1="o4 l8 cdefgab>c"` sets a channel's MML; `loop8` is 8 bars of empty patterns with a loop at order 0 | `{ ok, path, doc }` |
 | `bleepkit import <file.mid> [--id <id>] [--chip nes] [--rows-per-beat 4] [--chords auto\|spread\|arpeggio\|top] [--map "1=pulse1,2=triangle,10=noise"] [--name] [--no-loop] [--force]` | imports a Standard MIDI file with `midiToSong` (section 2.8): writes `songs/<id>.json` (id defaults to the file name) and the `midi-<chip>-*` instruments the project lacks; the chip defaults to the project's (nes for a custom project); exits 1 on an unreadable file or an existing id without `--force`; the `issues` list what was converted (`info`: chord spreads and arpeggios, `--chords` default `auto`) and what the chip could not play (`warning`) | `{ ok, chip, chords, path, doc, instruments: [{ id, path, created }], issues, parts: [{ ref, name, notes, target }] }` |
 | `bleepkit mutate <ref> [--amount 0.15] [--count 1] [--seed] [--out <id>]` | sfx only today; writes `<id>-m1.json`... (or `--out`) and prints descriptions | `{ ok, results: [{ id, path, description }] }` |

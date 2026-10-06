@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "NES pulse bass double (50% pulse, quiet, an octave up)",
+  "kind": "pulse",
+  "chip": "nes",
+  "volume": 0.35,
+  "pan": 0,
+  "transpose": 0,
+  "finetune": 0,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.1,
+    "sustain": 0.75,
+    "release": 0.04
+  },
+  "macros": {},
+  "send": {
+    "echo": 0,
+    "reverb": 0
+  },
+  "pulse": {
+    "duty": 0.5
+  },
+  "wave": null,
+  "noise": null,
+  "sid": null,
+  "fm": null,
+  "sample": null
+}

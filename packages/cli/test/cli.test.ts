@@ -234,6 +234,62 @@ describe("init, new, list, validate", () => {
     }
   });
 
+  it("new instrument --preset bass picks the chip's bass voice and bass-pulse a pulse, and init writes that bass", async () => {
+    const { repo } = await makeProject();
+    const make = async (id: string, chip: string, preset: string) =>
+      run(repo, [
+        "new",
+        "instrument",
+        id,
+        "--chip",
+        chip,
+        "--preset",
+        preset,
+        "--json",
+      ]);
+    // the voice a bass wants on each chip, and what is in it (not the exact numbers)
+    const voices = {
+      adlib: "fm",
+      c64: "sid",
+      custom: "sid",
+      gameboy: "wave",
+      genesis: "fm",
+      nes: "triangle",
+      snes: "sample",
+    };
+    for (const [chip, kind] of Object.entries(voices)) {
+      // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, the failing chip is named by the assertions
+      const r = await make(`bass-${chip}`, chip, "bass");
+      expect(r.code, chip).toBe(0);
+      expect(r.json.doc, chip).toMatchObject({ chip, kind });
+    }
+    const wave = (await make("fat", "gameboy", "bass")).json.doc.wave.table;
+    expect(wave).toHaveLength(32);
+    expect(Math.max(...wave)).toBe(15);
+    expect(Math.min(...wave)).toBe(0);
+    const double = await make("double", "nes", "bass-pulse");
+    expect(double.json.doc).toMatchObject({
+      kind: "pulse",
+      pulse: { duty: 0.5 },
+    });
+    expect(double.json.doc.volume).toBeLessThan(0.5);
+    // the c64 has no pulse channel to double on
+    expect((await make("nope", "c64", "bass-pulse")).code).toBe(2);
+    // init writes the same bass for the chip
+    const dir = tempDir();
+    expect((await run(dir, ["init", "--chip", "gameboy", "--json"])).code).toBe(
+      0
+    );
+    const starter = readJson(
+      path.join(dir, "audio", "instruments", "bass.json")
+    ) as {
+      kind: string;
+      wave: { table: number[] };
+    };
+    expect(starter.kind).toBe("wave");
+    expect(starter.wave.table).toEqual(wave);
+  });
+
   it("init rejects a chip it does not know with exit 2 and lists the chips it does", async () => {
     const r = await run(tempDir(), ["init", "--chip", "amiga"]);
     expect(r.code).toBe(2);

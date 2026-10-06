@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "name": "SID pulse bass, dry (no filter: leaves the shared filter to a lead)",
+  "kind": "sid",
+  "chip": "c64",
+  "volume": 0.6,
+  "pan": 0,
+  "transpose": 0,
+  "finetune": 0,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.15,
+    "sustain": 0.85,
+    "release": 0.05
+  },
+  "macros": {},
+  "send": {
+    "echo": 0,
+    "reverb": 0
+  },
+  "pulse": null,
+  "wave": null,
+  "noise": null,
+  "sid": {
+    "waveforms": [
+      "pulse"
+    ],
+    "pulseWidth": 0.4,
+    "pwmRate": 0.7,
+    "pwmDepth": 0.2,
+    "ring": false,
+    "sync": false,
+    "filter": {
+      "mode": "off",
+      "cutoff": 0.5,
+      "resonance": 0,
+      "sweep": 0
+    }
+  },
+  "fm": null,
+  "sample": null
+}

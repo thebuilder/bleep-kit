@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "name": "SNES bass sample (short attack transient)",
+  "kind": "sample",
+  "chip": "snes",
+  "volume": 1,
+  "pan": 0,
+  "transpose": 0,
+  "finetune": 0,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.07,
+    "sustain": 0.78,
+    "release": 0.1
+  },
+  "macros": {},
+  "send": {
+    "echo": 0,
+    "reverb": 0
+  },
+  "pulse": null,
+  "wave": null,
+  "noise": null,
+  "sid": null,
+  "fm": null,
+  "sample": {
+    "generator": "bass",
+    "params": {
+      "cutoff": 0.22,
+      "resonance": 0.1,
+      "sub": 0.25
+    },
+    "seed": 1,
+    "baseNote": 60,
+    "loop": true
+  }
+}

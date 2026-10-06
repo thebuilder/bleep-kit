@@ -1,0 +1,85 @@
+{
+  "version": 1,
+  "name": "Genesis slap bass (4 op, feedback, decaying modulator)",
+  "kind": "fm",
+  "chip": "genesis",
+  "volume": 0.9,
+  "pan": 0,
+  "transpose": 0,
+  "finetune": 0,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.2,
+    "sustain": 0.8,
+    "release": 0.08
+  },
+  "macros": {},
+  "send": {
+    "echo": 0,
+    "reverb": 0
+  },
+  "pulse": null,
+  "wave": null,
+  "noise": null,
+  "sid": null,
+  "fm": {
+    "algorithm": 4,
+    "feedback": 6,
+    "ops": [
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.6,
+        "attack": 31,
+        "decay": 11,
+        "sustainLevel": 0.12,
+        "sustainRate": 0,
+        "release": 8,
+        "keyScale": 1,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.9,
+        "attack": 31,
+        "decay": 5,
+        "sustainLevel": 0.8,
+        "sustainRate": 0,
+        "release": 8,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 0,
+        "detune": 0,
+        "level": 0.3,
+        "attack": 31,
+        "decay": 11,
+        "sustainLevel": 0.1,
+        "sustainRate": 0,
+        "release": 8,
+        "keyScale": 1,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.5,
+        "attack": 31,
+        "decay": 5,
+        "sustainLevel": 0.85,
+        "sustainRate": 0,
+        "release": 8,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      }
+    ],
+    "lfo": null
+  },
+  "sample": null
+}

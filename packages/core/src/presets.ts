@@ -1,4 +1,5 @@
 import { defaultInstrument } from "./normalize/defaults.ts";
+import { BASS_KIND, shapeBass } from "./presets-bass.ts";
 import type {
   ChannelKind,
   ChipId,
@@ -11,14 +12,24 @@ import type {
 export const INSTRUMENT_PRESETS = [
   "lead",
   "bass",
+  "bass-pulse",
   "drums",
   "pad",
   "bell",
 ] as const;
 export type InstrumentPreset = (typeof INSTRUMENT_PRESETS)[number];
 
+/** The channel kind a bass wants on a chip (nes triangle, gameboy wave, c64 sid, fm on genesis and adlib, snes sample). */
+export function bassKind(chip: ChipId): ChannelKind {
+  return BASS_KIND[chip];
+}
+
+/** The presets that have a patch of their own on FM and sample channels (bass-pulse plays as bass there). */
+type VoicePreset = Exclude<InstrumentPreset, "bass" | "bass-pulse">;
+
 const ENVELOPES: Record<InstrumentPreset, Instrument["envelope"]> = {
   bass: { attack: 0, decay: 0.2, release: 0.08, sustain: 0.8 },
+  "bass-pulse": { attack: 0, decay: 0.1, release: 0.04, sustain: 0.75 },
   bell: { attack: 0.001, decay: 0.9, release: 0.9, sustain: 0.05 },
   drums: { attack: 0, decay: 0.08, release: 0.02, sustain: 0 },
   lead: { attack: 0, decay: 0.15, release: 0.04, sustain: 0.6 },
@@ -27,6 +38,7 @@ const ENVELOPES: Record<InstrumentPreset, Instrument["envelope"]> = {
 
 const VOLUMES: Record<InstrumentPreset, number> = {
   bass: 0.9,
+  "bass-pulse": 0.35,
   bell: 0.7,
   drums: 0.9,
   lead: 0.8,
@@ -65,13 +77,13 @@ function ops(base: FmOperator, rows: readonly OpRow[]): FmOperator[] {
  * settles into a duller sustain, and the feedback on operator 1 adds the edge.
  * - lead: two modulator and carrier pairs at ratios 1 and 3 (4 op algorithm 4, 5 on the 2 op chip is the same idea
  *   with one pair), a slow vibrato.
- * - bass: algorithm 0 with a decaying modulator and feedback 5, key scaled so the highs do not buzz.
+ * - bass: in presets-bass.ts (slap bass on 4 op, decaying modulator with feedback on 2 op).
  * - drums: fast decays, modulator at ratio 4 over a carrier at 1, feedback 7 (the demo-adlib tom).
  * - pad: slow attack, all carriers (or additive on 2 op), detuned pairs.
  * - bell: inharmonic-leaning ratios 3 and 7 over carriers at 1 and 2, long decay.
  */
 const FM4: Record<
-  InstrumentPreset,
+  VoicePreset,
   {
     algorithm: number;
     feedback: number;
@@ -79,17 +91,6 @@ const FM4: Record<
     rows: readonly OpRow[];
   }
 > = {
-  bass: {
-    algorithm: 0,
-    feedback: 5,
-    lfo: null,
-    rows: [
-      [1, 0.6, 9, 0.1, 6, 0, 1],
-      [1, 0.4, 10, 0.1, 8],
-      [1, 0.3, 12, 0.05, 10, 0, 1],
-      [1, 1, 5, 0.85],
-    ],
-  },
   bell: {
     algorithm: 4,
     feedback: 2,
@@ -137,7 +138,7 @@ const FM4: Record<
 };
 
 const FM2: Record<
-  InstrumentPreset,
+  VoicePreset,
   {
     algorithm: number;
     feedback: number;
@@ -145,15 +146,6 @@ const FM2: Record<
     rows: readonly OpRow[];
   }
 > = {
-  bass: {
-    algorithm: 0,
-    feedback: 5,
-    lfo: null,
-    rows: [
-      [1, 0.5, 9, 0.1, 8, 0, 1],
-      [1, 1, 5, 0.9],
-    ],
-  },
   bell: {
     algorithm: 0,
     feedback: 2,
@@ -192,7 +184,7 @@ const FM2: Record<
   },
 };
 
-function fmPreset(base: FmPatch, preset: InstrumentPreset): FmPatch {
+function fmPreset(base: FmPatch, preset: VoicePreset): FmPatch {
   const table = base.ops.length === 2 ? FM2 : FM4;
   const { algorithm, feedback, lfo, rows } = table[preset];
   const template = base.ops[0] as FmOperator;
@@ -206,17 +198,20 @@ function fmPreset(base: FmPatch, preset: InstrumentPreset): FmPatch {
 
 /** The sample generator each preset plays on the sample chip, so a bass is a bass and the drums are a kick. */
 const SAMPLE_GENERATORS: Record<
-  InstrumentPreset,
+  VoicePreset,
   { generator: SampleGeneratorId; loop: boolean }
 > = {
-  bass: { generator: "bass", loop: true },
   bell: { generator: "bell", loop: false },
   drums: { generator: "kick", loop: false },
   lead: { generator: "lead", loop: true },
   pad: { generator: "pad", loop: true },
 };
 
-/** A preset instrument for a channel kind and chip: envelope, volume, FM patch or sample generator per preset. */
+/**
+ * A preset instrument for a channel kind and chip: envelope, volume, FM patch or sample generator per preset. `bass` is
+ * a real bass on every chip (presets-bass.ts: triangle, wave table, SID, FM, sample), `bass-pulse` the quiet 50% pulse
+ * that doubles it an octave up (any other kind plays it as the plain bass).
+ */
 export function makeInstrument(
   kind: ChannelKind,
   chip: ChipId | null,
@@ -227,18 +222,20 @@ export function makeInstrument(
   const base = defaultInstrument(kind, chip ?? undefined);
   base.name = name;
   base.chip = chip;
-  base.volume = VOLUMES[preset];
-  base.envelope = { ...ENVELOPES[preset] };
+  const asBass = preset === "bass" || (preset === "bass-pulse" && !base.pulse);
+  const shape = asBass ? "bass" : preset;
+  base.volume = VOLUMES[shape];
+  base.envelope = { ...ENVELOPES[shape] };
   if (preset === "drums" && kind !== "sample") {
     base.macros = {
       volume: { loop: -1, release: -1, values: [1, 0.7, 0.45, 0.25, 0.1, 0] },
     };
   }
-  if (base.fm) {
-    base.fm = fmPreset(base.fm, preset);
+  if (base.fm && !asBass) {
+    base.fm = fmPreset(base.fm, preset as VoicePreset);
   }
-  if (base.sample) {
-    const { generator, loop } = SAMPLE_GENERATORS[preset];
+  if (base.sample && !asBass) {
+    const { generator, loop } = SAMPLE_GENERATORS[preset as VoicePreset];
     base.sample = { ...base.sample, generator, loop, params: {} };
     // samples are normalized by peak and sit well under a pulse in loudness: play them at full instrument volume
     base.volume = 1;
@@ -247,8 +244,11 @@ export function makeInstrument(
       base.envelope = { attack: 0, decay: 0.4, release: 0.1, sustain: 1 };
     }
   }
-  if (preset === "bass" && base.pulse) {
-    base.pulse = { duty: 0.25 };
+  if (asBass) {
+    shapeBass(base, chip);
+  }
+  if (preset === "bass-pulse" && base.pulse) {
+    base.pulse = { duty: 0.5 };
   }
   if (preset === "bell" && kind !== "noise") {
     base.macros = {

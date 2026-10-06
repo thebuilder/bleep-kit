@@ -64,12 +64,12 @@
       "mml": "v10 n69 1 n70 1 & n70 1 n73 1 L n69 1 n70 1 & n70 1 n73 1 n69 1 n70 1 & n70 1 n73 1 n70 1 n67 1 n69 1 & n69 1 n70 1 n69 1 n70 1 n73 1"
     },
     {
-      "volume": 0.619,
+      "volume": 1.0,
       "pan": 0,
       "muted": false,
       "id": "ch7",
       "kind": "sample",
-      "instrument": "snes-bass-sub",
+      "instrument": "snes-bass",
       "mml": "v14 n38 2 r2 n34 2 r2 n39 2 r2 q7 n45 4 n45 8 n45 8 n45 4 n52 8 n45 8 L q7 n38 4 n38 8 n38 8 n38 4 n45 8 n38 8 q7 n34 4 n34 8 n34 8 n34 4 n41 8 n34 8 q7 n43 4 n43 8 n43 8 n43 4 n50 8 n43 8 q7 n45 4 n45 8 n45 8 n45 4 n52 8 n45 8 q7 n38 4 n38 8 n38 8 n38 4 n45 8 n38 8 q7 n34 4 n34 8 n34 8 n34 4 n41 8 n34 8 q7 n43 4 n43 8 n43 8 n43 4 n50 8 n43 8 q7 n45 4 n45 8 n45 8 n45 4 n52 8 n45 8 q7 n34 8 n34 8 n46 8 n34 8 n34 8 n34 8 n46 8 n41 8 q7 n36 8 n36 8 n48 8 n36 8 n36 8 n36 8 n48 8 n43 8 q7 n38 8 n38 8 n50 8 n38 8 n38 8 n38 8 n50 8 n45 8 q7 n41 8 n41 8 n53 8 n41 8 n41 8 n41 8 n53 8 n48 8 q7 n43 8 n43 8 n55 8 n43 8 n43 8 n43 8 n55 8 n50 8 q7 n38 8 n38 8 n50 8 n38 8 n38 8 n38 8 n50 8 n45 8 q7 n39 8 n39 8 n51 8 n39 8 n39 8 n39 8 n51 8 n46 8 q7 n45 8 n45 8 n57 8 n45 8 n45 8 n45 8 n57 8 n52 8"
     },
     {

@@ -14,6 +14,7 @@ export {
   formatEffect,
   generateSample,
   hashString,
+  makeInstrument,
   midiToSong,
   mmlToTrack,
   normalizeInstrument,

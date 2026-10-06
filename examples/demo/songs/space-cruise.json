@@ -51,8 +51,8 @@
       "muted": false,
       "id": "fm4",
       "kind": "fm",
-      "instrument": "fm-deep-bass",
-      "mml": "v13 n38 1 n34 1 n38 1 n45 4 r8 n45 8 n52 4 n57 4 L n38 2& n38 4 n50 4 n38 1 n34 4 r8 n34 8 n41 4 n46 4 n34 2& n34 4 n46 4 n41 1 n43 2& n43 4 n55 4 n43 4 r8 n43 8 n50 4 n55 4 n45 1 n34 2& n34 4 n46 4 n36 4 r8 n36 8 n43 4 n48 4 n38 1 n45 4 r8 n45 8 n52 4 n57 4"
+      "instrument": "fm-bass",
+      "mml": "v13 n26 1 n22 1 n26 1 n33 4 r8 n33 8 n40 4 n45 4 L n26 2& n26 4 n38 4 n26 1 n22 4 r8 n22 8 n29 4 n34 4 n22 2& n22 4 n34 4 n29 1 n31 2& n31 4 n43 4 n31 4 r8 n31 8 n38 4 n43 4 n33 1 n22 2& n22 4 n34 4 n24 4 r8 n24 8 n31 4 n36 4 n26 1 n33 4 r8 n33 8 n40 4 n45 4"
     },
     {
       "volume": 0.695,

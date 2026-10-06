@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "name": "Game Boy fat wave bass (rounded square table)",
+  "kind": "wave",
+  "chip": "gameboy",
+  "volume": 1,
+  "pan": 0,
+  "transpose": 0,
+  "finetune": 0,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.2,
+    "sustain": 0.9,
+    "release": 0.05
+  },
+  "macros": {},
+  "send": {
+    "echo": 0,
+    "reverb": 0
+  },
+  "pulse": null,
+  "wave": {
+    "table": [
+      9, 12, 14, 14, 15, 15, 15, 15, 15, 15, 15, 15, 14, 14, 12, 9, 6, 3, 1, 1,
+      0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 3, 6
+    ]
+  },
+  "noise": null,
+  "sid": null,
+  "fm": null,
+  "sample": null
+}

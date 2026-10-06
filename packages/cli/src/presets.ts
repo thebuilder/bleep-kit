@@ -1,5 +1,6 @@
 // Starter documents: instrument presets, the per-chip starter set written by `init`, and song templates.
 import {
+  bassKind,
   type ChannelKind,
   type ChipId,
   chipProfile,
@@ -16,7 +17,7 @@ export const PRESETS = INSTRUMENT_PRESETS;
 export type Preset = InstrumentPreset;
 
 /** The kind a chip is mostly played with, used when `new instrument` gets no --kind. */
-export const DEFAULT_KIND: Record<ChipId, ChannelKind> = {
+const DEFAULT_KIND: Record<ChipId, ChannelKind> = {
   adlib: "fm",
   c64: "sid",
   custom: "pulse",
@@ -26,24 +27,35 @@ export const DEFAULT_KIND: Record<ChipId, ChannelKind> = {
   snes: "sample",
 };
 
-/** lead, bass and drums instrument kinds per chip (init writes these three). */
-const STARTER_KINDS: Record<ChipId, [ChannelKind, ChannelKind, ChannelKind]> = {
-  adlib: ["fm", "fm", "fm"],
-  c64: ["sid", "sid", "sid"],
-  custom: ["pulse", "triangle", "noise"],
-  gameboy: ["pulse", "wave", "noise"],
-  genesis: ["fm", "fm", "noise"],
-  nes: ["pulse", "triangle", "noise"],
-  snes: ["sample", "sample", "sample"],
+/** The kind a new instrument gets when `new instrument` is given no --kind: a bass wants its chip's bass voice. */
+export function defaultKindFor(chip: ChipId, preset: Preset): ChannelKind {
+  if (preset === "bass") {
+    return bassKind(chip);
+  }
+  return preset === "bass-pulse" ? "pulse" : DEFAULT_KIND[chip];
+}
+
+/** lead and drums instrument kinds per chip; the bass kind is the chip's bass voice (init writes the three). */
+const STARTER_KINDS: Record<ChipId, [ChannelKind, ChannelKind]> = {
+  adlib: ["fm", "fm"],
+  c64: ["sid", "sid"],
+  custom: ["pulse", "noise"],
+  gameboy: ["pulse", "noise"],
+  genesis: ["fm", "noise"],
+  nes: ["pulse", "noise"],
+  snes: ["sample", "sample"],
 };
 
 export function starterInstruments(
   chip: ChipId
 ): { id: string; instrument: Instrument }[] {
-  const [lead, bass, drums] = STARTER_KINDS[chip];
+  const [lead, drums] = STARTER_KINDS[chip];
   return [
     { id: "lead", instrument: makeInstrument(lead, chip, "lead", "Lead") },
-    { id: "bass", instrument: makeInstrument(bass, chip, "bass", "Bass") },
+    {
+      id: "bass",
+      instrument: makeInstrument(bassKind(chip), chip, "bass", "Bass"),
+    },
     { id: "drums", instrument: makeInstrument(drums, chip, "drums", "Drums") },
   ];
 }

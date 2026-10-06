@@ -17,7 +17,7 @@ import {
 import { describeSfx, generateSfx } from "@bleepkit/sfx";
 import { CliError } from "../output.ts";
 import {
-  DEFAULT_KIND,
+  defaultKindFor,
   kindsForChip,
   makeSong,
   PRESETS,
@@ -110,7 +110,9 @@ function newInstrument(
   const pc = openProject(ctx);
   guardExists(pc, "instrument", id, args.bool("force") ?? false);
   const chip = chipOf(pc, args.str("chip"));
-  const kind = (args.str("kind") ?? DEFAULT_KIND[chip]) as ChannelKind;
+  const preset = (args.str("preset") ?? "lead") as Preset;
+  const kind = (args.str("kind") ??
+    defaultKindFor(chip, preset)) as ChannelKind;
   const allowed = kindsForChip(chip);
   if (!allowed.includes(kind)) {
     throw new CliError(
@@ -121,7 +123,6 @@ function newInstrument(
       }
     );
   }
-  const preset = (args.str("preset") ?? "lead") as Preset;
   const raw = makeInstrument(kind, chip, preset, args.str("name") ?? id);
   const n = normalizeInstrument(raw);
   requireOk({ ...n, ref: `instrument/${id}`, rel: docRel("instrument", id) });
@@ -241,7 +242,7 @@ export const newCommand: CommandSpec = {
       valueName: "<name>",
     },
     {
-      description: `instrument: channel kind (default depends on the chip): ${CHANNEL_KINDS.join(", ")}`,
+      description: `instrument: channel kind (default depends on the chip and preset: a bass uses the chip's bass voice, bass-pulse a pulse): ${CHANNEL_KINDS.join(", ")}`,
       name: "kind",
       type: "string",
       valueName: "<kind>",

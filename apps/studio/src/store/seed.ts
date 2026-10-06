@@ -1,10 +1,9 @@
 /* The starter project the standalone studio opens with, so it is never empty: a dozen sound effects across the
-   categories, seven instruments (one of every kind) and a short demo song. Documents are written as plain JSON in the
-   typed form; the studio normalizes them like any other file. */
+   categories, instruments of every kind (the basses are the shared bass presets) and a short demo song. Documents are
+   written as plain JSON in the typed form; the studio normalizes them like any other file. */
 
 import type {
   ChipId,
-  FmOperator,
   Instrument,
   NoteValue,
   Project,
@@ -13,7 +12,12 @@ import type {
   SfxCategory,
   Song,
 } from "../lib/contract.ts";
-import { defaultInstrument, defaultSfx, parseNoteName } from "../lib/core.ts";
+import {
+  defaultInstrument,
+  defaultSfx,
+  makeInstrument,
+  parseNoteName,
+} from "../lib/core.ts";
 import { choose } from "../lib/dom.ts";
 
 type Deep<T> = {
@@ -179,21 +183,16 @@ function inst(
     { ...defaultInstrument(kind, chip), name, ...patch },
   ];
 }
-const fmOp = (o: Partial<FmOperator>): FmOperator => ({
-  attack: 31,
-  decay: 10,
-  detune: 0,
-  fixedHz: null,
-  keyScale: 0,
-  level: 0.8,
-  mult: 1,
-  release: 8,
-  sustainLevel: 0.6,
-  sustainRate: 3,
-  waveform: 0,
-  ...o,
-});
-const TRI32 = Array.from({ length: 32 }, (_, i) => (i < 16 ? i : 31 - i));
+/** One of the shared presets (the real basses: triangle, wave table, SID, FM, sample), as a project file. */
+function preset(
+  id: string,
+  name: string,
+  kind: Instrument["kind"],
+  chip: ChipId,
+  which: Parameters<typeof makeInstrument>[2]
+): [string, Instrument] {
+  return [`instruments/${id}.json`, makeInstrument(kind, chip, which, name)];
+}
 
 const INSTRUMENTS: [string, Instrument][] = [
   inst("lead", "Lead", "pulse", "nes", {
@@ -214,10 +213,8 @@ const INSTRUMENTS: [string, Instrument][] = [
     pulse: { duty: 0.25 },
     volume: 0.6,
   }),
-  inst("bass", "Triangle bass", "triangle", "nes", {
-    envelope: { attack: 0, decay: 0.12, release: 0.03, sustain: 1 },
-    volume: 0.9,
-  }),
+  preset("bass", "Triangle bass", "triangle", "nes", "bass"),
+  preset("bass-pulse", "Pulse bass double", "pulse", "nes", "bass-pulse"),
   inst("drums", "Drums", "noise", "nes", {
     envelope: { attack: 0, decay: 0.09, release: 0.02, sustain: 0 },
     macros: {
@@ -226,10 +223,7 @@ const INSTRUMENTS: [string, Instrument][] = [
     noise: { mode: "short" },
     volume: 0.8,
   }),
-  inst("wave-bass", "Wave bass", "wave", "gameboy", {
-    envelope: { attack: 0, decay: 0.2, release: 0.05, sustain: 0.8 },
-    wave: { table: TRI32 },
-  }),
+  preset("wave-bass", "Wave bass", "wave", "gameboy", "bass"),
   inst("sid-pwm", "SID PWM", "sid", "c64", {
     envelope: { attack: 0.01, decay: 0.25, release: 0.15, sustain: 0.6 },
     sid: {
@@ -242,21 +236,8 @@ const INSTRUMENTS: [string, Instrument][] = [
       waveforms: ["pulse"],
     },
   }),
-  inst("fm-bass", "FM bass", "fm", "genesis", {
-    envelope: { attack: 0, decay: 0.2, release: 0.1, sustain: 0.7 },
-    fm: {
-      algorithm: 4,
-      feedback: 4,
-      lfo: null,
-      ops: [
-        fmOp({ decay: 14, level: 0.8, mult: 1 }),
-        fmOp({ decay: 9, level: 0.55, mult: 1 }),
-        fmOp({ decay: 16, level: 0.7, mult: 2 }),
-        fmOp({ decay: 8, level: 0.85, mult: 1, sustainLevel: 0.7 }),
-      ],
-    },
-    volume: 0.85,
-  }),
+  preset("fm-bass", "FM bass", "fm", "genesis", "bass"),
+  preset("sid-bass", "SID bass", "sid", "c64", "bass"),
   inst("snes-pluck", "SNES pluck", "sample", "snes", {
     envelope: { attack: 0, decay: 0.3, release: 0.2, sustain: 0.5 },
     sample: {
@@ -268,6 +249,7 @@ const INSTRUMENTS: [string, Instrument][] = [
     },
     send: { echo: 0.3, reverb: 0.1 },
   }),
+  preset("snes-bass", "SNES bass", "sample", "snes", "bass"),
 ];
 
 /* ---------- the demo song ---------- */
@@ -371,22 +353,22 @@ const SONG: Song = {
           "30:OFF"
         ),
         triangle: rows(
-          "0:A-2:bass",
-          "2:A-2",
-          "4:A-3",
-          "6:A-2",
-          "8:F-2",
-          "10:F-2",
-          "12:F-3",
-          "14:F-2",
-          "16:C-3",
-          "18:C-3",
-          "20:C-4",
-          "22:C-3",
-          "24:G-2",
-          "26:G-2",
-          "28:G-3",
-          "30:G-2"
+          "0:A-1:bass",
+          "2:A-1",
+          "4:A-2",
+          "6:A-1",
+          "8:F-1",
+          "10:F-1",
+          "12:F-2",
+          "14:F-1",
+          "16:C-2",
+          "18:C-2",
+          "20:C-3",
+          "22:C-2",
+          "24:G-1",
+          "26:G-1",
+          "28:G-2",
+          "30:G-1"
         ),
       },
     },
@@ -395,7 +377,7 @@ const SONG: Song = {
       tracks: {
         pulse1: rows("0:A-5:lead:C", "4:E-5", "8:A-5", "12:C-6", "15:OFF"),
         pulse2: rows("0:E-4:harmony:8", "8:A-4", "14:OFF"),
-        triangle: rows("0:A-2:bass", "4:A-2", "8:F-2", "12:F-2"),
+        triangle: rows("0:A-1:bass", "4:A-1", "8:F-1", "12:F-1"),
       },
     },
     verse: {
@@ -430,18 +412,18 @@ const SONG: Song = {
           "31:OFF"
         ),
         triangle: rows(
-          "0:A-2:bass",
-          "4:A-2",
-          "6:A-3",
-          "8:F-2",
-          "12:F-2",
-          "14:F-3",
-          "16:C-3",
-          "20:C-3",
-          "22:C-4",
-          "24:G-2",
-          "28:G-2",
-          "30:G-3"
+          "0:A-1:bass",
+          "4:A-1",
+          "6:A-2",
+          "8:F-1",
+          "12:F-1",
+          "14:F-2",
+          "16:C-2",
+          "20:C-2",
+          "22:C-3",
+          "24:G-1",
+          "28:G-1",
+          "30:G-2"
         ),
       },
     },

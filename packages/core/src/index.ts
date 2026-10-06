@@ -65,6 +65,7 @@ export {
   parseNoteName,
 } from "./notes.ts";
 export {
+  bassKind,
   INSTRUMENT_PRESETS,
   type InstrumentPreset,
   makeInstrument,
