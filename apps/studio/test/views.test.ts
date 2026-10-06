@@ -2,11 +2,20 @@
    pressing pads, dragging sliders, typing into the tracker, clicking buttons. The shell is real, so what each test
    checks is what the person gets: the sound the engine is handed, the document the project holds, the file the store
    keeps, the page the app navigates to. The engine node's `send` is wrapped to record every message it receives. */
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { Instrument, Sfx, Song } from "../src/lib/contract.ts";
 import { chipProfile, defaultSong } from "../src/lib/core.ts";
 import {
   field,
+  filledRects,
   installCanvasStub,
   setRange,
   settle,
@@ -1121,6 +1130,183 @@ describe("the song editor", () => {
     });
   });
 
+  describe("the pattern length", () => {
+    const row = (r: number, note: number) => ({
+      fx: [],
+      inst: null,
+      note,
+      row: r,
+      vol: null,
+    });
+    const lenIn = () => document.getElementById("gLen") as HTMLInputElement;
+    const setLength = (v: string) => {
+      lenIn().value = v;
+      fire(lenIn(), "change");
+    };
+    const trackRows = (id: string) => {
+      const s = songValue(id);
+      const p = s.patterns["pattern-1"];
+      return s.channels.map((c) => (p?.tracks[c.id] ?? []).map((r) => r.row));
+    };
+
+    it("shortening a pattern drops the notes that no longer fit, in every channel, and keeps the rest", async () => {
+      const [a, b] = defaultSong(project().project.chip).channels.map(
+        (c) => c.id
+      ) as [string, string];
+      await makeSong("len-trim", {
+        patterns: {
+          "pattern-1": {
+            length: 64,
+            tracks: {
+              [a]: [row(0, 60), row(9, 62), row(10, 64), row(40, 65)],
+              [b]: [row(3, 48), row(12, 50)],
+            },
+          },
+        },
+      });
+      await goSong("len-trim");
+      expect(document.querySelectorAll(".trow")).toHaveLength(64);
+      setLength("16");
+      expect(songValue("len-trim").patterns["pattern-1"]?.length).toBe(16);
+      expect(trackRows("len-trim").slice(0, 2)).toEqual([
+        [0, 9, 10],
+        [3, 12],
+      ]);
+      expect(document.querySelectorAll(".trow")).toHaveLength(16);
+      // a note on row 10 needs a length of 11: at 10 it goes, the one on row 9 stays
+      setLength("10");
+      expect(trackRows("len-trim").slice(0, 2)).toEqual([[0, 9], [3]]);
+      // growing the pattern again does not bring them back
+      setLength("64");
+      expect(trackRows("len-trim").slice(0, 2)).toEqual([[0, 9], [3]]);
+      expect(document.querySelectorAll(".trow")).toHaveLength(64);
+    });
+
+    it("keeps a pattern between 1 and 256 rows long and shows the length it kept", async () => {
+      await makeSong("len-clamp");
+      await goSong("len-clamp");
+      setLength("1000");
+      expect(songValue("len-clamp").patterns["pattern-1"]?.length).toBe(256);
+      expect(lenIn().value).toBe("256");
+      setLength("-4");
+      expect(songValue("len-clamp").patterns["pattern-1"]?.length).toBe(1);
+      expect(lenIn().value).toBe("1");
+      setLength("12.6");
+      expect(songValue("len-clamp").patterns["pattern-1"]?.length).toBe(13);
+    });
+  });
+
+  describe("while the song plays", () => {
+    const SONG_P = "playhead-test";
+    const ROW = 20;
+    let tickAt = 1_000_000;
+    /** The engine reports where the song is (or that it stopped), and the visual loop draws one frame. */
+    const engineAt = (pos: { order: number; row: number } | null) => {
+      engineMod.engine.playing = pos !== null;
+      engineMod.engine.position = pos && { ...pos, pulse: 0, tick: 0 };
+      tickAt += 20;
+      loopMod.tickOnce(tickAt);
+    };
+    const playingRows = () =>
+      [...document.querySelectorAll<HTMLElement>(".trow.play")].map((el) =>
+        Number(el.dataset.r)
+      );
+    const chipsOf = () => [
+      ...document.querySelectorAll<HTMLElement>("#gOrder .ochip"),
+    ];
+    const playingChips = () =>
+      chipsOf().flatMap((el, i) =>
+        el.classList.contains("playing") ? [i] : []
+      );
+    const shownChip = () =>
+      chipsOf().findIndex((el) => el.classList.contains("cur"));
+    const follow = (on: boolean) => {
+      const box = document.getElementById("gFollow") as HTMLInputElement;
+      box.checked = on;
+      fire(box, "change");
+    };
+    beforeAll(async () => {
+      await makeSong(SONG_P, {}, 2);
+    });
+    afterEach(() => {
+      engineAt(null);
+      follow(true);
+    });
+
+    it("marks the row and the pattern that are playing, and clears both when the song stops", async () => {
+      await goSong(SONG_P);
+      expect(playingRows()).toEqual([]);
+      expect(playingChips()).toEqual([]);
+      engineAt({ order: 0, row: 5 });
+      expect(playingRows()).toEqual([5]);
+      expect(playingChips()).toEqual([0]);
+      engineAt({ order: 0, row: 6 });
+      expect(playingRows()).toEqual([6]);
+      engineAt(null);
+      expect(playingRows()).toEqual([]);
+      expect(playingChips()).toEqual([]);
+    });
+
+    it("flashes a row as the song reaches it, and only for a moment", async () => {
+      await goSong(SONG_P);
+      engineAt({ order: 0, row: 8 });
+      const el = document.querySelector(".trow.play") as HTMLElement;
+      expect(el.classList.contains("flash")).toBe(true);
+      await settle(150);
+      expect(el.classList.contains("play")).toBe(true);
+      expect(el.classList.contains("flash")).toBe(false);
+    });
+
+    it("with follow off, a pattern that is not on screen is marked in the order list and no row is", async () => {
+      await goSong(SONG_P);
+      follow(false);
+      engineAt({ order: 1, row: 3 });
+      expect(playingChips()).toEqual([1]);
+      expect(shownChip()).toBe(0);
+      expect(playingRows()).toEqual([]);
+      // when the song comes round to the pattern on screen, its row is marked again
+      engineAt({ order: 0, row: 3 });
+      expect(playingChips()).toEqual([0]);
+      expect(playingRows()).toEqual([3]);
+    });
+
+    it("with follow on, the grid moves to the pattern that plays, unless the song has no such pattern", async () => {
+      await goSong(SONG_P);
+      follow(true);
+      engineAt({ order: 1, row: 3 });
+      expect(shownChip()).toBe(1);
+      expect(playingChips()).toEqual([1]);
+      expect(playingRows()).toEqual([3]);
+      // the song was cut short while it played: the engine is on a step the document no longer has
+      engineAt({ order: 7, row: 0 });
+      expect(shownChip()).toBe(1);
+    });
+
+    it("with follow on, scrolls the grid to keep the playing row about a third of the way down the visible rows", async () => {
+      await goSong(SONG_P);
+      // happy-dom lays nothing out: a 400 px viewport under a 40 px header shows 18 rows of 20 px
+      Object.defineProperty(tracker(), "clientHeight", {
+        configurable: true,
+        value: 400,
+      });
+      Object.defineProperty(document.getElementById("gHead"), "offsetHeight", {
+        configurable: true,
+        value: 40,
+      });
+      tracker().scrollTop = 0;
+      follow(true);
+      // a third of 18 rows is 6: the row that plays has 6 rows above it
+      engineAt({ order: 0, row: 30 });
+      expect(tracker().scrollTop).toBe(24 * ROW);
+      // near the top there is nothing to scroll
+      engineAt({ order: 0, row: 4 });
+      expect(tracker().scrollTop).toBe(0);
+      follow(false);
+      engineAt({ order: 0, row: 50 });
+      expect(tracker().scrollTop).toBe(0);
+    });
+  });
+
   it("changing the song's chip gives it that chip's channels and keeps the notes of channels it still has", async () => {
     await makeSong("chip-song");
     await goSong("chip-song");
@@ -1233,6 +1419,49 @@ describe("the instrument editor", () => {
       [id, lo + 23, channelOf(id)],
     ]);
     expect(sentSince(mark, "noteOff")).toHaveLength(3);
+  });
+
+  it("dragging across the piano lets go of the key it leaves and plays the key it reaches", async () => {
+    const { id } = first();
+    await goInstrument(id);
+    const kb = document.getElementById("iKeys") as HTMLElement;
+    const lo = (octave() + 1) * 12;
+    const ch = channelOf(id);
+    kb.setPointerCapture = () => undefined;
+    const at = (type: string, x: number, buttons: number) =>
+      kb.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          button: 0,
+          buttons,
+          clientX: x,
+          clientY: 50,
+          pointerId: 4,
+        })
+      );
+    const mark = sent.length;
+    // keys are 24 px wide: C is 0 to 24, D is 24 to 48, E is 48 to 72 (below the black keys)
+    at("pointerdown", 5, 1);
+    // still on C: nothing new is played
+    at("pointermove", 20, 1);
+    expect(noteOns(mark)).toEqual([[id, lo, ch]]);
+    expect(sentSince(mark, "noteOff")).toHaveLength(0);
+    // onto D: C is let go and D sounds
+    at("pointermove", 30, 1);
+    expect(noteOns(mark)).toEqual([
+      [id, lo, ch],
+      [id, lo + 2, ch],
+    ]);
+    expect(sentSince(mark, "noteOff")).toHaveLength(1);
+    // a pointer with no button down is only passing over the keys
+    at("pointermove", 55, 0);
+    expect(noteOns(mark)).toHaveLength(2);
+    expect(sentSince(mark, "noteOff")).toHaveLength(1);
+    at("pointerup", 30, 0);
+    expect(sentSince(mark, "noteOff")).toHaveLength(2);
+    // with no key held, moving does nothing at all
+    at("pointermove", 55, 1);
+    expect(noteOns(mark)).toHaveLength(2);
   });
 
   it("Play sounds the test note on this instrument and lets it go after the test length", async () => {
@@ -1451,6 +1680,86 @@ describe("the analysis view", () => {
     const hz = Number(/(\d+(?:\.\d+)?) Hz$/.exec(card("Pitch") ?? "")?.[1]);
     expect(hz).toBeGreaterThan(255);
     expect(hz).toBeLessThan(268);
+  });
+
+  describe("the playhead over the images", () => {
+    const BAR = "rgba(236,231,218,0.9)";
+    const times = <T>(n: number, v: T) => Array.from({ length: n }, () => v);
+    const bars = () => filledRects.filter((r) => r.style === BAR && r.w === 2);
+    /** The page's own clock, which the playhead reads, held where the test puts it. */
+    let at: number | null = null;
+    const realNow = performance.now.bind(performance);
+    beforeAll(() => {
+      vi.spyOn(performance, "now").mockImplementation(() => at ?? realNow());
+    });
+    afterAll(() => {
+      vi.restoreAllMocks();
+    });
+    /** Show the images 1000 px wide (happy-dom lays nothing out), start playing at 10 s, and draw a frame `s` seconds in. */
+    const frameAt = (s: number) => {
+      at = 10_000 + s * 1000;
+      filledRects.length = 0;
+      loopMod.tickOnce(at);
+    };
+    const start = async () => {
+      await measured("#/analysis/sfx/coin");
+      for (const el of document.querySelectorAll(".an-frame")) {
+        Object.defineProperty(el, "clientWidth", {
+          configurable: true,
+          value: 1000,
+        });
+        Object.defineProperty(el, "clientHeight", {
+          configurable: true,
+          value: 100,
+        });
+      }
+      const { duration } = await copied();
+      at = 10_000;
+      press(document.getElementById("aPlay"));
+      return duration;
+    };
+
+    it("crosses every image from its left margin to its right margin over the length of the sound, then is gone", async () => {
+      const duration = await start();
+      const images = document.querySelectorAll(".an-frame").length;
+      expect(images).toBeGreaterThan(1);
+      // the plot spans 6.5% to 98.5% of the image: 65 and 985 px of 1000
+      frameAt(0);
+      expect(bars().map((r) => r.x)).toEqual(times(images, 65));
+      frameAt(duration / 2);
+      expect(bars().map((r) => r.x)).toEqual(times(images, 525));
+      expect(bars().every((r) => r.h === 100)).toBe(true);
+      frameAt(duration);
+      expect(bars().map((r) => r.x)).toEqual(times(images, 985));
+      // the overlay is as big as the image it sits on
+      expect(
+        [...document.querySelectorAll<HTMLCanvasElement>(".an-ph")].map((c) => [
+          c.width,
+          c.height,
+        ])
+      ).toEqual(times(images, [1000, 100]));
+      // past the end it draws nothing, and stays quiet even if the clock is read from the middle again
+      frameAt(duration + 1);
+      expect(bars()).toEqual([]);
+      frameAt(duration / 2);
+      expect(bars()).toEqual([]);
+      at = null;
+    });
+
+    it("stops drawing when the view is left", async () => {
+      const duration = await start();
+      frameAt(duration / 2);
+      expect(bars().length).toBeGreaterThan(0);
+      at = null;
+      await go(
+        "#/pads",
+        () => document.querySelector(".pad[data-id]") !== null
+      );
+      frameAt(duration / 2);
+      expect(bars()).toEqual([]);
+      at = null;
+      engineMod.engine.stopAll();
+    });
   });
 
   it("a sound that does not exist says so, with a way back", async () => {

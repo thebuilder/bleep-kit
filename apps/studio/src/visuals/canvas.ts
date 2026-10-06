@@ -68,6 +68,37 @@ export function triggerIndex(buf: Float32Array, window: number): number {
   return 0;
 }
 
+/**
+ * The trace of `win` samples of `data` from `start`, squeezed into `w` pixel columns on a canvas `h` tall. Full scale
+ * lands 2 px from the top and bottom edge, and each column reaches back to the row the column before it ended on, so
+ * a steep edge draws as a line and not as dots. `spans` holds a top and a bottom row for each column, `peak` the
+ * loudest sample shown (0..1).
+ */
+export function scopeTrace(
+  data: Float32Array,
+  start: number,
+  win: number,
+  w: number,
+  h: number
+): { peak: number; spans: Int32Array } {
+  const mid = h / 2;
+  const spans = new Int32Array(w * 2);
+  let prevY = mid;
+  let peak = 0;
+  for (let x = 0; x < w; x += 1) {
+    const v = Math.min(
+      1,
+      Math.max(-1, data[start + Math.floor((x / w) * win)] ?? 0)
+    );
+    peak = Math.max(peak, Math.abs(v));
+    const y = Math.round(mid - v * (mid - 2));
+    spans[x * 2] = Math.min(y, prevY);
+    spans[x * 2 + 1] = Math.max(y, prevY);
+    prevY = y;
+  }
+  return { peak, spans };
+}
+
 export function rms(buf: Float32Array): number {
   let s = 0;
   for (const v of buf) {

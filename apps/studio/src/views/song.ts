@@ -46,7 +46,7 @@ import {
 import { icon } from "../ui/icons.ts";
 import { showIssues } from "../ui/issues.ts";
 import { createPiano, keyToOffset } from "../ui/piano.ts";
-import { surface, triggerIndex } from "../visuals/canvas.ts";
+import { scopeTrace, surface, triggerIndex } from "../visuals/canvas.ts";
 import { addVisual, type Frame } from "../visuals/loop.ts";
 
 const ALNUM_KEY = /^[0-9a-z]$/;
@@ -65,6 +65,8 @@ const OFFSET_IN_MESSAGE = /offset (\d+)/;
 const hex = (n: number, d = 1) => n.toString(16).toUpperCase().padStart(d, "0");
 /** Height of a tracker row in CSS pixels (.trow). */
 const ROW_H = 20;
+/** How far back from the playing frame each channel scope looks. */
+const SCOPE_FRAMES = 1536;
 const KEY_LO = 36;
 const KEY_HI = 83;
 
@@ -1783,8 +1785,24 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     }
   }
 
-  function drawScopes(f: Parameters<Parameters<typeof addVisual>[0]>[0]): void {
+  /** The last SCOPE_FRAMES frames of a channel's sound, or null when nothing is to be drawn: not playing, reduced
+      motion, a channel the engine has no scope for, or a scope that cannot be read. */
+  function scopeWindow(
+    e: (typeof scopeSurfs)[number],
+    f: Parameters<Parameters<typeof addVisual>[0]>[0]
+  ): Float32Array | null {
     const reader = engine.scopes;
+    if (!reader || e.idx < 0 || !f.playing || f.reduced) {
+      return null;
+    }
+    try {
+      return reader.at(e.idx, f.frame - SCOPE_FRAMES, SCOPE_FRAMES);
+    } catch {
+      return null;
+    }
+  }
+
+  function drawScopes(f: Parameters<Parameters<typeof addVisual>[0]>[0]): void {
     for (const e of scopeSurfs) {
       const { ctx: g, w, h: hh } = e.s;
       const color = KIND_HEX[e.ch.kind];
@@ -1794,14 +1812,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       g.fillStyle = "rgba(255,255,255,0.06)";
       g.fillRect(0, Math.floor(hh / 2), w, 1);
       const muted = e.ch.muted || (solo.size > 0 && !solo.has(e.ch.id));
-      let data: Float32Array | null = null;
-      if (reader && e.idx >= 0 && f.playing && !f.reduced) {
-        try {
-          data = reader.at(e.idx, f.frame - 1536, 1536);
-        } catch {
-          data = null;
-        }
-      }
+      const data = scopeWindow(e, f);
       const mid = hh / 2;
       if (!data || muted) {
         g.fillStyle = `${color}${muted ? "33" : "88"}`;
@@ -1809,21 +1820,20 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         continue;
       }
       const win = 512;
-      const t = triggerIndex(data, win);
-      let prevY = mid;
-      let peak = 0;
+      const { peak, spans } = scopeTrace(
+        data,
+        triggerIndex(data, win),
+        win,
+        w,
+        hh
+      );
       for (let x = 0; x < w; x += 1) {
-        const i = t + Math.floor((x / w) * win);
-        const v = clamp(data[i] ?? 0, -1, 1);
-        peak = Math.max(peak, Math.abs(v));
-        const y = Math.round(mid - v * (mid - 2));
-        const y0 = Math.min(y, prevY);
-        const y1 = Math.max(y, prevY);
+        const y0 = spans[x * 2] ?? 0;
+        const y1 = spans[x * 2 + 1] ?? 0;
         g.fillStyle = `${color}40`;
         g.fillRect(x, y0 - 1, 1, y1 - y0 + 3);
         g.fillStyle = color;
         g.fillRect(x, y0, 1, Math.max(1, y1 - y0 + 1));
-        prevY = y;
       }
       if (peak < 0.002) {
         g.fillStyle = `${color}88`;

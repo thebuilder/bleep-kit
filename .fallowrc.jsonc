@@ -104,6 +104,34 @@
         "functions": ["drawSpectrum"],
         "maxCognitive": 30,
         "reason": "The spectrum strip: one pass over the bars, each with its level from the FFT bins, its fall and peak hold, and its lit segments."
+      },
+      {
+        "files": ["apps/studio/src/visuals/waveform.ts"],
+        "functions": ["drawSpectrogram"],
+        "maxCrap": 45,
+        "reason": "The spectrogram picture: the image, the frequency ticks on a log axis and the playhead. A test of it would only restate its drawing calls."
+      },
+      // The studio's views, controls and canvas visuals are DOM and drawing code: what they do is checked by looking at
+      // them (Playwright screenshots of every view) and by the view tests that drive real controls and assert what the
+      // engine and the store receive. Unit tests of their remaining branches (which row glows, which column a scope
+      // trace starts in) would restate drawing calls, so CRAP gets a looser ceiling here. The complexity limits still
+      // apply in full, so these functions cannot grow more tangled.
+      {
+        "files": [
+          "apps/studio/src/views/**",
+          "apps/studio/src/ui/**",
+          "apps/studio/src/visuals/**"
+        ],
+        "maxCrap": 100,
+        "reason": "Studio DOM and canvas code, verified visually and through behavioral view tests rather than per-branch unit tests."
+      },
+      // The fake engine is a dev and test stand-in for the AudioWorklet (`?engine=fake`). The studio's tests set the song
+      // position by hand where they need one, so a test of the stand-in's own copy would only test the stand-in.
+      {
+        "files": ["apps/studio/src/dev/fake-engine.ts"],
+        "functions": ["positionAt"],
+        "maxCrap": 95,
+        "reason": "Dev-only engine stand-in: the song position it reports, from the last row event at or before the playing frame."
       }
     ]
   }
