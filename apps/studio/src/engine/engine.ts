@@ -75,9 +75,13 @@ class Engine {
     this.sampleRate = this.ctx?.sampleRate ?? 48_000;
     if (!wantFake && this.ctx && WORKLET_URL) {
       try {
-        this.node = await createEngineNode(this.ctx, {
+        const real = await createEngineNode(this.ctx, {
           workletUrl: WORKLET_URL,
         });
+        // createEngineNode leaves routing to the caller (the game player goes through its volume buses), so the
+        // studio wires the engine straight to the speakers
+        real.node.connect(this.ctx.destination);
+        this.node = real;
         this.fake = false;
       } catch (err) {
         this.error = (err as Error).message;

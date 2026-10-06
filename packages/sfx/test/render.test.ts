@@ -32,25 +32,32 @@ function render(
   return renderSfx(generateSfx(category, { chip, seed }), { sampleRate: RATE });
 }
 
+const SWEEP_TIMEOUT_MS = 60_000;
+
 describe("rendered sfx (real core)", () => {
   for (const category of SFX_CATEGORIES) {
-    it(`${category}: every chip at several seeds is audible, unclipped and short enough`, () => {
-      const { duration } = categoryRanges(category);
-      for (const chip of CHIP_IDS) {
-        for (const seed of SEEDS) {
-          const r = render(category, chip, seed);
-          const label = `${category}/${chip}/${seed}`;
-          const p = peak(r);
-          expect(p, `${label} peak`).toBeGreaterThan(MIN_PEAK);
-          expect(p, `${label} clipping`).toBeLessThan(CLIP);
-          // the envelope total plus the render tail and chip latency
-          expect(r.frames / r.sampleRate, `${label} length`).toBeLessThan(
-            duration.max + 0.4
-          );
-          expect(r.frames, `${label} frames`).toBeGreaterThan(0);
+    it(
+      `${category}: every chip at several seeds is audible, unclipped and short enough`,
+      () => {
+        const { duration } = categoryRanges(category);
+        for (const chip of CHIP_IDS) {
+          for (const seed of SEEDS) {
+            const r = render(category, chip, seed);
+            const label = `${category}/${chip}/${seed}`;
+            const p = peak(r);
+            expect(p, `${label} peak`).toBeGreaterThan(MIN_PEAK);
+            expect(p, `${label} clipping`).toBeLessThan(CLIP);
+            // the envelope total plus the render tail and chip latency
+            expect(r.frames / r.sampleRate, `${label} length`).toBeLessThan(
+              duration.max + 0.4
+            );
+            expect(r.frames, `${label} frames`).toBeGreaterThan(0);
+          }
         }
-      }
-    });
+        // 35 renders per category: a few seconds on a fast machine, far more under coverage on a small CI runner
+      },
+      SWEEP_TIMEOUT_MS
+    );
   }
 
   it("renders the same bytes twice for the same document", () => {
