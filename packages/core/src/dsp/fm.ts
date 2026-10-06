@@ -11,7 +11,7 @@ import {
 } from "./tables.ts";
 
 /** An operator at level 1 modulates by this many radians (the contract pins it). */
-export const MOD_INDEX = 8;
+const MOD_INDEX = 8;
 const TWO_PI = 2 * Math.PI;
 const FULL_DB = 96;
 /** Makeup gain: a lone full level carrier peaks at 1, so FM voices sit near the pulses before the chip gain. */
@@ -33,7 +33,7 @@ const OP_SUSTAIN = 3;
 const OP_RELEASE = 4;
 
 /** Seconds a rate takes to cover the full range: 10 * 2^(-rate / 2.5). Rate 0 never moves. */
-export function rateSeconds(rate: number): number {
+function rateSeconds(rate: number): number {
   return 10 * 2 ** (-rate / 2.5);
 }
 

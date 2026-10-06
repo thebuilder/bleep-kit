@@ -205,7 +205,7 @@ export function countColor(
 }
 
 /** The parts one after the other in a new buffer. */
-export function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
+function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let at = 0;
   for (const p of parts) {

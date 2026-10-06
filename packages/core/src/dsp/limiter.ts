@@ -3,7 +3,7 @@
    average never exceeds the gain a peak needs. Always the last stage, in realtime and offline alike. */
 
 const LIMITER_CEILING_DB = -0.3;
-export const LIMITER_CEILING = 10 ** (LIMITER_CEILING_DB / 20);
+const LIMITER_CEILING = 10 ** (LIMITER_CEILING_DB / 20);
 const RELEASE_SECONDS = 0.05;
 const MAX_LOOKAHEAD = 64;
 
