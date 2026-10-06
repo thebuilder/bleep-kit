@@ -79,21 +79,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Name the first thing wrong with a song document, or null when its top level looks like a song. */
+/** Documents arrive normalized (section 5.1), so only a non-object is rejected up front; anything the engine cannot
+    read inside one surfaces as its TypeError, wrapped by loadChecked. A stricter shape check here would refuse
+    documents the synth plays fine. */
 function songProblem(song: unknown): string | null {
-  if (!isRecord(song)) {
-    return "it is not an object";
-  }
-  if (typeof song.chip !== "string") {
-    return 'its "chip" is missing';
-  }
-  if (!Array.isArray(song.channels)) {
-    return 'its "channels" list is missing';
-  }
-  if (!isRecord(song.master)) {
-    return 'its "master" settings are missing';
-  }
-  return null;
+  return isRecord(song) ? null : "it is not an object";
 }
 
 /** Run a document load and turn the engine's raw TypeError into a message that says which document is wrong. */

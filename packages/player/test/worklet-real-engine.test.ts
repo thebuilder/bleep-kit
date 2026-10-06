@@ -174,8 +174,8 @@ describe("the worklet bundle with the real engine", () => {
   it("names what is wrong with a malformed song instead of a raw TypeError", async () => {
     const w = await load();
     const errors = () => w.of("error").map((m) => m.message);
-    w.send({ instruments: {}, song: { not: "a song" }, type: "loadSong" });
-    expect(errors()).toEqual(['cannot load the song: its "chip" is missing']);
+    w.send({ instruments: {}, song: "not a song", type: "loadSong" });
+    expect(errors()).toEqual(["cannot load the song: it is not an object"]);
     // right shape at the top, broken inside: the engine's TypeError is wrapped, not leaked
     w.send({
       instruments,

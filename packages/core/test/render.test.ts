@@ -127,17 +127,24 @@ describe("renderSong", () => {
     expect(Math.abs(a - b) / Math.max(a, 1e-9)).toBeLessThan(0.15);
   });
 
-  it("the loop seam is clean: the audio before loopEnd matches the audio before loopStart (below -40 dB)", () => {
+  // one song render and a full analysis per case: seconds each, far more under coverage on a small runner
+  it("the loop seam is clean on the title song: the audio before loopEnd matches the audio before loopStart (below -40 dB)", () => {
     const { song, instruments } = fixtureSong();
-    const { loop: title } = analyze(renderSong(song, instruments));
-    expect(title?.seamDiffDb ?? 0).toBeLessThan(-40);
-    for (const chip of CHIPS) {
+    const { loop } = analyze(renderSong(song, instruments));
+    expect(loop).not.toBeNull();
+    expect(loop?.seamDiffDb ?? 0).toBeLessThan(-40);
+  }, 60_000);
+
+  it.each(CHIPS)(
+    "the loop seam is clean on the %s demo (below -40 dB)",
+    (chip) => {
       const demo = fixtureDemo(chip);
       const { loop } = analyze(renderSong(demo.song, demo.instruments));
-      expect(loop, chip).not.toBeNull();
-      expect(loop?.seamDiffDb ?? 0, chip).toBeLessThan(-40);
-    }
-  });
+      expect(loop).not.toBeNull();
+      expect(loop?.seamDiffDb ?? 0).toBeLessThan(-40);
+    },
+    60_000
+  );
 
   it("a looped FM voice with an LFO repeats exactly: every pass puts its notes the same distance from a tick", () => {
     const demo = fixtureDemo("genesis");
