@@ -8,10 +8,18 @@ import { makeProject, run, tempDir } from "./helpers.ts";
 
 const servers: http.Server[] = [];
 
+interface Seen {
+  body?: unknown;
+  contentType?: string | undefined;
+  method?: string | undefined;
+  requests: number;
+  url?: string | undefined;
+}
+
 async function fakeStudio(
   status: number,
   body: string,
-  seen: { body?: unknown } = {}
+  seen: Seen = { requests: 0 }
 ): Promise<string> {
   const server = http.createServer((req, res) => {
     let text = "";
@@ -19,6 +27,10 @@ async function fakeStudio(
       text += String(d);
     });
     req.on("end", () => {
+      seen.requests += 1;
+      seen.method = req.method;
+      seen.url = req.url;
+      seen.contentType = req.headers["content-type"];
       seen.body = JSON.parse(text || "null");
       res.writeHead(status, { "content-type": "application/json" });
       res.end(body);
@@ -44,9 +56,9 @@ describe("play", () => {
     expect(r.stdout + r.stderr).toContain("play needs a document reference");
   });
 
-  it("sends the resolved ref and the visual flag, and says how many tabs played", async () => {
+  it("POSTs the resolved ref and the visual flag as JSON to /api/play, and says how many tabs played", async () => {
     const { repo } = await makeProject();
-    const seen: { body?: unknown } = {};
+    const seen: Seen = { requests: 0 };
     const url = await fakeStudio(200, '{"ok":true,"clients":2}', seen);
     const r = await run(repo, [
       "play",
@@ -57,10 +69,14 @@ describe("play", () => {
       "--json",
     ]);
     expect(r.code, r.stderr).toBe(0);
+    expect(seen.method).toBe("POST");
+    expect(seen.url).toBe("/api/play");
+    expect(seen.contentType).toContain("application/json");
     expect(seen.body).toEqual({ ref: "sfx/coin", visual: true });
     expect(r.json).toMatchObject({ clients: 2, ok: true, ref: "sfx/coin" });
     const human = await run(repo, ["play", "sfx/coin", "--studio", url]);
     expect(human.stdout).toContain("Playing sfx/coin in 2 studio tabs");
+    expect(seen.body).toEqual({ ref: "sfx/coin", visual: false });
   });
 
   it("says singular for one tab and explains when no tab is open", async () => {
@@ -76,7 +92,7 @@ describe("play", () => {
   });
 
   it("plays a kind/id ref even where there is no project to check it against", async () => {
-    const seen: { body?: unknown } = {};
+    const seen: Seen = { requests: 0 };
     const url = await fakeStudio(200, '{"ok":true,"clients":1}', seen);
     const r = await run(tempDir(), [
       "play",
@@ -89,10 +105,31 @@ describe("play", () => {
     expect(seen.body).toMatchObject({ ref: "sfx/coin" });
   });
 
-  it("refuses a bare id when there is no project, and an unknown ref in one", async () => {
-    expect((await run(tempDir(), ["play", "coin"])).code).toBe(3);
+  it("refuses a bare id when there is no project, and an unknown ref in one, without bothering the studio", async () => {
+    const seen: Seen = { requests: 0 };
+    const url = await fakeStudio(200, '{"ok":true,"clients":1}', seen);
+    expect((await run(tempDir(), ["play", "coin", "--studio", url])).code).toBe(
+      3
+    );
     const { repo } = await makeProject();
-    expect((await run(repo, ["play", "sfx/nope"])).code).toBe(4);
+    expect((await run(repo, ["play", "sfx/nope", "--studio", url])).code).toBe(
+      4
+    );
+    expect(seen.requests).toBe(0);
+  });
+
+  it("exits 4 with a fix when no studio answers", async () => {
+    const { repo } = await makeProject();
+    const r = await run(repo, [
+      "play",
+      "sfx/coin",
+      "--studio",
+      "http://127.0.0.1:1",
+      "--json",
+    ]);
+    expect(r.code).toBe(4);
+    expect(r.json.error.code).toBe("not-found");
+    expect(r.json.error.hint).toContain("bleepkit studio");
   });
 
   it("reports a studio that refuses, and one that is not a studio at all", async () => {

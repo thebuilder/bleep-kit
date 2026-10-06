@@ -44,6 +44,8 @@ export class FakeSynth implements Synth {
   readonly calls: FakeCall[] = [];
   readonly created: SynthOptions;
   frame = 0;
+  /** Frames asked of each `process` call, in order. */
+  readonly processed: number[] = [];
   playing = false as boolean;
   scopes: ScopeRings;
   readonly opts: FakeSynthOptions;
@@ -198,6 +200,7 @@ export class FakeSynth implements Synth {
     if (this.opts.throwOn === "process") {
       throw new Error("process failed");
     }
+    this.processed.push(frames);
     const active = this.playing || this.voices > 0;
     const [ring] = this.scopes.channels;
     const [masterL] = this.scopes.master;

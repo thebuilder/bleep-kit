@@ -2,6 +2,15 @@
    waiting helpers the app tests use. */
 import { beforeAll } from "vitest";
 
+/** One filled rectangle, with the fill style it was drawn in. */
+export interface FilledRect {
+  h: number;
+  style: string;
+  w: number;
+  x: number;
+  y: number;
+}
+
 /** A 2D context that records what is drawn instead of drawing it. */
 function recordingContext(log: string[]): CanvasRenderingContext2D {
   const target: Record<string | symbol, unknown> = {};
@@ -12,6 +21,16 @@ function recordingContext(log: string[]): CanvasRenderingContext2D {
       }
       if (key === "canvas") {
         return null;
+      }
+      if (key === "fillRect") {
+        return (x: number, y: number, w: number, h: number) => {
+          log.push("fillRect(4)");
+          filledRects.push({ h, style: String(t.fillStyle), w, x, y });
+          if (filledRects.length > 50_000) {
+            // the animation loops draw all the time; keep only the recent past
+            filledRects.splice(0, 25_000);
+          }
+        };
       }
       if (key === "measureText") {
         return () => ({ width: 5 });
@@ -38,6 +57,8 @@ function recordingContext(log: string[]): CanvasRenderingContext2D {
 }
 
 export const drawLog: string[] = [];
+/** Every rectangle filled on a recording canvas since the test emptied this list (`filledRects.length = 0`). */
+export const filledRects: FilledRect[] = [];
 
 /** Call once at the top level of a test file that draws. */
 export function installCanvasStub(): void {
@@ -75,3 +96,33 @@ export const until = async (fn: () => boolean, ms = 3000) => {
   }
   return fn();
 };
+
+/** The control of the inspector row whose label reads `label` (range, select, checkbox or text input). `nth` picks
+    among rows that share a label ("Volume" appears for the song and for the channel). */
+export function field<T extends HTMLElement = HTMLInputElement>(
+  root: ParentNode,
+  label: string,
+  nth = 0
+): T {
+  let seen = 0;
+  for (const row of root.querySelectorAll(".fld")) {
+    if (row.querySelector("label")?.textContent === label) {
+      const control = row.querySelector<T>(
+        "input[type=range], select, input[type=checkbox], input.wide"
+      );
+      if (control) {
+        if (seen === nth) {
+          return control;
+        }
+        seen += 1;
+      }
+    }
+  }
+  throw new Error(`no field labelled "${label}" (number ${nth})`);
+}
+
+/** Move a range input and tell the page, as dragging it does. */
+export function setRange(input: HTMLInputElement, value: number): void {
+  input.value = String(value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}

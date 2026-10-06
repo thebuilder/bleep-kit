@@ -63,10 +63,11 @@ describe("processor: startup and messages", () => {
     expect(t.port.of("ready")).toEqual([{ sampleRate: RATE, type: "ready" }]);
   });
 
-  it("forwards every message type to the synth", () => {
+  it("forwards every message type to the synth with its arguments", () => {
     const t = setup();
     const send = (m: unknown) => t.engine.handleMessage(m);
-    send({ instruments: {}, song, type: "loadSong" });
+    const lead = { name: "lead" };
+    send({ instruments: { lead }, song, type: "loadSong" });
     send({ type: "unloadSong" });
     send({ id: "coin", sfx: { name: "coin" }, type: "loadSfx" });
     send({ id: "coin", type: "unloadSfx" });
@@ -82,31 +83,27 @@ describe("processor: startup and messages", () => {
       velocity: 0.5,
     });
     send({ channel: 1, type: "noteOff" });
-    send({ id: "lead", instrument: { name: "lead" }, type: "setInstrument" });
+    send({ id: "lead", instrument: lead, type: "setInstrument" });
     send({ channel: 2, muted: true, type: "setChannel", volume: 0.3 });
     send({ limiter: false, type: "setMaster" });
     send({ tempo: 140, type: "setTempo" });
-    expect(t.synth().calls.map((c) => c[0])).toEqual([
-      "loadSong",
-      "unloadSong",
-      "loadSfx",
-      "unloadSfx",
-      "play",
-      "pause",
-      "stop",
-      "seek",
-      "noteOn",
-      "noteOff",
-      "setInstrument",
-      "setChannel",
-      "setMaster",
-      "setTempo",
+    expect(t.synth().calls).toEqual([
+      ["loadSong", song, { lead }],
+      ["unloadSong"],
+      ["loadSfx", "coin", { name: "coin" }],
+      ["unloadSfx", "coin"],
+      ["play", { loop: true, order: 1, row: 2 }],
+      ["pause"],
+      ["stop"],
+      ["seek", 3, 4],
+      ["noteOn", 1, 60, 0.5, "lead"],
+      ["noteOff", 1],
+      ["setInstrument", "lead", lead],
+      ["setChannel", 2, { muted: true, volume: 0.3 }],
+      ["setMaster", { limiter: false }],
+      ["setTempo", 140],
     ]);
     expect(t.port.of("error")).toEqual([]);
-    const { calls } = t.synth();
-    expect(calls[4]).toEqual(["play", { loop: true, order: 1, row: 2 }]);
-    expect(calls[11]).toEqual(["setChannel", 2, { muted: true, volume: 0.3 }]);
-    expect(calls[12]).toEqual(["setMaster", { limiter: false }]);
   });
 
   it("leaves absent options out of play, trigger and noteOn", () => {
@@ -176,12 +173,15 @@ describe("processor: startup and messages", () => {
 });
 
 describe("processor: rendering", () => {
-  it("renders the synth's block and keeps the node alive", () => {
+  it("renders the synth's block into both channels and keeps the node alive", () => {
     const t = setup();
+    expect(t.block()).toBe(true);
+    expect(Math.max(...t.left)).toBe(0);
     t.engine.handleMessage({ type: "play" });
     expect(t.block()).toBe(true);
     expect(Math.max(...t.left)).toBeGreaterThan(0.05);
-    expect(t.synth().frame).toBe(128);
+    expect(Array.from(t.right)).toEqual(Array.from(t.left));
+    expect(t.synth().frame).toBe(256);
   });
 
   it("handles a mono output and an empty output list", () => {
@@ -193,7 +193,7 @@ describe("processor: rendering", () => {
     expect(Math.max(...t.left)).toBeGreaterThan(0.05);
   });
 
-  it("splits a longer quantum into blocks of 128", () => {
+  it("splits a longer quantum into blocks of at most 128 and fills all of it", () => {
     const t = setup();
     t.engine.handleMessage({ type: "play" });
     const big = [new Float32Array(300), new Float32Array(300)] as [
@@ -201,8 +201,11 @@ describe("processor: rendering", () => {
       Float32Array,
     ];
     t.engine.process([big]);
+    expect(t.synth().processed).toEqual([128, 128, 44]);
     expect(t.synth().frame).toBe(300);
-    expect(Math.max(...big[0])).toBeGreaterThan(0.05);
+    // the last block landed at the end of the buffer, in both channels
+    expect(Math.max(...big[0].subarray(256))).toBeGreaterThan(0.05);
+    expect(Math.max(...big[1].subarray(256))).toBeGreaterThan(0.05);
   });
 
   it("posts clock at the first block and then every 1024 frames", () => {
@@ -226,10 +229,10 @@ describe("processor: rendering", () => {
 
 describe("processor: events", () => {
   it("copies events before posting, since the synth reuses its objects", () => {
-    const t = setup();
+    // enough voices that every trigger below makes an event (the synth stops handing out voices at its limit)
+    const t = setup({ voices: 100 });
     t.engine.handleMessage({ type: "play" });
-    t.block();
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < 4; i += 1) {
       t.block();
     }
     const batches = t.port.of("events");
@@ -243,27 +246,32 @@ describe("processor: events", () => {
       note: 69,
       type: "noteOn",
     });
-    // push enough events through the synth's pool of 16 to overwrite the first object
+    // push enough events through the synth's pool of 16 to overwrite the object the first one came from
     for (let i = 1; i <= 20; i += 1) {
       t.engine.handleMessage({ handle: i, id: `s${i}`, type: "trigger" });
       t.block();
     }
+    expect(t.synth().calls.filter((c) => c[0] === "trigger")).toHaveLength(20);
     expect(first).toMatchObject({ frame: 0, id: "lead", type: "noteOn" });
   });
 
-  it("batches events for a few blocks and stamps the batch with a clock pair", () => {
+  it("batches events instead of posting every block, and stamps the batch with the clock pair of the block that posted it", () => {
     const t = setup();
     t.engine.handleMessage({ type: "play" });
-    t.block();
-    expect(t.port.of("events")).toHaveLength(0);
-    t.block();
-    t.block();
-    t.block();
+    let blocks = 0;
+    while (t.port.of("events").length === 0 && blocks < 10) {
+      t.block();
+      blocks += 1;
+    }
     const [batch] = t.port.of("events");
     expect(batch?.events).toHaveLength(1);
-    // the flush happened in the 4th block: its start frame and currentTime
-    expect(batch?.clockFrame).toBe(3 * 128);
-    expect(batch?.clockTime).toBeCloseTo(10 + (3 * 128) / RATE, 9);
+    // held back for a few blocks, but not for long
+    expect(blocks).toBeGreaterThan(1);
+    expect(blocks).toBeLessThanOrEqual(4);
+    // the pair names the start of the block that posted: its frame and the context time at that frame
+    const startFrame = (blocks - 1) * 128;
+    expect(batch?.clockFrame).toBe(startFrame);
+    expect(batch?.clockTime).toBeCloseTo(10 + startFrame / RATE, 9);
   });
 
   it("flushes at once when a lot of events are waiting", () => {
@@ -348,7 +356,7 @@ describe("processor: scopes", () => {
 
 describe("processor: cpu load", () => {
   it("reports the share of block time spent in process", () => {
-    // each call of the clock moves it by 0.5 ms: process takes one tick of it between two reads
+    // each read of the clock moves it by 0.25 ms: process spends one such step between its two reads
     let ms = 0;
     const now = () => {
       ms += 0.25;
@@ -380,7 +388,19 @@ describe("processor: errors never cross the boundary", () => {
     expect(t.port.of("error")[0]?.message).toBe("create failed");
     expect(t.port.of("ready")).toHaveLength(1);
     t.engine.handleMessage({ type: "play" });
-    expect(t.port.of("error").length).toBeGreaterThan(0);
+    expect(t.port.of("error").at(-1)?.message).toBe(
+      "the engine is not running"
+    );
+  });
+
+  it("reports a trigger the synth throws on, and keeps no handle for it", () => {
+    const t = setup({ throwOn: "trigger" });
+    t.engine.handleMessage({ handle: 1, id: "a", type: "trigger" });
+    expect(t.port.of("error")).toEqual([
+      { message: "trigger failed", type: "error" },
+    ]);
+    t.engine.handleMessage({ handle: 1, type: "release" });
+    expect(t.synth().calls.filter((c) => c[0] === "release")).toEqual([]);
   });
 
   it("turns a throwing message handler into an error message", () => {
@@ -482,12 +502,40 @@ describe("BleepkitProcessor (the registered shell)", () => {
     expect(port.of("scope")).toHaveLength(0);
   });
 
-  it("loads without a worklet scope (nothing to register, nothing thrown)", async () => {
+  it("ignores processor options that are not usable numbers or flags", async () => {
+    class Base {
+      readonly port = new FakePort();
+    }
+    vi.stubGlobal("AudioWorkletProcessor", Base);
+    vi.stubGlobal("registerProcessor", () => undefined);
+    vi.stubGlobal("sampleRate", 48_000);
+    const mod = await import("../src/worklet/processor.ts");
+    const factory = fakeSynthFactory();
+    mod.BleepkitProcessor.createSynth = factory.create;
+    // the main thread controls these, but a hand-made node must not be able to break the engine
+    const junk = {
+      processorOptions: {
+        scopeFrames: Number.NaN,
+        scopes: "no",
+        sfxVoices: "4",
+      },
+    };
+    expect(() => new mod.BleepkitProcessor(junk)).not.toThrow();
+    expect(factory.made[0]?.created).toEqual({ sampleRate: 48_000 });
+    expect(
+      () => new mod.BleepkitProcessor({ processorOptions: null })
+    ).not.toThrow();
+  });
+
+  it("loads without a worklet scope and still renders (nothing to register, nothing thrown)", async () => {
     vi.stubGlobal("AudioWorkletProcessor", undefined);
     vi.stubGlobal("registerProcessor", undefined);
     const mod = await import("../src/worklet/processor.ts");
     mod.BleepkitProcessor.createSynth = fakeSynthFactory().create;
     const p = new mod.BleepkitProcessor();
-    expect(p.process([], [[new Float32Array(128)]], {})).toBe(true);
+    const left = new Float32Array(128);
+    p.port.onmessage?.({ data: { type: "play" } });
+    expect(p.process([], [[left]], {})).toBe(true);
+    expect(Math.max(...left)).toBeGreaterThan(0.05);
   });
 });

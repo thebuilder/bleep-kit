@@ -8,7 +8,14 @@ import { fuzzy } from "../src/ui/palette.ts";
 import { keyToOffset } from "../src/ui/piano.ts";
 import { highlightTs } from "../src/views/project.ts";
 import { crc32, readZip, writeZip } from "../src/zip.ts";
-import { drawLog, installCanvasStub, settle, until } from "./helpers.ts";
+import {
+  field,
+  filledRects,
+  installCanvasStub,
+  setRange,
+  settle,
+  until,
+} from "./helpers.ts";
 
 installCanvasStub();
 
@@ -124,12 +131,24 @@ describe("fuzzy", () => {
 });
 
 describe("piano keys", () => {
-  it("maps the computer keyboard to semitone offsets", () => {
-    expect(keyToOffset("z")).toBe(0);
-    expect(keyToOffset("s")).toBe(1);
-    expect(keyToOffset("q")).toBe(12);
-    expect(keyToOffset("Q")).toBe(12);
-    expect(keyToOffset("-")).toBeNull();
+  // the tracker's two rows from section 11.2: lower octave Z S X D C V G B H N J M, upper Q 2 W 3 E R 5 T 6 Y 7 U
+  it("maps both rows of the computer keyboard to consecutive semitones, either case", () => {
+    for (const [row, base] of [
+      ["ZSXDCVGBHNJM", 0],
+      ["Q2W3ER5T6Y7U", 12],
+    ] as const) {
+      for (const [i, k] of [...row].entries()) {
+        expect(keyToOffset(k)).toBe(base + i);
+        expect(keyToOffset(k.toLowerCase())).toBe(base + i);
+      }
+    }
+  });
+
+  it("leaves the keys that mean something else alone", () => {
+    // 1 is note off and ` is release in the tracker
+    for (const k of ["1", "`", "-", "=", " ", "Enter", "ArrowUp"]) {
+      expect(keyToOffset(k)).toBeNull();
+    }
   });
 });
 
@@ -156,7 +175,21 @@ describe("LocalStore", () => {
       info.files.filter((f) => f.kind === "sfx").length
     ).toBeGreaterThanOrEqual(12);
     expect(info.files.filter((f) => f.kind === "song").length).toBe(1);
-    expect(starterFiles().has("project.json")).toBe(true);
+    expect(
+      info.files.filter((f) => f.kind === "instrument").length
+    ).toBeGreaterThanOrEqual(7);
+    expect(info.files.some((f) => f.path === "project.json")).toBe(true);
+  });
+
+  it("does not overwrite a project that is already there when it opens again", async () => {
+    const backend = memoryBackend();
+    const first = new LocalStore(backend);
+    await first.open();
+    await first.writeJson("sfx/coin.json", { mine: true });
+    await new LocalStore(backend).open();
+    expect((await first.readJson("sfx/coin.json")).json).toEqual({
+      mine: true,
+    });
   });
 
   it("writes, reads and reports a conflict on a stale etag", async () => {
@@ -168,60 +201,115 @@ describe("LocalStore", () => {
     const second = await store.writeJson("sfx/test.json", { v: 2 }, etag);
     expect(second.ok).toBe(true);
     const stale = await store.writeJson("sfx/test.json", { v: 3 }, etag);
-    expect(stale.ok).toBe(false);
-    if (!stale.ok) {
-      expect(stale.reason).toBe("conflict");
-    }
+    expect(stale).toMatchObject({
+      json: { v: 2 },
+      ok: false,
+      reason: "conflict",
+    });
     expect((await store.readJson("sfx/test.json")).json).toEqual({ v: 2 });
+    // leaving the etag out overwrites, which is what "Keep mine" does
+    expect((await store.writeJson("sfx/test.json", { v: 4 })).ok).toBe(true);
+    expect((await store.readJson("sfx/test.json")).json).toEqual({ v: 4 });
   });
 
-  it("tells subscribers about writes and deletes", async () => {
+  it("tells subscribers about writes and deletes, with the etag the writer got back", async () => {
     const store = new LocalStore(memoryBackend());
     await store.open();
-    const seen: string[] = [];
-    store.subscribe((m) => seen.push(m.type));
-    await store.writeJson("sfx/n.json", { a: 1 });
+    const seen: { etag?: string; path: string; type: string }[] = [];
+    store.subscribe((m) => seen.push(m as never));
+    const res = await store.writeJson("sfx/n.json", { a: 1 });
     await store.remove("sfx/n.json");
-    expect(seen).toEqual(["file", "deleted"]);
+    expect(seen.map((m) => [m.type, m.path])).toEqual([
+      ["file", "sfx/n.json"],
+      ["deleted", "sfx/n.json"],
+    ]);
+    // the message carries the etag the writer got back, which is how the project can tell its own write from an outside
+    // one (it does not yet: see the echo bug in docs.test.ts)
+    expect(res.ok && seen[0]?.etag).toBe(res.ok ? res.etag : "");
+    // and the delete took the file away
+    await expect(store.readJson("sfx/n.json")).rejects.toThrow();
+    expect((await store.list()).map((f) => f.path)).not.toContain("sfx/n.json");
   });
 
-  it("exports and imports a zip", async () => {
+  it("exports a zip another browser project can import, with every document intact", async () => {
     const a = new LocalStore(memoryBackend());
     await a.open();
+    await a.writeJson("sfx/extra.json", { edited: "by the user" });
     const zip = await a.exportZip();
     const b = new LocalStore(memoryBackend());
     const n = await b.importZip(zip, true);
-    expect(n).toBeGreaterThan(10);
-    const info = await b.open();
-    expect(info.files.length).toBe((await a.list()).length);
+    const paths = (await a.list()).map((f) => f.path).sort();
+    expect(n).toBe(paths.length);
+    expect((await b.list()).map((f) => f.path).sort()).toEqual(paths);
+    for (const path of paths) {
+      // biome-ignore lint/performance/noAwaitInLoops: one comparison at a time keeps a failure readable
+      expect((await b.readJson(path)).json).toEqual(
+        (await a.readJson(path)).json
+      );
+    }
+  });
+
+  it("imports a zip made from a folder with one top-level directory", async () => {
+    const a = new LocalStore(memoryBackend());
+    await a.open();
+    const zip = writeZip([
+      {
+        data: new TextEncoder().encode(
+          JSON.stringify({ envelope: {}, frequency: {} })
+        ),
+        path: "my-game/sfx/boom.json",
+      },
+      { data: new TextEncoder().encode("junk"), path: "my-game/readme.txt" },
+    ]);
+    expect(await a.importZip(zip, false)).toBe(1);
+    expect((await a.list()).some((f) => f.path === "sfx/boom.json")).toBe(true);
   });
 });
 
 describe("canvas drawing", () => {
-  it("draws a waveform on a surface", async () => {
+  const sine = (amp: number) => {
+    const frames = 4800;
+    const ch = new Float32Array(frames).map((_, i) => Math.sin(i / 20) * amp);
+    return {
+      channels: [ch, ch],
+      duration: 0.1,
+      frames,
+      sampleRate: 48_000,
+    } as never;
+  };
+  const COLOR = "#f3b24a";
+  const DIM = "rgba(243,178,74,0.55)";
+  const draw = async (amp: number, played = -1) => {
     const { surface } = await import("../src/visuals/canvas.ts");
     const { drawWaveform } = await import("../src/visuals/waveform.ts");
-    const canvas = document.createElement("canvas");
-    const s = surface(canvas);
+    const s = surface(document.createElement("canvas"));
     s.w = 300;
     s.h = 120;
-    const frames = 4800;
-    const ch = new Float32Array(frames).map(
-      (_, i) => Math.sin(i / 20) * (1 - i / frames)
+    filledRects.length = 0;
+    drawWaveform(s, sine(amp), { clip: false, color: COLOR, played });
+    return filledRects.filter(
+      (r) => r.w === 2 && (r.style === COLOR || r.style === DIM)
     );
-    const before = drawLog.length;
-    drawWaveform(
-      s,
-      {
-        channels: [ch, ch],
-        duration: 0.1,
-        frames,
-        sampleRate: 48_000,
-      } as never,
-      { clip: false, color: "#f3b24a", played: 0.5 }
-    );
-    expect(drawLog.length).toBeGreaterThan(before + 10);
-    expect(drawLog.some((c) => c.startsWith("fillRect"))).toBe(true);
+  };
+
+  it("draws a loud sound over the full height of the plot and a quiet one near its middle line", async () => {
+    // the plot is the surface minus a 16 px time axis: 104 px tall with the middle line at 52
+    const loud = await draw(1);
+    const quiet = await draw(0.1);
+    expect(Math.min(...loud.map((r) => r.y))).toBeLessThanOrEqual(4);
+    expect(Math.max(...loud.map((r) => r.y + r.h))).toBeGreaterThanOrEqual(100);
+    expect(Math.min(...quiet.map((r) => r.y))).toBeGreaterThanOrEqual(44);
+    expect(Math.max(...quiet.map((r) => r.y + r.h))).toBeLessThanOrEqual(60);
+  });
+
+  it("lights the part already played and dims the rest", async () => {
+    const bars = await draw(1, 0.5);
+    const lit = bars.filter((r) => r.style === COLOR);
+    const dim = bars.filter((r) => r.style === DIM);
+    expect(lit.length).toBeGreaterThan(30);
+    expect(dim.length).toBeGreaterThan(30);
+    expect(Math.max(...lit.map((r) => r.x))).toBeLessThanOrEqual(150);
+    expect(Math.min(...dim.map((r) => r.x))).toBeGreaterThan(150);
   });
 });
 
@@ -231,13 +319,45 @@ describe("the studio app", () => {
   let engineMod: typeof import("../src/engine/engine.ts");
   let loopMod: typeof import("../src/visuals/loop.ts");
   let appMod: typeof import("../src/app.ts");
+  let docsMod: typeof import("../src/state/docs.ts");
+  /** Every message the studio has sent its engine node since boot, oldest first. */
   const sent: { type: string; [k: string]: unknown }[] = [];
+  const sentSince = (mark: number, type?: string) =>
+    sent.slice(mark).filter((m) => !type || m.type === type);
 
   // the loop reads prefers-reduced-motion once and then follows this query's change events
   const reducedQuery = {
     listeners: [] as ((e: { matches: boolean }) => void)[],
     matches: false,
   };
+
+  const key = (
+    k: string,
+    init: KeyboardEventInit = {},
+    el: Element = document.body
+  ) =>
+    el.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: k,
+        ...init,
+      })
+    );
+  const go = async (hash: string, ready: () => boolean) => {
+    appMod.app.navigate(hash);
+    expect(await until(ready)).toBe(true);
+    // a hashchange queued by an earlier navigation lands after this one; let it, so it cannot remount the view mid-test
+    await settle(30);
+  };
+  const press = (el: Element | null) => {
+    expect(el).not.toBeNull();
+    (el as HTMLElement).click();
+  };
+  const sidebarRow = (href: string) =>
+    [...document.querySelectorAll<HTMLElement>("#side .tree-item")].find(
+      (row) => row.querySelector("a")?.getAttribute("href") === href
+    ) ?? null;
 
   beforeAll(async () => {
     vi.stubGlobal("matchMedia", (media: string) => ({
@@ -257,6 +377,7 @@ describe("the studio app", () => {
     engineMod = await import("../src/engine/engine.ts");
     loopMod = await import("../src/visuals/loop.ts");
     appMod = await import("../src/app.ts");
+    docsMod = await import("../src/state/docs.ts");
     const { boot } = await import("../src/shell.ts");
     await boot(document.getElementById("app") as HTMLElement);
     const { node } = engineMod.engine;
@@ -270,24 +391,36 @@ describe("the studio app", () => {
     await until(() => document.querySelectorAll(".pad[data-id]").length > 0);
   });
 
-  it("boots against the fake engine and a local store", () => {
+  it("boots on the fake engine and shows the starter project as pads and in the sidebar", () => {
     expect(engineMod.engine.fake).toBe(true);
-    expect(document.querySelector(".top")).not.toBeNull();
+    const { project } = docsMod;
+    const sfxIds = project.list("sfx").map((d) => d.id);
+    expect(sfxIds.length).toBeGreaterThanOrEqual(12);
+    const padIds = [
+      ...document.querySelectorAll<HTMLElement>(".pad[data-id]"),
+    ].map((p) => p.dataset.id);
+    expect(padIds.sort()).toEqual([...sfxIds].sort());
+    const links = [...document.querySelectorAll("#side a.tl")].map((a) =>
+      a.getAttribute("href")
+    );
+    for (const id of sfxIds) {
+      expect(links).toContain(`#/sfx/${id}`);
+    }
+    expect(links).toContain("#/song/starter-theme");
+    expect(links.filter((l) => l?.startsWith("#/instrument/")).length).toBe(
+      project.list("instrument").length
+    );
     expect(document.querySelector("#strip")).not.toBeNull();
-    expect(
-      document.querySelectorAll("#side a, #side [data-path], #side .tree-item")
-        .length
-    ).toBeGreaterThan(0);
   });
 
-  it("lists the starter sounds as pads", () => {
-    const pads = document.querySelectorAll(".pad[data-id]");
-    expect(pads.length).toBeGreaterThanOrEqual(12);
-    expect(document.querySelector('.pad[data-id="coin"]')).not.toBeNull();
-  });
-
-  it("a pad press triggers the sound on the engine node and announces it to the visuals", async () => {
-    sent.length = 0;
+  it("a pad press uploads the sound as it is in the project, triggers it, and announces it to the visuals", () => {
+    const mark = sent.length;
+    const seen: { id: string; type: string }[] = [];
+    const off = loopMod.addVisual((f) => {
+      for (const e of f.events) {
+        seen.push(e);
+      }
+    });
     const pad = document.querySelector('.pad[data-id="coin"]') as HTMLElement;
     pad.dispatchEvent(
       new PointerEvent("pointerdown", {
@@ -296,93 +429,201 @@ describe("the studio app", () => {
         pointerId: 1,
       })
     );
-    await settle();
-    expect(sent.some((m) => m.type === "trigger" && m.id === "coin")).toBe(
-      true
-    );
-    expect(sent.some((m) => m.type === "loadSfx" && m.id === "coin")).toBe(
-      true
-    );
-    const seen: string[] = [];
-    const off = loopMod.addVisual((f) => {
-      for (const e of f.events) {
-        seen.push(e.type);
-      }
-    });
-    engineMod.engine.announce({ id: "coin", type: "trigger" });
     loopMod.tickOnce(performance.now() + 20);
     off();
-    expect(seen).toContain("trigger");
+    const doc = docsMod.project.get("sfx", "coin");
+    const upload = sentSince(mark, "loadSfx").find((m) => m.id === "coin");
+    // an earlier test may have uploaded this exact sound already; then only the trigger goes out
+    if (upload) {
+      expect(upload.sfx).toEqual(doc?.value);
+    } else {
+      expect(sent.some((m) => m.type === "loadSfx" && m.id === "coin")).toBe(
+        true
+      );
+    }
+    expect(sentSince(mark, "trigger").map((m) => m.id)).toEqual(["coin"]);
+    expect(seen.filter((e) => e.type === "trigger").map((e) => e.id)).toEqual([
+      "coin",
+    ]);
   });
 
-  it("routes to the song editor and renders tracker rows", async () => {
-    appMod.app.navigate("#/song/starter-theme");
+  it("the play buttons in the sidebar sound a sound effect, a song and an instrument", () => {
+    const mark = sent.length;
+    press(sidebarRow("#/sfx/coin")?.querySelector(".pl") ?? null);
+    expect(sentSince(mark, "trigger").map((m) => m.id)).toEqual(["coin"]);
+
+    const songMark = sent.length;
+    press(sidebarRow("#/song/starter-theme")?.querySelector(".pl") ?? null);
+    expect(sentSince(songMark).map((m) => m.type)).toContain("play");
     expect(
-      await until(() => document.querySelectorAll(".trow").length > 8)
+      sent.some(
+        (m) =>
+          m.type === "loadSong" &&
+          JSON.stringify(m.song) ===
+            JSON.stringify(docsMod.project.get("song", "starter-theme")?.value)
+      )
     ).toBe(true);
-    const row = document.querySelector(".trow");
-    expect(row?.querySelectorAll(".tc").length).toBeGreaterThanOrEqual(4);
-    expect(document.querySelectorAll(".tch").length).toBeGreaterThanOrEqual(4);
+    key("Escape");
+
+    const [inst] = docsMod.project.list("instrument");
+    const instMark = sent.length;
+    press(sidebarRow(`#/instrument/${inst?.id}`)?.querySelector(".pl") ?? null);
+    const instSent = sentSince(instMark);
+    expect(instSent.map((m) => m.type)).toContain("noteOn");
+    expect(instSent.find((m) => m.type === "noteOn")?.instrument).toBe(
+      inst?.id
+    );
+    appMod.app.navigate("#/pads");
+  });
+
+  it("plays what the CLI asks for, opening it first when the request is visual", () => {
+    const mark = sent.length;
+    docsMod.project.onRemotePlay?.("sfx/coin", false);
+    expect(sentSince(mark, "trigger").map((m) => m.id)).toEqual(["coin"]);
+    docsMod.project.onRemotePlay?.("sfx/jump", true);
+    expect(location.hash).toBe("#/sfx/jump");
+    expect(sentSince(mark, "trigger").map((m) => m.id)).toEqual([
+      "coin",
+      "jump",
+    ]);
+    const before = sent.length;
+    docsMod.project.onRemotePlay?.("sfx/no-such-sound", true);
+    expect(sent.length).toBe(before);
+    expect(document.getElementById("toast")?.textContent).toContain(
+      "Cannot play sfx/no-such-sound"
+    );
+    appMod.app.navigate("#/pads");
+  });
+
+  it("routes to the song editor and draws the pattern: its rows and a header per channel", async () => {
+    const song = docsMod.project.get("song", "starter-theme")?.value as {
+      channels: unknown[];
+      order: string[];
+      patterns: Record<string, { length: number }>;
+    };
+    await go(
+      "#/song/starter-theme",
+      () => document.querySelectorAll(".trow").length > 8
+    );
+    const first = song.order[0] as string;
+    expect(document.querySelectorAll(".trow").length).toBe(
+      song.patterns[first]?.length
+    );
+    expect(document.querySelectorAll(".tch").length).toBe(song.channels.length);
+    expect(
+      document.querySelector(".trow")?.querySelectorAll(".tc").length
+    ).toBe(song.channels.length);
   });
 
   it("Space plays the song through the engine, Escape stops it", async () => {
-    sent.length = 0;
-    document.body.dispatchEvent(
-      new KeyboardEvent("keydown", { bubbles: true, key: " " })
+    await go(
+      "#/song/starter-theme",
+      () => document.querySelectorAll(".trow").length > 8
     );
-    await settle();
-    expect(sent.some((m) => m.type === "play")).toBe(true);
-    document.body.dispatchEvent(
-      new KeyboardEvent("keydown", { bubbles: true, key: "Escape" })
-    );
-    await settle();
-    expect(sent.some((m) => m.type === "stop")).toBe(true);
+    const mark = sent.length;
+    key(" ");
+    expect(sentSince(mark).map((m) => m.type)).toContain("play");
+    expect(engineMod.engine.playing).toBe(true);
+    key("Escape");
+    expect(sentSince(mark).map((m) => m.type)).toContain("stop");
+    expect(engineMod.engine.playing).toBe(false);
   });
 
-  it("Ctrl+K opens the command palette and Escape-free typing filters it", async () => {
-    document.body.dispatchEvent(
-      new KeyboardEvent("keydown", { bubbles: true, ctrlKey: true, key: "k" })
-    );
-    await settle();
+  it("Ctrl+K opens the command palette, typing narrows it to what matches, and Enter runs the first match", async () => {
+    appMod.app.navigate("#/pads");
+    key("k", { ctrlKey: true });
     const input = document.querySelector<HTMLInputElement>(
-      ".palette input, dialog input, .modal input"
+      '.overlay input[aria-label="Command"]'
     );
     expect(input).not.toBeNull();
+    const titles = () =>
+      [...document.querySelectorAll(".overlay .cmd .nm")].map(
+        (n) => n.textContent
+      );
+    const all = titles().length;
+    expect(all).toBeGreaterThan(5);
+    (input as HTMLInputElement).value = "coin";
+    input?.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(titles()[0]).toBe("Coin");
+    expect(titles().length).toBeLessThan(all);
     input?.dispatchEvent(
-      new KeyboardEvent("keydown", { bubbles: true, key: "Escape" })
+      new KeyboardEvent("keydown", { bubbles: true, key: "Enter" })
     );
-    (
-      document.querySelector(".modal-back, .palette-back") as HTMLElement | null
-    )?.click();
-  });
-
-  it("opens the sfx editor for a sound and edits it with undo and redo", async () => {
-    appMod.app.navigate("#/sfx/coin");
+    expect(await until(() => location.hash === "#/sfx/coin")).toBe(true);
     expect(await until(() => document.querySelector("#sName") !== null)).toBe(
       true
     );
-    const { project } = await import("../src/state/docs.ts");
-    const doc = project.get("sfx", "coin");
-    expect(doc).toBeDefined();
-    const before = JSON.stringify(doc?.value);
-    const name = document.querySelector("#sName") as HTMLInputElement;
-    expect(name.value.length).toBeGreaterThan(0);
-    if (doc) {
-      project.edit(doc, (d: { name: string }) => {
-        d.name = "Coin 2";
-      });
-    }
+    expect(document.querySelector(".overlay")).toBeNull();
+  });
+
+  it("changes made in the sfx editor reach the project, the engine and the store, and undo and redo them", async () => {
+    await go("#/sfx/coin", () => document.querySelector("#sName") !== null);
+    const { project } = docsMod;
+    const coin = () => project.get("sfx", "coin");
+    const volume = () =>
+      ((coin() as { value: unknown }).value as { volume: number }).volume;
+    const original = volume();
+    const insp = document.getElementById("insp") as HTMLElement;
+    const mark = sent.length;
+
+    setRange(field(insp, "Volume"), 0.31);
+    expect(volume()).toBe(0.31);
+    expect(coin()?.dirty).toBe(true);
+
+    // "Play on every change" sounds the edited sound: the engine is handed the new version before the trigger
     expect(
-      (project.get("sfx", "coin")?.value as { name: string } | undefined)?.name
-    ).toBe("Coin 2");
-    expect(doc?.dirty).toBe(true);
-    appMod.app.undo();
-    await settle();
-    expect(JSON.stringify(project.get("sfx", "coin")?.value)).toBe(before);
-    appMod.app.redo();
-    expect(
-      (project.get("sfx", "coin")?.value as { name: string } | undefined)?.name
-    ).toBe("Coin 2");
+      await until(() => sentSince(mark, "trigger").some((m) => m.id === "coin"))
+    ).toBe(true);
+    const upload = sentSince(mark, "loadSfx").find((m) => m.id === "coin");
+    expect(upload?.sfx).toMatchObject({ volume: 0.31 });
+
+    // Ctrl+S puts it in the store
+    key("s", { ctrlKey: true });
+    expect(await until(() => coin()?.dirty === false)).toBe(true);
+    const stored = async () =>
+      (
+        (await project.store.readJson("sfx/coin.json")).json as {
+          volume: number;
+        }
+      ).volume;
+    expect(await stored()).toBe(0.31);
+
+    key("z", { ctrlKey: true });
+    expect(volume()).toBe(original);
+    expect((field(insp, "Volume") as HTMLInputElement).value).toBe(
+      String(original)
+    );
+    key("z", { ctrlKey: true, shiftKey: true });
+    expect(volume()).toBe(0.31);
+
+    // leave the starter sound as it was for the tests after this one
+    key("z", { ctrlKey: true });
+    key("s", { ctrlKey: true });
+    expect(await until(() => coin()?.dirty === false)).toBe(true);
+    expect(await stored()).toBe(original);
+  });
+
+  /* AMBIGUOUS REQUIREMENT, see the audit ledger. Ctrl+S goes through app.save, which saves with overwrite = true (it is
+     how a document that is not dirty is written anyway), and that also leaves the etag out. Section 6.3 says a save
+     with a stale etag gets 412 and the changed-on-disk bar, with Keep mine as the only way to overwrite; Ctrl+S
+     overwrites without asking. Expected to fail until app.save keeps the etag check. */
+  it.fails("Ctrl+S does not silently overwrite a change made on disk", async () => {
+    await go("#/sfx/coin", () => document.querySelector("#sName") !== null);
+    const { project } = docsMod;
+    const insp = document.getElementById("insp") as HTMLElement;
+    setRange(field(insp, "Volume"), 0.31);
+    const onDisk = {
+      ...((await project.store.readJson("sfx/coin.json")).json as object),
+      volume: 0.9,
+    };
+    await project.store.writeJson("sfx/coin.json", onDisk);
+    await until(() => project.get("sfx", "coin")?.conflict !== null);
+    key("s", { ctrlKey: true });
+    await settle(100);
+    const stored = (await project.store.readJson("sfx/coin.json")).json as {
+      volume: number;
+    };
+    expect(stored.volume).toBe(0.9);
   });
 
   it("goes quiet under prefers-reduced-motion", () => {
@@ -403,9 +644,33 @@ describe("the studio app", () => {
     expect(document.documentElement.dataset.reduced).toBe("0");
   });
 
-  it("shows the click-to-enable pill while the context is locked", () => {
-    const pill = document.getElementById("audioPill");
-    expect(pill).not.toBeNull();
+  it("asks for a click while the audio context is locked, and the first click anywhere unlocks it", async () => {
+    const { engine } = engineMod;
+    const pill = document.getElementById("audioPill") as HTMLElement;
+    // happy-dom has no AudioContext, so there is nothing to unlock yet
+    expect(pill.hidden).toBe(true);
+    const ctx = {
+      addEventListener: () => undefined,
+      resume: () => Promise.resolve(),
+      state: "suspended",
+    };
+    engine.ctx = ctx as never;
+    try {
+      await engine.unlock();
+      expect(engine.status).toBe("locked");
+      expect(pill.hidden).toBe(false);
+      ctx.resume = () => {
+        ctx.state = "running";
+        return Promise.resolve();
+      };
+      document.body.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, button: 0 })
+      );
+      expect(await until(() => pill.hidden === true)).toBe(true);
+      expect(engine.status).toBe("running");
+    } finally {
+      engine.ctx = null;
+    }
   });
 });
 

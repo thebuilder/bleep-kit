@@ -115,12 +115,41 @@ describe("spectrogram", () => {
     });
     expect(spec.size).toBe(2048);
     expect(spec.hop).toBe(512);
-    expect(spec.frames).toBe(Math.floor((10_000 - 2048) / 512) + 1);
-    expect(spec.db.length).toBe(spec.frames * spec.bins);
+    expect(spec.bins).toBe(1025);
+    expect(spec.binHz).toBeCloseTo(23.4375, 9);
+    // frames start at 0, 512, ... and must fit 2048 samples inside 10000: the last starts at 7680 (ends at 9728)
+    expect(spec.frames).toBe(16);
+    expect(spec.db.length).toBe(16 * 1025);
     expect(spec.db[0]).toBe(-120);
   });
 
-  it("returns one zero padded frame for a signal shorter than the window", () => {
-    expect(spectrogram(new Float32Array(100), 48_000).frames).toBe(1);
+  it("puts a burst in the frames that cover it: frame i starts at i * hop", () => {
+    const sr = 48_000;
+    const hz = (64 * sr) / 1024;
+    const signal = new Float32Array(8192);
+    for (let i = 4096; i < signal.length; i += 1) {
+      signal[i] = Math.sin((2 * Math.PI * hz * i) / sr);
+    }
+    const spec = spectrogram(signal, sr);
+    const at = (frame: number) => spec.db[frame * spec.bins + 64] ?? Number.NaN;
+    // frames 11 and 12 end at or before sample 4096: digital silence
+    expect(at(11)).toBe(-120);
+    expect(at(12)).toBe(-120);
+    // frame 14 starts at 3584, so the burst fills the second half of its Hann window, which holds half the window's sum: -6.02 dB
+    expect(at(14)).toBeCloseTo(-6.02, 1);
+    // frame 16 starts at 4096 and is full of tone
+    expect(at(16)).toBeCloseTo(0, 1);
+    expect(at(28)).toBeCloseTo(0, 1);
+  });
+
+  it("zero pads a signal shorter than the window into one frame that holds its energy", () => {
+    const sr = 48_000;
+    const short = Float32Array.from({ length: 100 }, (_, i) =>
+      Math.sin((2 * Math.PI * 1000 * i) / sr)
+    );
+    const spec = spectrogram(short, sr);
+    expect(spec.frames).toBe(1);
+    expect(Math.max(...spec.db)).toBeGreaterThan(-60);
+    expect(spectrogram(new Float32Array(100), sr).frames).toBe(1);
   });
 });

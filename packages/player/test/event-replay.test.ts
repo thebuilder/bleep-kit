@@ -135,7 +135,8 @@ describe("EventReplayer without a loop", () => {
   it("stamps the frame in the context's sample rate", () => {
     const r = new EventReplayer(file, plan, start());
     const [first] = r.collect(7);
-    expect(first?.frame).toBe(Math.round(6.02 * 44_100));
+    // audible at 6.02 s on a 44.1 kHz context: frame 265 482
+    expect(first?.frame).toBe(265_482);
     expect(first?.hz).toBe(440);
   });
 
@@ -214,18 +215,42 @@ describe("EventReplayer on a looping source", () => {
 
   it("skips whole passes after a long sleep instead of replaying them", () => {
     const r = new EventReplayer(file, plan, start({ duration: 6, latency: 0 }));
-    const out = r.collect(5 + 3600.3);
-    expect(out.length).toBeLessThan(8);
-    expect(out.every((e) => e.time <= 5 + 3600.3)).toBe(true);
-    expect(out.some((e) => e.type === "loop")).toBe(true);
-    // the next pass continues in step with the audio: wraps stay on the 2 s grid
-    const next = r.collect(5 + 3604);
-    const loops = next
-      .filter((e) => e.type === "loop")
-      .map((e) => (e.time - 5 - 4) % 2);
-    expect(
-      loops.every((m) => Math.abs(m) < 1e-6 || Math.abs(m - 2) < 1e-6)
-    ).toBe(true);
+    // an hour asleep: the 2 s loop passes began at 9 s (every odd second); the latest wrap at 3605 s is the only
+    // thing worth reporting, and nothing of the 1800 passes in between is replayed
+    expect(times(r.collect(5 + 3600.3))).toEqual([["loop", 3605]]);
+    // and the replay carries on in step with the audio: notes at +0.5 s and +1.5 s of each pass, wraps every 2 s
+    expect(times(r.collect(5 + 3604))).toEqual([
+      ["noteOn", 3605.5],
+      ["noteOn", 3606.5],
+      ["loop", 3607],
+      ["noteOn", 3607.5],
+      ["noteOn", 3608.5],
+      ["loop", 3609],
+    ]);
+  });
+
+  it("plays an event at the loop start in every pass and never one at the loop end", () => {
+    // the buffer jumps from the loop end back to the loop start, so the sample at the end is never played
+    const edges = {
+      events: [ev("noteOn", 2), ev("noteOn", 4)],
+      sampleRate: RATE,
+    };
+    const r = new EventReplayer(
+      edges,
+      plan,
+      start({ duration: 6, latency: 0 })
+    );
+    // polled every quarter second like the player's timer, so no pass is slept through
+    const heard: PlayerEvent[] = [];
+    for (let now = 5; now <= 5 + 8.2; now += 0.25) {
+      heard.push(...r.collect(now));
+    }
+    expect(heard.filter((e) => e.type === "noteOn").map((e) => e.time)).toEqual(
+      [7, 9, 11, 13]
+    );
+    expect(heard.filter((e) => e.type === "loop").map((e) => e.time)).toEqual([
+      9, 11, 13,
+    ]);
   });
 });
 
@@ -252,6 +277,35 @@ describe("EventDispatcher", () => {
     d.flush(10);
     expect(seen).toEqual(["on:a", "row:b", "on:c"]);
     expect(d.pending).toBe(0);
+  });
+
+  it("delivers events with the same time in the order they were queued", () => {
+    const d = new EventDispatcher(() => undefined);
+    const seen: string[] = [];
+    d.on("noteOff", (e) => seen.push(`off:${e.id}`));
+    d.on("noteOn", (e) => seen.push(`on:${e.id}`));
+    d.push(event("noteOff", 1, "a"));
+    d.push(event("noteOn", 1, "b"));
+    d.push(event("noteOff", 1, "c"));
+    d.flush(1);
+    expect(seen).toEqual(["off:a", "on:b", "off:c"]);
+  });
+
+  it("is not disturbed by listeners that subscribe or unsubscribe while being called", () => {
+    const d = new EventDispatcher(() => undefined);
+    const seen: string[] = [];
+    const offA = d.on("row", () => {
+      seen.push("A");
+      offA();
+      d.on("row", () => seen.push("late"));
+    });
+    d.on("row", () => seen.push("B"));
+    d.push(event("row", 1));
+    d.push(event("row", 2));
+    d.flush(5);
+    // A leaves and a new listener arrives during the first event: B is not skipped, and the newcomer waits for the
+    // next event instead of hearing the one being delivered
+    expect(seen).toEqual(["A", "B", "B", "late"]);
   });
 
   it("drops events nobody listens for and stops calling unsubscribed listeners", () => {

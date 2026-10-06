@@ -9,8 +9,23 @@ const flags: FlagSpec[] = [
   { description: "l", name: "mml", type: "list" },
 ];
 
+/** The CliError parseArgs throws for these arguments (the test fails when it does not throw). */
+function usageError(argv: string[]): CliError {
+  let thrown: unknown;
+  try {
+    parseArgs(argv, flags, "render");
+  } catch (error) {
+    thrown = error;
+  }
+  expect(
+    thrown,
+    `parseArgs(${JSON.stringify(argv)}) should throw`
+  ).toBeInstanceOf(CliError);
+  return thrown as CliError;
+}
+
 describe("parseArgs", () => {
-  it("collects positionals and typed flags", () => {
+  it("collects positionals and typed flags, with a value after a space or after =", () => {
     const p = parseArgs(
       ["sfx", "coin", "--count", "3", "--out=a", "--open"],
       flags,
@@ -22,9 +37,11 @@ describe("parseArgs", () => {
     expect(p.bool("open")).toBe(true);
   });
 
-  it("supports --no-<flag> for booleans and leaves unset flags undefined", () => {
-    const p = parseArgs(["--no-open"], flags, "t");
-    expect(p.bool("open")).toBe(false);
+  it("supports --no-<flag> and --flag=false for booleans, and leaves unset flags undefined", () => {
+    expect(parseArgs(["--no-open"], flags, "t").bool("open")).toBe(false);
+    expect(parseArgs(["--open=false"], flags, "t").bool("open")).toBe(false);
+    const p = parseArgs([], flags, "t");
+    expect(p.bool("open")).toBeUndefined();
     expect(p.num("count")).toBeUndefined();
     expect(p.has("count")).toBe(false);
   });
@@ -38,33 +55,42 @@ describe("parseArgs", () => {
     expect(p.list("mml")).toEqual(["pulse1=o4 c", "noise=l8 c"]);
   });
 
-  it("accepts negative numbers as values", () => {
+  it("accepts negative numbers as values, with a space or after =", () => {
     expect(parseArgs(["--seed", "-5"], [], "t").num("seed")).toBe(-5);
+    expect(parseArgs(["--count=-0.5"], flags, "t").num("count")).toBe(-0.5);
+  });
+
+  it("knows the global flags and their short aliases on every command", () => {
+    const p = parseArgs(["-q", "--json", "--project", "x/y"], [], "t");
+    expect(p.bool("quiet")).toBe(true);
+    expect(p.bool("json")).toBe(true);
+    expect(p.str("project")).toBe("x/y");
   });
 
   it("rejects unknown flags with a suggestion", () => {
-    try {
-      parseArgs(["--cuont", "3"], flags, "render");
-      expect.unreachable();
-    } catch (error) {
-      expect(error).toBeInstanceOf(CliError);
-      const e = error as CliError;
-      expect(e.code).toBe("usage");
-      expect(e.hint).toContain("--count");
-    }
+    const e = usageError(["--cuont", "3"]);
+    expect(e.code).toBe("usage");
+    expect(e.hint).toContain("--count");
   });
 
   it("rejects bad numbers, bad enum values and missing values", () => {
-    expect(() => parseArgs(["--count", "abc"], flags, "t")).toThrow(
+    expect(usageError(["--count", "abc"]).message).toMatch(/needs a number/);
+    expect(usageError(["--count", "Infinity"]).message).toMatch(
       /needs a number/
     );
-    expect(() => parseArgs(["--out", "z"], flags, "t")).toThrow(/one of a, b/);
-    expect(() => parseArgs(["--out"], flags, "t")).toThrow(/needs a value/);
+    expect(usageError(["--count="]).message).toMatch(/needs a number/);
+    expect(usageError(["--out", "z"]).message).toMatch(/one of a, b/);
+    expect(usageError(["--out"]).message).toMatch(/needs a value/);
+  });
+
+  it("does not swallow the next flag as a value", () => {
+    expect(usageError(["--out", "--open"]).message).toMatch(/needs a value/);
+    expect(usageError(["--count", "--open"]).message).toMatch(/needs a value/);
   });
 
   it("treats everything after -- as positional", () => {
-    expect(parseArgs(["--", "--count"], flags, "t").positionals).toEqual([
-      "--count",
-    ]);
+    const p = parseArgs(["a", "--", "--count", "--open"], flags, "t");
+    expect(p.positionals).toEqual(["a", "--count", "--open"]);
+    expect(p.has("count")).toBe(false);
   });
 });

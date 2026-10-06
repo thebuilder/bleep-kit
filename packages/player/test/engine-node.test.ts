@@ -77,6 +77,7 @@ describe("createEngineNode: loading", () => {
     const { Node, as } = setup();
     Node.hook = (node) => queueMicrotask(() => node.onprocessorerror?.());
     await expect(createEngineNode(as)).rejects.toThrow("failed to start");
+    expect(Node.instances[0]?.disconnected).toBe(true);
   });
 
   it("gives up when the worklet never answers", async () => {
@@ -87,30 +88,45 @@ describe("createEngineNode: loading", () => {
     const assertion = expect(pending).rejects.toThrow("did not answer");
     await vi.advanceTimersByTimeAsync(9000);
     await assertion;
+    expect(Node.instances[0]?.disconnected).toBe(true);
   });
 });
 
 describe("EngineNode: messages", () => {
-  it("sends typed messages and delivers worklet messages to handlers until they unsubscribe", async () => {
+  it("posts what it is sent to the worklet port", async () => {
+    const { Node, as } = setup();
+    const engine = await createEngineNode(as);
+    const msg: ToWorklet = { loop: true, type: "play" };
+    engine.send(msg);
+    expect(Node.instances[0]?.port.sent).toEqual([msg]);
+  });
+
+  it("delivers worklet messages to every handler until it unsubscribes, whatever another handler does", async () => {
     const { Node, as } = setup();
     const engine = await createEngineNode(as);
     const [node] = Node.instances;
-    const msg: ToWorklet = { loop: true, type: "play" };
-    engine.send(msg);
-    expect(node?.port.sent).toEqual([msg]);
-
-    const got: FromWorklet[] = [];
-    const off = engine.on((m) => got.push(m));
+    // a listener that throws comes first: the ones after it must still hear the message, and the clock still updates
     engine.on(() => {
       throw new Error("bad listener");
     });
+    const got: FromWorklet[] = [];
+    const off = engine.on((m) => got.push(m));
     node?.port.emit({ type: "ended" });
     node?.port.emit(null);
     node?.port.emit("junk");
     expect(got).toEqual([{ type: "ended" }]);
+    node?.port.emit({
+      frame: 7,
+      playing: false,
+      position: null,
+      time: 1,
+      type: "clock",
+    });
+    expect(engine.lastClock()?.frame).toBe(7);
+    expect(got).toHaveLength(2);
     off();
     node?.port.emit({ type: "ended" });
-    expect(got).toHaveLength(1);
+    expect(got).toHaveLength(2);
   });
 
   it("stops everything on dispose", async () => {

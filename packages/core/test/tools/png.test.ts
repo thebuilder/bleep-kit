@@ -1,6 +1,13 @@
+import { deflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { encodePng } from "../../src/tools/png.ts";
-import { adler32, crc32, decodeStoredPng } from "./helpers.ts";
+import { decodePng, firstDifference, readPngChunks, toHex } from "./helpers.ts";
+
+/*
+ * The decoder in helpers.ts is independent of encodePng: it checks every CRC with zlib.crc32 and inflates the IDAT with
+ * Node's zlib, which also verifies the zlib header and the Adler-32. The golden bytes below were cross-checked once with
+ * Pillow (which reads the image back as the pixels listed) and python's zlib.crc32.
+ */
 
 function gradient(width: number, height: number): Uint8Array {
   const data = new Uint8Array(width * height * 4);
@@ -17,84 +24,128 @@ function gradient(width: number, height: number): Uint8Array {
 }
 
 describe("encodePng", () => {
-  it("writes stored blocks that a hand parser decodes to the same pixels", () => {
+  it("writes exactly the bytes the PNG, zlib and deflate specs prescribe for a 2x2 image", () => {
+    // row 0: opaque red, half transparent green; row 1: fully transparent blue, an arbitrary RGBA
+    const data = Uint8Array.from([
+      255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 0, 10, 20, 30, 40,
+    ]);
+    const expected = [
+      "89504e470d0a1a0a", // signature
+      "0000000d", // IHDR: 13 bytes
+      "49484452",
+      "00000002", // width
+      "00000002", // height
+      "08", // bit depth
+      "06", // color type 6: RGBA
+      "00", // compression method
+      "00", // filter method
+      "00", // not interlaced
+      "72b60d24", // CRC
+      "0000001d", // IDAT: 29 bytes
+      "49444154",
+      "7801", // zlib header
+      "01", // final block, stored
+      "1200", // LEN 18 = 2 * (1 filter byte + 8 pixel bytes), little endian
+      "edff", // NLEN
+      "00", // row 0: filter type none
+      "ff0000ff00ff0080",
+      "00", // row 1: filter type none
+      "0000ff000a141e28",
+      "36a904e1", // Adler-32 of the 18 bytes
+      "33cd048f", // CRC
+      "00000000", // IEND: no data
+      "49454e44",
+      "ae426082", // CRC
+    ].join("");
+    expect(toHex(encodePng({ data, height: 2, width: 2 }))).toBe(expected);
+  });
+
+  it("round trips an image whose size is not a multiple of anything", () => {
     const data = gradient(37, 23);
-    const png = encodePng({ data, height: 23, width: 37 });
-    const decoded = decodeStoredPng(png);
+    const decoded = decodePng(encodePng({ data, height: 23, width: 37 }));
     expect(decoded.width).toBe(37);
     expect(decoded.height).toBe(23);
     expect(decoded.chunks).toEqual(["IHDR", "IDAT", "IEND"]);
-    expect(Array.from(decoded.pixels)).toEqual(Array.from(data));
+    expect(firstDifference(decoded.pixels, data)).toBe(-1);
   });
 
-  it("splits large images over several stored blocks", () => {
-    const data = gradient(300, 100); // 120 KB of pixels: more than one 64 KB block
-    const decoded = decodeStoredPng(
-      encodePng({ data, height: 100, width: 300 })
-    );
-    expect(decoded.pixels.length).toBe(data.length);
-    expect(Array.from(decoded.pixels.subarray(0, 4000))).toEqual(
-      Array.from(data.subarray(0, 4000))
-    );
-    expect(Array.from(decoded.pixels.subarray(data.length - 4000))).toEqual(
-      Array.from(data.subarray(data.length - 4000))
-    );
-  });
+  it.each([
+    // width 1 gives 5 bytes per scanline, so 13107 rows are exactly one full stored block (65535 bytes)
+    ["exactly one full stored block", 1, 13_107],
+    ["one byte-row more than a full block", 1, 13_108],
+    ["a large image over two blocks", 300, 100],
+  ])(
+    "splits the pixels into stored blocks of at most 65535 bytes: %s",
+    (_name, width, height) => {
+      const data = gradient(width, height);
+      const decoded = decodePng(encodePng({ data, height, width }));
+      expect(decoded.pixels.length).toBe(data.length);
+      expect(firstDifference(decoded.pixels, data)).toBe(-1);
+    }
+  );
 
-  it("uses the deflate function it is given, and wraps nothing around its output", () => {
-    const data = gradient(8, 8);
-    let seen = 0;
+  it("hands the filtered scanlines to the deflate function and writes its output unchanged as the IDAT", () => {
+    const data = gradient(3, 2);
+    let received: Uint8Array = new Uint8Array(0);
     const marker = Uint8Array.from([0x78, 0x01, 0xaa, 0xbb]);
-    const png = encodePng({ data, height: 8, width: 8 }, (raw) => {
-      seen = raw.length;
+    const png = encodePng({ data, height: 2, width: 3 }, (raw) => {
+      received = raw.slice();
       return marker;
     });
-    expect(seen).toBe((8 * 4 + 1) * 8);
-    // the IDAT body is exactly what deflate returned
-    const view = new DataView(png.buffer);
-    const idatAt = 8 + 12 + 13;
-    expect(view.getUint32(idatAt, false)).toBe(4);
-    expect(Array.from(png.subarray(idatAt + 8, idatAt + 12))).toEqual(
-      Array.from(marker)
-    );
-  });
-
-  it("writes the signature, IHDR fields and valid chunk CRCs", () => {
-    const png = encodePng({ data: gradient(5, 4), height: 4, width: 5 });
-    expect(Array.from(png.subarray(0, 8))).toEqual([
-      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    // every scanline is a filter byte 0 followed by its 3 pixels
+    expect(Array.from(received)).toEqual([
+      0,
+      ...data.subarray(0, 12),
+      0,
+      ...data.subarray(12, 24),
     ]);
-    const view = new DataView(png.buffer);
-    expect(view.getUint32(8, false)).toBe(13);
-    expect(view.getUint32(16, false)).toBe(5);
-    expect(view.getUint32(20, false)).toBe(4);
-    expect(png[24]).toBe(8);
-    expect(png[25]).toBe(6);
-    // IEND is the last 12 bytes with the well known CRC
-    expect(view.getUint32(png.length - 4, false)).toBe(0xae_42_60_82);
+    const parsed = readPngChunks(png);
+    expect(parsed.chunks).toEqual(["IHDR", "IDAT", "IEND"]);
+    expect(Array.from(parsed.idat)).toEqual(Array.from(marker));
   });
 
-  it("matches the reference checksums", () => {
-    const text = Uint8Array.from(
-      "123456789".split("").map((c) => c.charCodeAt(0))
+  it("works with zlib compression the way the CLI uses it, and compresses", () => {
+    const flat = new Uint8Array(64 * 64 * 4).fill(7);
+    const stored = encodePng({ data: flat, height: 64, width: 64 });
+    const deflated = encodePng(
+      { data: flat, height: 64, width: 64 },
+      (d) => new Uint8Array(deflateSync(d))
     );
-    expect(crc32(text)).toBe(0xcb_f4_39_26);
-    expect(adler32(text)).toBe(0x09_1e_01_de);
+    expect(firstDifference(decodePng(deflated).pixels, flat)).toBe(-1);
+    expect(deflated.length).toBeLessThan(stored.length / 10);
+    const busy = gradient(50, 40);
+    const back = decodePng(
+      encodePng(
+        { data: busy, height: 40, width: 50 },
+        (d) => new Uint8Array(deflateSync(d))
+      )
+    );
+    expect(firstDifference(back.pixels, busy)).toBe(-1);
   });
 
-  it("rejects a bad size or short data", () => {
+  it.each([
+    ["a zero width", 0, 1],
+    ["a zero height", 1, 0],
+    ["a negative width", -2, 1],
+    ["a fractional width", 1.5, 1],
+    ["a width that is not a number", Number.NaN, 1],
+  ])("rejects %s", (_name, width, height) => {
     expect(() =>
-      encodePng({ data: new Uint8Array(4), height: 1, width: 0 })
+      encodePng({ data: new Uint8Array(16), height, width })
     ).toThrow("bad size");
+  });
+
+  it("rejects pixel data shorter than width * height * 4", () => {
     expect(() =>
       encodePng({ data: new Uint8Array(3), height: 1, width: 1 })
     ).toThrow("shorter");
-  });
-
-  it("encodes a one pixel image", () => {
-    const decoded = decodeStoredPng(
-      encodePng({ data: Uint8Array.from([1, 2, 3, 255]), height: 1, width: 1 })
+    // 3 x 2 pixels need exactly 24 bytes: one byte less is too short, extra bytes are ignored
+    expect(() =>
+      encodePng({ data: new Uint8Array(23), height: 2, width: 3 })
+    ).toThrow("shorter");
+    const padded = decodePng(
+      encodePng({ data: new Uint8Array(30).fill(9), height: 2, width: 3 })
     );
-    expect(Array.from(decoded.pixels)).toEqual([1, 2, 3, 255]);
+    expect(firstDifference(padded.pixels, new Uint8Array(24).fill(9))).toBe(-1);
   });
 });

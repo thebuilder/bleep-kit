@@ -1,3 +1,4 @@
+import { crc32, inflateSync } from "node:zlib";
 import type { RenderResult } from "../../src/types.ts";
 
 /** Synthetic signals for the tools tests. */
@@ -73,7 +74,7 @@ export function render(
   };
 }
 
-/** The decoded pixels of a PNG written without a deflate function (stored blocks), parsed by hand. */
+/** The decoded pixels of a PNG, parsed by hand and inflated with Node's zlib (an independent implementation). */
 export interface DecodedPng {
   chunks: string[];
   height: number;
@@ -91,36 +92,6 @@ function u32(bytes: Uint8Array, at: number): number {
   );
 }
 
-let crcTable: number[] | null = null;
-
-export function crc32(bytes: Uint8Array): number {
-  if (!crcTable) {
-    crcTable = [];
-    for (let n = 0; n < 256; n += 1) {
-      let c = n;
-      for (let k = 0; k < 8; k += 1) {
-        c = c & 1 ? 0xed_b8_83_20 ^ (c >>> 1) : c >>> 1;
-      }
-      crcTable.push(c >>> 0);
-    }
-  }
-  let c = 0xff_ff_ff_ff;
-  for (const b of bytes) {
-    c = (crcTable[(c ^ b) & 0xff] ?? 0) ^ (c >>> 8);
-  }
-  return (c ^ 0xff_ff_ff_ff) >>> 0;
-}
-
-export function adler32(bytes: Uint8Array): number {
-  let a = 1;
-  let b = 0;
-  for (const v of bytes) {
-    a = (a + v) % 65_521;
-    b = (b + a) % 65_521;
-  }
-  return ((b << 16) | a) >>> 0;
-}
-
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 function chunkType(png: Uint8Array, at: number): string {
@@ -132,12 +103,12 @@ function chunkType(png: Uint8Array, at: number): string {
   );
 }
 
-/** Walk the chunks, checking every CRC; returns the size, the chunk names and the joined IDAT bytes. */
-function readChunks(png: Uint8Array): {
+/** Walk the chunks, checking the signature, that the chunks end exactly at the end of the file and every CRC (with zlib.crc32). */
+export function readPngChunks(png: Uint8Array): {
   width: number;
   height: number;
   chunks: string[];
-  zlib: Uint8Array;
+  idat: Uint8Array;
 } {
   for (let i = 0; i < 8; i += 1) {
     if (png[i] !== PNG_SIGNATURE[i]) {
@@ -147,12 +118,15 @@ function readChunks(png: Uint8Array): {
   let at = 8;
   let width = 0;
   let height = 0;
-  const idat: Uint8Array[] = [];
+  const parts: Uint8Array[] = [];
   const chunks: string[] = [];
   while (at < png.length) {
     const len = u32(png, at);
     const type = chunkType(png, at + 4);
     const body = png.subarray(at + 8, at + 8 + len);
+    if (at + 12 + len > png.length) {
+      throw new Error(`${type} runs past the end of the file`);
+    }
     if (u32(png, at + 8 + len) !== crc32(png.subarray(at + 4, at + 8 + len))) {
       throw new Error(`bad CRC in ${type}`);
     }
@@ -160,61 +134,35 @@ function readChunks(png: Uint8Array): {
     if (type === "IHDR") {
       width = u32(body, 0);
       height = u32(body, 4);
-      if (body[8] !== 8 || body[9] !== 6 || body[12] !== 0) {
-        throw new Error("expected 8 bit RGBA, not interlaced");
+      if (
+        body[8] !== 8 ||
+        body[9] !== 6 ||
+        body[10] !== 0 ||
+        body[11] !== 0 ||
+        body[12] !== 0
+      ) {
+        throw new Error(
+          "expected 8 bit RGBA, deflate, adaptive filtering, not interlaced"
+        );
       }
     } else if (type === "IDAT") {
-      idat.push(body);
+      parts.push(body);
     }
     at += 12 + len;
   }
-  const zlib = new Uint8Array(
-    idat.reduce((total, part) => total + part.length, 0)
-  );
-  let offset = 0;
-  for (const part of idat) {
-    zlib.set(part, offset);
-    offset += part.length;
-  }
-  return { chunks, height, width, zlib };
+  return { chunks, height, idat: concatBytes(parts), width };
 }
 
-/** Undo a zlib stream made only of stored blocks and check its Adler-32. */
-function inflateStored(z: Uint8Array): Uint8Array {
-  if (z[0] !== 0x78 || (((z[0] ?? 0) << 8) | (z[1] ?? 0)) % 31 !== 0) {
-    throw new Error("bad zlib header");
-  }
-  const raw: number[] = [];
-  let p = 2;
-  let last = false;
-  while (!last) {
-    const header = z[p] ?? 0;
-    if ((header & 6) !== 0) {
-      throw new Error("not a stored block");
-    }
-    last = (header & 1) === 1;
-    const len = (z[p + 1] ?? 0) | ((z[p + 2] ?? 0) << 8);
-    const nlen = (z[p + 3] ?? 0) | ((z[p + 4] ?? 0) << 8);
-    if ((len ^ 0xff_ff) !== nlen) {
-      throw new Error("bad stored block length");
-    }
-    for (let i = 0; i < len; i += 1) {
-      raw.push(z[p + 5 + i] ?? 0);
-    }
-    p += 5 + len;
-  }
-  const bytes = Uint8Array.from(raw);
-  if (u32(z, p) !== adler32(bytes)) {
-    throw new Error("bad Adler-32");
-  }
-  return bytes;
-}
-
-/** Parse a PNG of stored deflate blocks: checks the signature, every chunk CRC, the zlib header and Adler-32. */
-export function decodeStoredPng(png: Uint8Array): DecodedPng {
-  const { chunks, height, width, zlib } = readChunks(png);
-  const raw = inflateStored(zlib);
+/** Decode a PNG written by encodePng: every chunk CRC is checked, the IDAT is inflated by zlib (which checks the zlib header and Adler-32) and every scanline must use filter type 0. */
+export function decodePng(png: Uint8Array): DecodedPng {
+  const { chunks, height, idat, width } = readPngChunks(png);
+  const raw = inflateSync(idat);
   const rowBytes = width * 4;
+  if (raw.length !== (rowBytes + 1) * height) {
+    throw new Error(
+      `inflated ${raw.length} bytes, expected ${(rowBytes + 1) * height}`
+    );
+  }
   const pixels = new Uint8Array(rowBytes * height);
   for (let y = 0; y < height; y += 1) {
     if (raw[y * (rowBytes + 1)] !== 0) {
@@ -256,11 +204,28 @@ export function countColor(
   return n;
 }
 
-/** FNV-1a over bytes, for comparing big buffers cheaply. */
-export function hashBytes(bytes: Uint8Array): number {
-  let h = 0x81_1c_9d_c5;
-  for (const b of bytes) {
-    h = Math.imul(h ^ b, 0x01_00_01_93);
+/** The parts one after the other in a new buffer. */
+export function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
   }
-  return h >>> 0;
+  return out;
+}
+
+/** Index of the first byte where two buffers differ (the shorter length when one is a prefix of the other), or -1 when they are equal. */
+export function firstDifference(a: Uint8Array, b: Uint8Array): number {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i += 1) {
+    if (a[i] !== b[i]) {
+      return i;
+    }
+  }
+  return a.length === b.length ? -1 : n;
+}
+
+export function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }

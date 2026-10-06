@@ -1,13 +1,15 @@
-// What a render depends on beyond the document: core's ENGINE_VERSION (the sound itself) goes into the render hash, and
-// the CLI names itself in the WAV files it writes.
+// What a render depends on beyond the document: core's ENGINE_VERSION (the sound itself) goes into the render hash
+// (architecture.md 6.2: bumping it makes every render in every project stale), and the CLI names itself in the WAV
+// files it writes (section 8: `ISFT: bleepkit <version>`, `ICMT: <id>`).
 
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { makeProject, run } from "./helpers.ts";
+import { makeProject, readWav, run } from "./helpers.ts";
 
 const engine = vi.hoisted(() => ({ override: "" }));
 
+// The one thing that has to be faked: ENGINE_VERSION is a constant of core, and the test needs it to "change".
 vi.mock("@bleepkit/core", async (importOriginal) => {
   const real = await importOriginal<typeof import("@bleepkit/core")>();
   return {
@@ -18,19 +20,28 @@ vi.mock("@bleepkit/core", async (importOriginal) => {
   };
 });
 
+const pkg = JSON.parse(
+  fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")
+) as { version: string };
+
 describe("ENGINE_VERSION in the render hash", () => {
-  it("a bumped engine version makes an up to date render stale", async () => {
+  it("a bumped engine version makes an up to date render stale in `list` and redone by `render`", async () => {
     const { repo } = await makeProject();
     const first = await run(repo, ["render", "sfx/coin", "--json"]);
     expect(first.json.renders[0].cached).toBe(false);
     const again = await run(repo, ["render", "sfx/coin", "--json"]);
     expect(again.json.renders[0].cached).toBe(true);
+    const fresh = await run(repo, ["list", "sfx", "--json"]);
+    expect(fresh.json.sfx[0].render.stale).toBe(false);
+
     engine.override = "bumped-by-test";
     try {
-      const stale = await run(repo, ["list", "--json"]);
-      expect(JSON.stringify(stale.json)).toContain("stale");
+      const stale = await run(repo, ["list", "sfx", "--json"]);
+      expect(stale.json.sfx[0].render.stale).toBe(true);
       const after = await run(repo, ["render", "sfx/coin", "--json"]);
       expect(after.json.renders[0].cached).toBe(false);
+      const settled = await run(repo, ["render", "sfx/coin", "--json"]);
+      expect(settled.json.renders[0].cached).toBe(true);
     } finally {
       engine.override = "";
     }
@@ -38,14 +49,20 @@ describe("ENGINE_VERSION in the render hash", () => {
 });
 
 describe("WAV files written by the CLI", () => {
-  it("name the CLI and its version in the LIST INFO chunk", async () => {
+  it("name the CLI version (ISFT) and the document id (ICMT) in the LIST INFO chunk", async () => {
     const { project, repo } = await makeProject();
-    const r = await run(repo, ["render", "sfx/coin", "--json"]);
+    await run(repo, ["new", "song", "title", "--mml", "pulse1=o4 l8 cdef"]);
+    const r = await run(repo, ["render", "sfx/coin", "song/title", "--json"]);
     expect(r.code, r.stderr).toBe(0);
-    const bytes = fs.readFileSync(path.join(project, "out", "sfx", "coin.wav"));
-    const text = bytes.toString("latin1");
-    expect(text).toContain("ISFT");
-    expect(text).toContain("bleepkit 0.1.0");
-    expect(text).toContain("ICMT");
+    const coin = readWav(path.join(project, "out", "sfx", "coin.wav"));
+    expect(coin.info).toEqual({
+      ICMT: "coin",
+      ISFT: `bleepkit ${pkg.version}`,
+    });
+    const title = readWav(path.join(project, "out", "songs", "title.wav"));
+    expect(title.info).toEqual({
+      ICMT: "title",
+      ISFT: `bleepkit ${pkg.version}`,
+    });
   });
 });

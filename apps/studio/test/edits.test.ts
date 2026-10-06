@@ -43,8 +43,11 @@ describe("fitFmOps", () => {
   it("fills a two operator patch back up for a four operator chip", () => {
     const i = defaultInstrument("fm", "adlib");
     expect(i.fm?.ops.length).toBe(2);
+    const own = structuredClone(i.fm?.ops);
     fitFmOps(i, "genesis");
     expect(i.fm?.ops.length).toBe(4);
+    // the two operators the user already shaped are kept as they were
+    expect(i.fm?.ops.slice(0, 2)).toEqual(own);
   });
 
   it("does nothing when the count already fits, there is no chip, or the instrument is not FM", () => {
@@ -71,9 +74,11 @@ describe("serverResultNodes", () => {
       files: ["a.ogg", { path: "b.ogg" }, { file: "c.ogg" }, 7, null],
     });
     expect(text(nodes)).toContain("Export finished: 5 files written.");
-    expect(nodes[1]?.querySelectorAll("li").length).toBe(5);
-    expect(nodes[1]?.textContent).toContain("b.ogg");
-    expect(nodes[1]?.textContent).toContain("c.ogg");
+    expect(
+      Array.from(nodes[1]?.querySelectorAll("li") ?? []).map(
+        (li) => li.textContent
+      )
+    ).toEqual(["a.ogg", "b.ogg", "c.ogg", "7", "null"]);
   });
 
   it("reads the written list when there is no files list, and shows warnings and errors", () => {

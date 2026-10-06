@@ -57,6 +57,20 @@ describe("mml grammar", () => {
     expect(ev.map((n) => n.duration)).toEqual([144, 168, 180]);
   });
 
+  it("triplet and short lengths follow the same 384/n rule", () => {
+    // 3 = half note triplet, 6 = quarter triplet, 12 = eighth triplet, 96 and 192 are the finest ticks
+    const ev = notes("c3 c6 c12 c96 c192");
+    expect(ev.map((n) => n.duration)).toEqual([128, 64, 32, 4, 2]);
+  });
+
+  it("more than three dots is a warning and counts as three", () => {
+    const p = parseMml("c4.....");
+    expect(notes("c4.....")[0]?.duration).toBe(180);
+    expect(p.issues).toHaveLength(1);
+    expect(p.issues[0]).toMatchObject({ path: "/mml", severity: "warning" });
+    expect(p.issues[0]?.message).toContain("dots");
+  });
+
   it("l sets the default length and accepts dots", () => {
     const ev = notes("l16 c c l4. c");
     expect(ev.map((n) => n.duration)).toEqual([24, 24, 144]);
@@ -113,23 +127,27 @@ describe("mml grammar", () => {
     expect(parseMml("t140 c").tempo).toBe(140);
     const p = parseMml("t140 c t90 c");
     expect(p.tempo).toBe(140);
-    expect(p.issues.some((i) => i.severity === "warning")).toBe(true);
+    expect(p.issues).toHaveLength(1);
+    expect(p.issues[0]).toMatchObject({ path: "/mml", severity: "warning" });
+    expect(p.issues[0]?.message).toMatch(/only the first "t".* offset 7/);
     expect(parseMml("c").tempo).toBeNull();
   });
 
-  it("w attaches a duty effect to the next note", () => {
+  it("w<n> is shorthand for the {V0n} duty effect on the next note only", () => {
     const n = notes("w2 c d");
-    expect(n[0]?.fx).toHaveLength(1);
-    expect(n[0]?.fx[0]).toMatchObject({ type: "duty" });
-    expect(n[1]?.fx).toHaveLength(0);
+    expect(n[0]?.fx).toEqual([{ type: "duty", x: 0, y: 2 }]);
+    expect(n[0]?.fx).toEqual(notes("{V02} c")[0]?.fx);
+    expect(n[1]?.fx).toEqual([]);
   });
 
   it("braces attach tracker effects to the next note only", () => {
     const n = notes("{A0F}{047} c d");
-    expect(n[0]?.fx.map((f) => f.type)).toEqual(["volSlide", "arp"]);
+    expect(n[0]?.fx).toEqual([
+      { type: "volSlide", x: 0, y: 15 },
+      { type: "arp", x: 4, y: 7 },
+    ]);
     expect(n[1]?.fx).toEqual([]);
-    const spaced = notes("{A0F 047} c");
-    expect(spaced[0]?.fx).toHaveLength(2);
+    expect(notes("{A0F 047} c")[0]?.fx).toEqual(n[0]?.fx);
   });
 
   it("ties join same-pitch notes without a retrigger", () => {
@@ -194,7 +212,7 @@ describe("mml grammar", () => {
 });
 
 describe("mml errors", () => {
-  it("never throws on junk", () => {
+  it("junk never throws and is always reported with a position", () => {
     for (const src of [
       "]",
       "[",
@@ -215,8 +233,18 @@ describe("mml errors", () => {
       "c4.....",
       "%$!",
     ]) {
-      expect(() => parseMml(src)).not.toThrow();
+      const { issues } = parseMml(src);
+      expect(issues.length, `${src} should be reported`).toBeGreaterThan(0);
+      for (const i of issues) {
+        expect(i.path).toBe("/mml");
+        expect(i.message, src).toMatch(/offset \d+/);
+      }
     }
+  });
+
+  it("commands are case sensitive: an uppercase note is an unknown command", () => {
+    expect(errors("C")).toEqual(['unknown command "C" at offset 0']);
+    expect(notes("C")).toEqual([]);
   });
 
   it("unknown commands report the character offset", () => {
@@ -320,9 +348,32 @@ describe("mmlToTrack", () => {
     expect(byRow.get(8)?.note).toBe(62);
   });
 
+  it("a gate shorter than the note puts the note off at pulse + gate", () => {
+    // q4 = half the length: each quarter note (4 rows) sounds for 2 rows
+    const { rows } = mmlToTrack("q4 c4 c4", 4);
+    expect(rows.map((r) => [r.row, r.note])).toEqual([
+      [0, 60],
+      [2, "off"],
+      [4, 60],
+      [6, "off"],
+    ]);
+  });
+
+  it("a tie joins the notes into one row event with no note off in between", () => {
+    const { rows } = mmlToTrack("c4&c4 d4", 4);
+    expect(rows.map((r) => [r.row, r.note])).toEqual([
+      [0, 60],
+      [8, 62],
+      [12, "off"],
+    ]);
+  });
+
   it("finer than a row notes are rounded with a warning", () => {
+    // a 32nd note lasts 12 pulses, half of a 24 pulse row
     const { issues } = mmlToTrack("c32 c32 c32", 4);
-    expect(issues.some((i) => i.severity === "warning")).toBe(true);
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues.every((i) => i.severity === "warning")).toBe(true);
+    expect(issues.every((i) => i.path === "/mml")).toBe(true);
   });
 
   it("returns the loop row", () => {
@@ -342,6 +393,9 @@ describe("mmlToTrack", () => {
     const back = notes(text);
     expect(back.map((n) => n.note)).toEqual([60, 64, 67]);
     expect(back.map((n) => n.pulse)).toEqual([0, 96, 288]);
-    expect(back[2]?.volume).toBe(9);
+    // each note lasts until the next row with a note or an off: 4 rows of 24 pulses
+    expect(back.slice(0, 2).map((n) => n.duration)).toEqual([96, 96]);
+    expect(back.map((n) => n.inst)).toEqual(["lead", "lead", "lead"]);
+    expect(back.map((n) => n.volume)).toEqual([15, 15, 9]);
   });
 });

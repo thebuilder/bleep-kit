@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_DUTIES } from "../src/engine/inst.ts";
 import { SongPlayer } from "../src/engine/sequencer.ts";
-import { SynthImpl } from "../src/engine/synth.ts";
 import { compileSong } from "../src/engine/timeline.ts";
 import type { Effect, Instrument, Row, Song } from "../src/index.ts";
 import {
@@ -11,7 +9,7 @@ import {
   normalizeSong,
   noteToHz,
 } from "../src/index.ts";
-import { hashChannels, rms, runSynth } from "./helpers.ts";
+import { hashChannels, rms, runSynth, zeroCrossingHz } from "./helpers.ts";
 
 const SR = 48_000;
 
@@ -252,7 +250,7 @@ describe("sequencer flow", () => {
     expect((loops[1]?.frame ?? 0) - (loops[0]?.frame ?? 0)).toBe(8 * 6000);
   });
 
-  it("seek moves to an order and row", () => {
+  it("play from an order and row skips the entries before it", () => {
     const synth = createSynth({ sampleRate: SR });
     synth.loadSong(twoPatterns([]), { lead: simpleInstrument() });
     synth.play({ loop: false, order: 1, row: 0 });
@@ -311,193 +309,296 @@ describe("MML and patterns", () => {
   });
 });
 
+/* Tracker effects are measured on the audio: the pitch of each 1/60 s tick from its zero crossings, the level from its
+   rms. A tick lasts 800 frames at 48 kHz, tick k starts at frame 800 * k, and the state of tick k is what the effect
+   has built up after k tick updates. */
 describe("tracker effects per tick", () => {
-  function voiceHz(synth: SynthImpl): number {
-    const channels = (
-      synth as unknown as { channelList: { voice: { hz: number } }[] }
-    ).channelList;
-    return channels[0]?.voice.hz ?? 0;
-  }
+  const TICK = 800;
+  const BASE = 60;
 
-  function setup(fx: Effect[], extra: Partial<Row> = {}): SynthImpl {
-    const synth = new SynthImpl({ sampleRate: SR });
-    synth.loadSong(customSong([row(0, 60, fx, { inst: "lead", ...extra })]), {
-      lead: simpleInstrument(),
-    });
+  function render(
+    rows: Row[],
+    ticks: number,
+    inst: Instrument = simpleInstrument(),
+    extra: Partial<Song> = {}
+  ) {
+    const synth = createSynth({ sampleRate: SR });
+    synth.loadSong(customSong(rows, extra), { lead: inst });
     synth.play({ loop: false });
-    return synth;
+    return runSynth(synth, TICK * ticks);
   }
 
-  // 60 Hz ticks at 48 kHz are 800 frames apart; tick k lands at frame 800 * k
-  function hzAtTicks(synth: SynthImpl, ticks: number): number[] {
-    const out: number[] = [];
-    const l = new Float32Array(128);
-    const r = new Float32Array(128);
-    const ev: never[] = [];
-    let frame = 0;
-    for (let t = 0; t < ticks; t += 1) {
-      const target = 800 * t + 1;
-      while (frame < target) {
-        const n = Math.min(128, target - frame);
-        synth.process(l, r, n, ev);
-        frame += n;
-      }
-      out.push(voiceHz(synth));
-    }
-    return out;
+  /** Tick t of the audio without its first 120 frames (the limiter's lookahead delay and the declick ramps). */
+  const tickOf = (left: Float32Array, t: number) =>
+    left.subarray(TICK * t + 120, TICK * (t + 1) - 10);
+
+  /** Pitch of ticks from..from+count-1 in cents above `base`, from the zero crossings of each tick. */
+  function cents(rows: Row[], from: number, count: number, base = BASE) {
+    const { left } = render(rows, from + count);
+    return Array.from(
+      { length: count },
+      (_, i) =>
+        1200 *
+        Math.log2(zeroCrossingHz(tickOf(left, from + i), SR) / noteToHz(base))
+    );
   }
 
-  it("arpeggio 047 cycles base, +4, +7", () => {
-    const hz = hzAtTicks(setup([{ type: "arp", x: 4, y: 7 }]), 5);
-    const want = [0, 4, 7, 0, 4].map((s) => noteToHz(60 + s));
+  /** The zero crossing count of a few cycles is good to about 5 cents. */
+  function expectCents(got: number[], want: number[]) {
+    expect(got).toHaveLength(want.length);
     for (let i = 0; i < want.length; i += 1) {
-      expect(hz[i]).toBeCloseTo(want[i] ?? 0, 3);
+      expect(
+        Math.abs((got[i] ?? 0) - (want[i] ?? 0)),
+        `tick ${i}: ${got[i]?.toFixed(1)} cents, wanted ${want[i]}`
+      ).toBeLessThan(8);
     }
-  });
-
-  it("slide up raises the pitch every tick", () => {
-    // 1xx with xx = 16: one semitone per tick
-    const hz = hzAtTicks(setup([{ type: "slideUp", x: 1, y: 0 }]), 4);
-    expect(hz[0]).toBeCloseTo(noteToHz(60), 3);
-    expect(hz[1]).toBeCloseTo(noteToHz(61), 3);
-    expect(hz[3]).toBeCloseTo(noteToHz(63), 3);
-  });
-
-  it("pitch effect offsets the note at once", () => {
-    // P xx with xx = 0x90: (0x90 - 0x80) / 16 = 1 semitone
-    const hz = hzAtTicks(setup([{ type: "pitch", x: 9, y: 0 }]), 1);
-    expect(hz[0]).toBeCloseTo(noteToHz(61), 3);
-  });
-
-  it("cut (Sxx) releases after xx ticks", () => {
-    const synth = setup([{ type: "cut", x: 0, y: 3 }]);
-    const { events } = runSynth(synth, 800 * 6);
-    const off = events.find((e) => e.type === "noteOff");
-    expect(off?.frame).toBe(800 * 3);
-  });
-
-  it("delay (Gxx) triggers the note xx ticks late", () => {
-    const synth = setup([{ type: "delay", x: 0, y: 2 }]);
-    const { events } = runSynth(synth, 800 * 6);
-    expect(events.find((e) => e.type === "noteOn")?.frame).toBe(800 * 2);
-  });
-
-  it("portamento slides toward a new note without retriggering", () => {
-    const song = customSong([
-      row(0, 60, [{ type: "portamento", x: 0, y: 8 }], { inst: "lead" }),
-      row(2, 64),
-    ]);
-    const synth = new SynthImpl({ sampleRate: SR });
-    synth.loadSong(song, { lead: simpleInstrument() });
-    synth.play({ loop: false });
-    const { events } = runSynth(synth, 6000 * 4);
-    expect(events.filter((e) => e.type === "noteOn")).toHaveLength(1);
-    // 0.5 semitone per tick: after 12000 frames (15 ticks) the target of 4 semitones is reached
-    expect(voiceHz(synth)).toBeCloseTo(noteToHz(64), 2);
-  });
-
-  /** The voice of the first channel, for the values an effect sets on it. */
-  function voiceOf(synth: SynthImpl): {
-    duty: number;
-    generation: number;
-    sendEcho: number;
-  } {
-    const channels = (
-      synth as unknown as {
-        channelList: {
-          voice: { duty: number; generation: number; sendEcho: number };
-        }[];
-      }
-    ).channelList;
-    return channels[0]?.voice ?? { duty: 0, generation: 0, sendEcho: 0 };
   }
+
+  /** Rms level of ticks 0..count-1. */
+  function levels(rows: Row[], count: number, inst?: Instrument) {
+    const { left } = render(rows, count, inst);
+    return Array.from({ length: count }, (_, t) => rms(tickOf(left, t)));
+  }
+
+  const first = (fx: Effect[]) => [row(0, BASE, fx, { inst: "lead" })];
+
+  it("arpeggio 047 cycles base, +4, +7 semitones, one step per tick", () => {
+    expectCents(
+      cents(first([{ type: "arp", x: 4, y: 7 }]), 0, 6),
+      [0, 400, 700, 0, 400, 700]
+    );
+  });
+
+  it("slide up raises the pitch by xx sixteenths of a semitone every tick", () => {
+    // xx = 0x10 = 16 sixteenths: one semitone per tick
+    expectCents(
+      cents(first([{ type: "slideUp", x: 1, y: 0 }]), 0, 4),
+      [0, 100, 200, 300]
+    );
+    // xx = 8: half a semitone per tick
+    expectCents(
+      cents(first([{ type: "slideUp", x: 0, y: 8 }]), 0, 4),
+      [0, 50, 100, 150]
+    );
+  });
 
   it("slide down lowers the pitch every tick", () => {
-    const hz = hzAtTicks(setup([{ type: "slideDown", x: 1, y: 0 }]), 4);
-    expect(hz[1]).toBeCloseTo(noteToHz(59), 3);
-    expect(hz[3]).toBeCloseTo(noteToHz(57), 3);
+    expectCents(
+      cents(first([{ type: "slideDown", x: 1, y: 0 }]), 0, 4),
+      [0, -100, -200, -300]
+    );
   });
 
-  it("vibrato swings the pitch around the note", () => {
-    const hz = hzAtTicks(setup([{ type: "vibrato", x: 8, y: 4 }]), 64);
-    const base = noteToHz(60);
-    expect(Math.max(...hz)).toBeGreaterThan(base * 1.001);
-    expect(Math.min(...hz)).toBeLessThan(base * 0.999);
+  it("pitch effect offsets the note at once by (xx - 0x80) sixteenths of a semitone", () => {
+    // xx = 0x90: 16 sixteenths up; xx = 0x70: 16 down
+    expectCents(
+      cents(first([{ type: "pitch", x: 9, y: 0 }]), 0, 2),
+      [100, 100]
+    );
+    expectCents(
+      cents(first([{ type: "pitch", x: 7, y: 0 }]), 0, 2),
+      [-100, -100]
+    );
+  });
+
+  it("vibrato swings the pitch by y * 8 cents on a cycle of 64 / x ticks", () => {
+    // speed 8 is one cycle in 8 ticks, depth 4 is 32 cents: a sine sampled at the tick rate
+    expectCents(
+      cents(first([{ type: "vibrato", x: 8, y: 4 }]), 0, 9),
+      [0, 22.6, 32, 22.6, 0, -22.6, -32, -22.6, 0]
+    );
+  });
+
+  it("portamento glides toward a new note at xx sixteenths of a semitone per tick, without retriggering", () => {
+    const rows = [
+      row(0, 60, [{ type: "portamento", x: 0, y: 8 }], { inst: "lead" }),
+      row(2, 64),
+    ];
+    // row 2 starts at frame 12000, the start of tick 15: half a semitone per tick up to 4 semitones, then it holds
+    expectCents(
+      cents(rows, 15, 11),
+      [0, 50, 100, 150, 200, 250, 300, 350, 400, 400, 400]
+    );
+    const { events } = render(rows, 30);
+    expect(events.filter((e) => e.type === "noteOn")).toHaveLength(1);
   });
 
   it.each([
-    ["noteSlideUp", 4],
-    ["noteSlideDown", -4],
-  ] as const)("%s glides by y semitones and stops there", (type, semis) => {
-    const hz = hzAtTicks(setup([{ type, x: 4, y: 4 }]), 20);
-    expect(hz.at(-1)).toBeCloseTo(noteToHz(60 + semis), 3);
-    expect(hz[0]).toBeCloseTo(noteToHz(60), 3);
-  });
+    ["noteSlideUp", 1],
+    ["noteSlideDown", -1],
+  ] as const)(
+    "%s glides y semitones at x * 2 sixteenths per tick and stops there",
+    (type, sign) => {
+      // speed 4 is half a semitone per tick, so the 4 semitones take 8 ticks
+      expectCents(
+        cents(first([{ type, x: 4, y: 4 }]), 0, 11),
+        [0, 50, 100, 150, 200, 250, 300, 350, 400, 400, 400].map(
+          (c) => c * sign
+        )
+      );
+    }
+  );
 
   it("a note slide with a zero speed or distance does nothing", () => {
-    const hz = hzAtTicks(setup([{ type: "noteSlideUp", x: 0, y: 4 }]), 4);
-    expect(hz.at(-1)).toBeCloseTo(noteToHz(60), 3);
+    expectCents(
+      cents(first([{ type: "noteSlideUp", x: 0, y: 4 }]), 0, 4),
+      [0, 0, 0, 0]
+    );
+    expectCents(
+      cents(first([{ type: "noteSlideUp", x: 4, y: 0 }]), 0, 4),
+      [0, 0, 0, 0]
+    );
   });
 
-  /** RMS of the left channel in each 800 frame tick window. */
-  function tickLevels(synth: SynthImpl, ticks: number): number[] {
-    const { left } = runSynth(synth, 800 * ticks);
-    const out: number[] = [];
-    for (let t = 0; t < ticks; t += 1) {
-      out.push(rms(left, 800 * t, 800 * (t + 1)));
+  it("cut (Sxx) releases after xx ticks", () => {
+    const { events } = render(first([{ type: "cut", x: 0, y: 3 }]), 6);
+    const off = events.find((e) => e.type === "noteOff");
+    expect(off?.frame).toBe(TICK * 3);
+  });
+
+  it("delay (Gxx) triggers the note xx ticks late", () => {
+    const { events } = render(first([{ type: "delay", x: 0, y: 2 }]), 6);
+    expect(events.find((e) => e.type === "noteOn")?.frame).toBe(TICK * 2);
+  });
+
+  it("tremolo swings the level between full and silence: depth y / 15 at speed x / 64 cycles per tick", () => {
+    // speed 8 is one cycle in 8 ticks, depth 15 is the full volume: gain = 0.5 + 0.5 cos(2 pi t / 8)
+    const got = levels(first([{ type: "tremolo", x: 8, y: 15 }]), 17);
+    const top = got[0] ?? 1;
+    const want = Array.from(
+      { length: 17 },
+      (_, t) => 0.5 + 0.5 * Math.cos((2 * Math.PI * t) / 8)
+    );
+    for (let t = 0; t < 17; t += 1) {
+      expect(
+        Math.abs((got[t] ?? 0) / top - (want[t] ?? 0)),
+        `tick ${t}`
+      ).toBeLessThan(0.05);
     }
-    return out;
-  }
-
-  it("tremolo makes the level swing", () => {
-    const steady = tickLevels(setup([]), 40);
-    const tremolo = tickLevels(setup([{ type: "tremolo", x: 8, y: 15 }]), 40);
-    const spread = (xs: number[]) => Math.max(...xs) - Math.min(...xs);
-    expect(spread(tremolo)).toBeGreaterThan(spread(steady) * 5 + 0.01);
   });
 
-  it("volume slide fades the note out", () => {
-    // A04: 4/16 of the volume per tick, silent after four ticks
-    const levels = tickLevels(setup([{ type: "volSlide", x: 0, y: 4 }]), 8);
-    expect(levels[0]).toBeGreaterThan(0.01);
-    expect(levels[6]).toBeLessThan((levels[0] ?? 1) * 0.05);
+  it("volume slide Axy moves the volume by x - y sixteenths per tick", () => {
+    // A04: a quarter of the volume less per tick, silent after four ticks
+    const got = levels(first([{ type: "volSlide", x: 0, y: 4 }]), 7);
+    const top = got[0] ?? 1;
+    const ratios = got.map((v) => v / top);
+    [1, 0.75, 0.5, 0.25, 0, 0, 0].forEach((want, t) => {
+      expect(Math.abs((ratios[t] ?? 0) - want), `tick ${t}`).toBeLessThan(0.05);
+    });
   });
 
-  it("duty effect picks the pulse width from the duty list", () => {
-    const synth = setup([{ type: "duty", x: 0, y: 1 }]);
-    runSynth(synth, 800 * 2);
-    expect(voiceOf(synth).duty).toBe(DEFAULT_DUTIES[1]);
-  });
+  it.each([
+    [0, 0.125],
+    [1, 0.25],
+    [2, 0.5],
+    [3, 0.75],
+  ])(
+    "duty effect %i picks the pulse width %f from the duty list",
+    (index, duty) => {
+      const { left } = render(first([{ type: "duty", x: 0, y: index }]), 40);
+      let high = 0;
+      for (let i = 6000; i < 30_000; i += 1) {
+        if ((left[i] ?? 0) > 0) {
+          high += 1;
+        }
+      }
+      expect(Math.abs(high / 24_000 - duty)).toBeLessThan(0.02);
+    }
+  );
 
   it("pan effect moves the sound to one side", () => {
-    const hard = (xx: number) => {
-      const { left, right } = runSynth(
-        setup([{ type: "pan", x: xx >> 4, y: xx & 15 }]),
-        800 * 4
+    const side = (xx: number) => {
+      const { left, right } = render(
+        first([{ type: "pan", x: xx >> 4, y: xx & 15 }]),
+        4
       );
       return [rms(left), rms(right)] as const;
     };
-    const [leftOnly, silentRight] = hard(0x00);
+    const [leftOnly, silentRight] = side(0x00);
     expect(leftOnly).toBeGreaterThan(0.01);
     expect(silentRight).toBeLessThan(leftOnly * 0.05);
-    const [silentLeft, rightOnly] = hard(0xff);
+    const [silentLeft, rightOnly] = side(0xff);
     expect(rightOnly).toBeGreaterThan(0.01);
     expect(silentLeft).toBeLessThan(rightOnly * 0.05);
   });
 
-  it("send effect sets the echo send of the voice", () => {
-    const synth = setup([{ type: "send", x: 8, y: 0 }]);
-    runSynth(synth, 800 * 2);
-    expect(voiceOf(synth).sendEcho).toBeCloseTo(0x80 / 255, 6);
+  it("send effect sets the voice's echo send to xx / 255, on the same scale as the instrument's own send", () => {
+    // a 3 tick note and an echo 0.1 s behind it: its repeat sounds in the window after the note and its release are over
+    const master = {
+      ...defaultSong("custom").master,
+      echo: { delay: 0.1, feedback: 0, level: 1, lowpassHz: 20_000 },
+    };
+    const echoLevel = (xx: number | null, instrumentSend = 0) => {
+      const inst = simpleInstrument();
+      inst.send = { echo: instrumentSend, reverb: 0 };
+      const fx: Effect[] = [{ type: "cut", x: 0, y: 3 }];
+      if (xx !== null) {
+        fx.push({ type: "send", x: xx >> 4, y: xx & 15 });
+      }
+      const { left } = render(first(fx), 15, inst, { master });
+      return rms(left, Math.round(0.11 * SR), Math.round(0.14 * SR));
+    };
+    // W80 is 128 / 255 of a full send: as loud as an instrument send of 0.5
+    const half = echoLevel(null, 0.5);
+    expect(half).toBeGreaterThan(0.05);
+    expect(echoLevel(0x80) / half).toBeCloseTo(1, 1);
+    // an effect wins over the instrument, so W00 shuts a send of 0.5 and WFF opens a send of 0
+    expect(echoLevel(0x00, 0.5)).toBeLessThan(half * 0.01);
+    expect(echoLevel(0xff) / half).toBeCloseTo(2, 0);
   });
 
   it("retrigger restarts the note every xx ticks", () => {
-    const synth = setup([{ type: "retrigger", x: 0, y: 2 }]);
-    runSynth(synth, 800 * 7);
-    // one start from the row, then a restart at ticks 2, 4 and 6
-    expect(voiceOf(synth).generation).toBeGreaterThanOrEqual(4);
-    const plain = setup([]);
-    runSynth(plain, 800 * 7);
-    expect(voiceOf(plain).generation).toBe(1);
+    // a note that dies away over 0.3 s: without Hxx every tick is quieter than the last, with H02 every second tick is
+    // a fresh attack
+    const dying = simpleInstrument();
+    dying.envelope = { attack: 0, decay: 0.3, release: 0.05, sustain: 0 };
+    const plain = levels(first([]), 9, dying);
+    const again = levels(first([{ type: "retrigger", x: 0, y: 2 }]), 9, dying);
+    expect(plain[8]).toBeLessThan((plain[0] ?? 0) * 0.1);
+    for (const t of [2, 4, 6, 8]) {
+      expect(again[t]).toBeGreaterThan((again[0] ?? 0) * 0.9);
+    }
+    // the ticks between are the decay of the restarted note
+    expect(again[1]).toBeCloseTo(plain[1] ?? 0, 2);
+  });
+
+  describe("persistent effects", () => {
+    it("stay on over the following rows' notes", () => {
+      const rows = [
+        row(0, 60, [{ type: "arp", x: 4, y: 7 }], { inst: "lead" }),
+        row(1, 62),
+      ];
+      // row 1 starts at frame 6000 (tick 7.5): ticks 8 to 13 are inside it and still cycle through the chord
+      const during = cents(rows, 8, 6, 62).map((c) => Math.round(c / 100));
+      expect(new Set(during)).toEqual(new Set([0, 4, 7]));
+    });
+
+    it("stop where the same letter appears with 00", () => {
+      const rows = [
+        row(0, 60, [{ type: "vibrato", x: 8, y: 4 }], { inst: "lead" }),
+        row(2, 60, [{ type: "vibrato", x: 0, y: 0 }]),
+      ];
+      // row 2 starts at frame 12000, the start of tick 15
+      expectCents(cents(rows, 1, 3), [22.6, 32, 22.6]);
+      expectCents(cents(rows, 16, 5), [0, 0, 0, 0, 0]);
+    });
+
+    it("arpeggio stops at 000", () => {
+      const rows = [
+        row(0, 60, [{ type: "arp", x: 4, y: 7 }], { inst: "lead" }),
+        row(2, 60, [{ type: "arp", x: 0, y: 0 }]),
+      ];
+      expectCents(cents(rows, 12, 3), [0, 400, 700]);
+      expectCents(cents(rows, 16, 5), [0, 0, 0, 0, 0]);
+    });
+
+    it("end at a note off", () => {
+      const rows = [
+        row(0, 60, [{ type: "arp", x: 4, y: 7 }], { inst: "lead" }),
+        row(1, "off"),
+        row(2, 62),
+      ];
+      expectCents(cents(rows, 16, 4, 62), [0, 0, 0, 0]);
+    });
   });
 });

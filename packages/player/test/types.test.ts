@@ -1,5 +1,7 @@
 /* The typed manifest (architecture section 7): ids from the game's audio.ts become the only ids the player accepts.
-   The assertions are compile-time; typecheck is what fails when the types regress. */
+   The assertions are compile-time: vitest runs this file but only `tsc -p .` (pnpm typecheck, part of pnpm verify)
+   fails when the generic typing regresses, through the expectTypeOf mismatches and the @ts-expect-error lines that
+   would turn into unused directives. */
 
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
@@ -25,7 +27,7 @@ const manifest = {
       loopStart: 4.8,
     },
   },
-} satisfies AudioManifest;
+} as const satisfies AudioManifest;
 
 const options = {
   context: new FakeContext().asContext(),
@@ -44,12 +46,32 @@ describe("typed ids", () => {
     expectTypeOf(player.preload)
       .parameter(0)
       .toEqualTypeOf<("coin" | "laser" | "title")[] | undefined>();
-    // @ts-expect-error "boom" is not a sound in this manifest
-    expect(() => player.sfx("boom")).not.toThrow();
-    // @ts-expect-error a song id is not an sfx id
-    expect(() => player.sfx("title")).not.toThrow();
-    // @ts-expect-error an sfx id is not a song id
-    await player.music("coin");
+  });
+
+  it("rejects an id the manifest does not have, and an id of the other kind", () => {
+    // never called: these lines only have to compile, and each directive fails typecheck if its line stops erroring
+    const wrongIds = async () => {
+      const player = await createPlayer({ ...options, manifest });
+      // @ts-expect-error "boom" is not a sound in this manifest
+      player.sfx("boom");
+      // @ts-expect-error a song id is not an sfx id
+      player.sfx("title");
+      // @ts-expect-error an sfx id is not a song id
+      await player.music("coin");
+    };
+    expect(wrongIds).toBeTypeOf("function");
+  });
+
+  it("has no valid song id for a manifest without songs", async () => {
+    const sfxOnly = {
+      base: "/audio/",
+      sampleRate: 48_000,
+      sfx: { coin: { duration: 0.31, file: "coin.ogg" } },
+      songs: {},
+    } as const satisfies AudioManifest;
+    const player = await createPlayer({ ...options, manifest: sfxOnly });
+    expectTypeOf(player.sfx).parameter(0).toEqualTypeOf<"coin">();
+    expectTypeOf(player.music).parameter(0).toEqualTypeOf<never>();
   });
 
   it("accepts any string for a manifest typed as the plain AudioManifest", async () => {

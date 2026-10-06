@@ -1,6 +1,12 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ENTRY, runProcess, tempDir } from "./helpers.ts";
+
+const pkg = JSON.parse(
+  fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")
+) as { version: string };
 
 // These run the real `node src/index.ts` entry point (the shebang file) in a child process: exit codes, the
 // "one JSON object on stdout" rule and stderr separation are properties of the process, not of `main`.
@@ -14,6 +20,9 @@ describe("entry point", () => {
     const render = runProcess(repo, ["render", "sfx/coin", "--json"]);
     expect(render.code).toBe(0);
     expect(render.stdout.trim().split("\n")).toHaveLength(1);
+    expect(render.json.renders.map((r: { ref: string }) => r.ref)).toEqual([
+      "sfx/coin",
+    ]);
     expect(render.stderr).toContain("rendering sfx/coin");
     const quiet = runProcess(repo, [
       "render",
@@ -27,7 +36,11 @@ describe("entry point", () => {
 
   it("maps errors to exit codes and JSON error objects", () => {
     const dir = tempDir();
-    expect(runProcess(dir, ["nope"]).code).toBe(2);
+    const unknown = runProcess(dir, ["nope", "--json"]);
+    expect(unknown.code).toBe(2);
+    expect(unknown.stdout.trim().split("\n")).toHaveLength(1);
+    expect(unknown.json).toMatchObject({ error: { code: "usage" }, ok: false });
+    expect(unknown.stderr).toContain("error: unknown command");
     const noProject = runProcess(dir, ["validate", "--json"]);
     expect(noProject.code).toBe(3);
     expect(noProject.json).toMatchObject({
@@ -35,7 +48,12 @@ describe("entry point", () => {
       ok: false,
     });
     runProcess(dir, ["init"]);
-    expect(runProcess(dir, ["describe", "sfx/missing", "--json"]).code).toBe(4);
+    const missing = runProcess(dir, ["describe", "sfx/missing", "--json"]);
+    expect(missing.code).toBe(4);
+    expect(missing.json).toMatchObject({
+      error: { code: "not-found" },
+      ok: false,
+    });
   });
 });
 
@@ -90,9 +108,14 @@ describe("studio command", () => {
     const health = (await (await fetch(`${url}/api/health`)).json()) as {
       ok: boolean;
       root: string;
+      version: string;
     };
-    expect(health.ok).toBe(true);
-    expect(health.root).toBe(String(listening.root));
+    expect(health).toEqual({
+      ok: true,
+      root: fs.realpathSync(path.join(repo, "audio")),
+      version: pkg.version,
+    });
+    expect(listening.root).toBe(health.root);
     const exit = new Promise<number | null>((resolve) =>
       child.on("exit", (code) => resolve(code))
     );

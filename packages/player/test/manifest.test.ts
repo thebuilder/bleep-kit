@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   joinUrl,
   loadManifest,
-  OGG_ADVICE,
   parseManifest,
   supportsOgg,
   undecodableFiles,
@@ -19,7 +18,13 @@ const json = {
   sampleRate: 44_100,
   sfx: { coin: { duration: 0.3, file: "coin.ogg" } },
   songs: {
-    title: { duration: 25, file: "title.ogg", loopEnd: 24, loopStart: 4.8 },
+    title: {
+      duration: 25,
+      events: "title.events.json",
+      file: "title.ogg",
+      loopEnd: 24,
+      loopStart: 4.8,
+    },
   },
 };
 
@@ -95,8 +100,23 @@ describe("parseManifest", () => {
     ).toBe("https://other.example.com/a/");
   });
 
+  it("resolves a relative base against the page when the manifest URL is relative too", () => {
+    vi.stubGlobal("location", {
+      href: "https://game.example.com/play/index.html",
+    });
+    expect(
+      parseManifest({ ...json, base: "./" }, "audio/manifest.json").base
+    ).toBe("https://game.example.com/play/audio/");
+    expect(
+      parseManifest({ ...json, base: "" }, "/audio/manifest.json").base
+    ).toBe("https://game.example.com/audio/");
+  });
+
   it("rejects a manifest that is not one", () => {
     expect(() => parseManifest(null, "/m.json")).toThrow("not a JSON object");
+    expect(() => parseManifest("manifest", "/m.json")).toThrow(
+      "not a JSON object"
+    );
     expect(() => parseManifest({ sfx: { a: {} } }, "/m.json")).toThrow(
       'sfx "a" has no file'
     );
@@ -122,6 +142,7 @@ describe("undecodableFiles", () => {
       sfx: {
         ...json.sfx,
         mp3: { duration: 1, file: "x.mp3" },
+        shout: { duration: 1, file: "Shout.OGG" },
         synth: { data: {}, duration: 1, file: "s.ogg" },
       },
     },
@@ -130,6 +151,7 @@ describe("undecodableFiles", () => {
   it("lists OGG files a browser without OGG cannot decode, except embedded ones", () => {
     expect(undecodableFiles(manifest, false)).toEqual([
       "coin.ogg",
+      "Shout.OGG",
       "title.ogg",
     ]);
     expect(undecodableFiles(manifest, true)).toEqual([]);
@@ -165,7 +187,11 @@ describe("loadManifest", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await loadManifest("/audio/manifest.json");
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain(OGG_ADVICE);
+    // says who is affected, what to do about it and how many files are lost (coin.ogg and title.ogg)
+    const message = String(warn.mock.calls[0]?.[0]);
+    expect(message).toContain("Safari");
+    expect(message).toContain("embed: true");
+    expect(message).toContain("(2 files)");
   });
 
   it("explains a failed download", async () => {

@@ -8,23 +8,76 @@ import {
   fakeSynthFactory,
 } from "./fake-synth.ts";
 
-class FakeParam {
+interface Automation {
+  kind: "set" | "ramp";
+  time: number;
   value: number;
+}
+
+/** An AudioParam with its automation timeline, so a test can ask what level it has at a given time (valueAt) instead
+    of inspecting which calls were made. `value` reads the level now, like a browser, so a ramp that starts from
+    `param.value` continues from where an interrupted ramp had got to. */
+class FakeParam {
   readonly log: [method: string, ...args: number[]][] = [];
-  constructor(initial = 1) {
-    this.value = initial;
+  private readonly initial: number;
+  private readonly clock: () => number;
+  private events: Automation[] = [];
+  private held: number | null = null;
+  constructor(initial = 1, clock: () => number = () => 0) {
+    this.initial = initial;
+    this.clock = clock;
+  }
+  private schedule(kind: Automation["kind"], value: number, time: number) {
+    this.held = null;
+    let at = this.events.length;
+    while (at > 0 && (this.events[at - 1]?.time ?? 0) > time) {
+      at -= 1;
+    }
+    this.events.splice(at, 0, { kind, time, value });
+  }
+  /** The level now; assigning it sets the level from now on (no entry in `log`, like a plain property write). */
+  get value(): number {
+    return this.held ?? this.valueAt(this.clock());
+  }
+  set value(v: number) {
+    this.schedule("set", v, this.clock());
+  }
+  /** The level at context time `t`, from the scheduled steps and linear ramps. */
+  valueAt(t: number): number {
+    let prevTime = 0;
+    let prevValue = this.initial;
+    for (const e of this.events) {
+      if (e.kind === "set") {
+        if (e.time > t) {
+          return prevValue;
+        }
+      } else if (t < e.time) {
+        if (t <= prevTime) {
+          return prevValue;
+        }
+        const along = (t - prevTime) / (e.time - prevTime);
+        return prevValue + (e.value - prevValue) * along;
+      }
+      prevTime = e.time;
+      prevValue = e.value;
+    }
+    return prevValue;
   }
   setValueAtTime(v: number, t: number) {
     this.log.push(["set", v, t]);
-    this.value = v;
+    this.schedule("set", v, t);
     return this;
   }
   linearRampToValueAtTime(v: number, t: number) {
     this.log.push(["ramp", v, t]);
+    this.schedule("ramp", v, t);
     return this;
   }
   cancelScheduledValues(t: number) {
     this.log.push(["cancel", t]);
+    // a browser keeps answering with the level it had reached until something new is scheduled
+    this.held = this.valueAt(this.clock());
+    this.events = this.events.filter((e) => e.time < t);
     return this;
   }
   /** The last scheduled ramp target, or the value when none. */
@@ -46,13 +99,32 @@ class FakeNode {
     this.disconnected = true;
     this.outputs.length = 0;
   }
+  /** Whether `target` can be reached by following connections from this node. */
+  reaches(target: FakeNode, seen = new Set<FakeNode>()): boolean {
+    if (this === target) {
+      return true;
+    }
+    if (seen.has(this)) {
+      return false;
+    }
+    seen.add(this);
+    return this.outputs.some((out) => out.reaches(target, seen));
+  }
 }
 
-export class FakeGain extends FakeNode {
-  readonly gain = new FakeParam(1);
+class FakeGain extends FakeNode {
+  readonly gain: FakeParam;
+  constructor(clock?: () => number) {
+    super();
+    this.gain = new FakeParam(1, clock);
+  }
 }
 class FakePanner extends FakeNode {
-  readonly pan = new FakeParam(0);
+  readonly pan: FakeParam;
+  constructor(clock?: () => number) {
+    super();
+    this.pan = new FakeParam(0, clock);
+  }
 }
 class FakeBuffer {
   readonly duration: number;
@@ -66,19 +138,48 @@ export class FakeSource extends FakeNode {
   loop = false;
   loopStart = 0;
   loopEnd = 0;
-  readonly playbackRate = new FakeParam(1);
+  readonly playbackRate: FakeParam;
   onended: (() => void) | null = null;
   starts: { when: number | undefined; offset: number | undefined }[] = [];
   stops: (number | undefined)[] = [];
+  private readonly clock: () => number;
+  private startedAt: number | null = null;
+  private stoppedAt: number | null = null;
+  private offsetSeconds = 0;
+  private ended = false;
+  constructor(clock: () => number = () => 0) {
+    super();
+    this.clock = clock;
+    this.playbackRate = new FakeParam(1, clock);
+  }
   start(when?: number, offset?: number) {
     this.starts.push({ offset, when });
+    this.startedAt ??= when ?? this.clock();
+    this.offsetSeconds = offset ?? 0;
   }
   stop(when?: number) {
     this.stops.push(when);
+    this.stoppedAt = when ?? this.clock();
   }
   /** The buffer ran out (or stop time was reached). */
   finish() {
+    this.ended = true;
     this.onended?.();
+  }
+  /** Whether the source is producing samples at context time `t`: started, not stopped, not run out, not ended. */
+  soundingAt(t: number): boolean {
+    if (this.startedAt === null || t < this.startedAt || this.ended) {
+      return false;
+    }
+    if (this.stoppedAt !== null && t >= this.stoppedAt) {
+      return false;
+    }
+    if (!this.loop && this.buffer) {
+      const rate = this.playbackRate.valueAt(t);
+      const length = (this.buffer.duration - this.offsetSeconds) / rate;
+      return t < this.startedAt + length;
+    }
+    return true;
   }
 }
 
@@ -118,18 +219,19 @@ export class FakeContext {
   constructor(options?: unknown) {
     this.options = options;
   }
+  private readonly clock = () => this.currentTime;
   createGain() {
-    const g = new FakeGain();
+    const g = new FakeGain(this.clock);
     this.gains.push(g);
     return g;
   }
   createBufferSource() {
-    const s = new FakeSource();
+    const s = new FakeSource(this.clock);
     this.sources.push(s);
     return s;
   }
   createStereoPanner() {
-    const p = new FakePanner();
+    const p = new FakePanner(this.clock);
     this.panners.push(p);
     return p;
   }
@@ -151,6 +253,36 @@ export class FakeContext {
   }
   asContext(): AudioContext {
     return this as unknown as AudioContext;
+  }
+  /** How much of `node`'s output comes out of the speakers at context time `at`: the sum over every path from the
+      node to the destination of the product of the gains along it. 0 when no path reaches the destination. */
+  audibleGain(node: FakeNode, at = this.currentTime): number {
+    const walk = (n: FakeNode, level: number, path: Set<FakeNode>): number => {
+      if (n === this.destination) {
+        return level;
+      }
+      if (path.has(n)) {
+        return 0;
+      }
+      const through =
+        n instanceof FakeGain ? level * n.gain.valueAt(at) : level;
+      path.add(n);
+      let sum = 0;
+      for (const out of n.outputs) {
+        sum += walk(out, through, path);
+      }
+      path.delete(n);
+      return sum;
+    };
+    return walk(node, 1, new Set());
+  }
+  /** The audible gain of a buffer source while it is actually sounding, else 0. */
+  heard(source: FakeSource, at = this.currentTime): number {
+    return source.soundingAt(at) ? this.audibleGain(source, at) : 0;
+  }
+  /** How many of the buffer sources made so far are audible at `at`. */
+  soundingCount(at = this.currentTime): number {
+    return this.sources.filter((s) => this.heard(s, at) > 0).length;
   }
 }
 
@@ -192,6 +324,8 @@ class FakeMessagePort {
 export interface Linked {
   engine: BleepkitEngine;
   node: FakeWorkletNode;
+  /** Largest sample the engine rendered during the latest `runBlocks`. */
+  peak: number;
   synth: () => FakeSynth;
 }
 
@@ -240,6 +374,7 @@ export function linkWorklets(synthOpts: FakeSynthOptions = {}) {
     const entry: Linked = {
       engine,
       node,
+      peak: 0,
       synth: () => {
         const [s] = factory.made;
         if (!s) {
@@ -257,14 +392,30 @@ export function linkWorklets(synthOpts: FakeSynthOptions = {}) {
     linked,
     /** Render n blocks on every linked engine, advancing the context's clock like the audio thread does. */
     runBlocks(ctx: FakeContext, n: number) {
+      for (const l of linked) {
+        l.peak = 0;
+      }
       for (let i = 0; i < n; i += 1) {
         for (const l of linked) {
           l.engine.process([[left, right]]);
+          for (let k = 0; k < left.length; k += 1) {
+            l.peak = Math.max(
+              l.peak,
+              Math.abs(left[k] ?? 0),
+              Math.abs(right[k] ?? 0)
+            );
+          }
         }
         ctx.currentTime += 128 / ctx.sampleRate;
       }
     },
   };
+}
+
+/** How loud an engine node is at the speakers right now: what it rendered in the latest `runBlocks`, scaled by every
+    gain between it and the destination. 0 when it renders silence or is not connected through to the destination. */
+export function heardLevel(ctx: FakeContext, linked: Linked): number {
+  return linked.peak * ctx.audibleGain(linked.node);
 }
 
 export function installWebAudioGlobals() {

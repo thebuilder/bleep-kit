@@ -21,6 +21,18 @@ declare module "node:fs" {
   ): void;
 }
 
+declare module "node:child_process" {
+  export function execFileSync(
+    file: string,
+    args: string[],
+    options: {
+      encoding: "utf8";
+      maxBuffer?: number;
+      stdio?: string[];
+    }
+  ): string;
+}
+
 declare module "node:os" {
   export function tmpdir(): string;
 }
@@ -43,6 +55,9 @@ interface ImportMeta {
   readonly url: string;
 }
 
-declare const process: { readonly env: Record<string, string | undefined> };
+declare const process: {
+  readonly env: Record<string, string | undefined>;
+  readonly execPath: string;
+};
 
 declare const console: { log: (...args: unknown[]) => void };

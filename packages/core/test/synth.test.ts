@@ -19,6 +19,7 @@ import {
   peak,
   rms,
   runSynth,
+  zeroCrossingHz,
 } from "./helpers.ts";
 
 const SR = 48_000;
@@ -47,6 +48,28 @@ function longSfx(sustain: number): Sfx {
   }).value;
 }
 
+/** A steady sfx on the custom chip, which has no pitch quantization, volume steps or coloring. */
+function customSfx(wave: "square" | "sine", sustain = 0.5): Sfx {
+  const r = normalizeSfx({
+    category: "custom",
+    chip: "custom",
+    envelope: { attack: 0, decay: 0.3, punch: 0, sustain },
+    // a sine is a frequency modulation sfx without modulation
+    ...(wave === "sine"
+      ? { fm: { index: 0, indexDecay: 0, ratio: 1 }, wave: "fm" }
+      : { duty: { start: 0.5, sweep: 0 }, wave: "square" }),
+    frequency: { deltaSlide: 0, min: 0, slide: 0, start: 500 },
+    name: wave,
+    seed: 1,
+    version: 1,
+    volume: 0.8,
+  });
+  if (!r.ok) {
+    throw new Error("bad sfx");
+  }
+  return r.value;
+}
+
 function finite(a: Float32Array): boolean {
   for (let i = 0; i < a.length; i += 1) {
     if (!Number.isFinite(a[i])) {
@@ -60,7 +83,9 @@ describe("preview mode (no song)", () => {
   it("hosts a custom chip with one channel per kind", () => {
     const s = newSynth();
     const ch = s.channels();
-    expect(ch.length).toBeGreaterThan(3);
+    expect(ch.map((c) => c.kind).sort()).toEqual(
+      ["fm", "noise", "pulse", "sample", "sid", "triangle", "wave"].sort()
+    );
     expect(new Set(ch.map((c) => c.id)).size).toBe(ch.length);
     expect(s.position()).toBeNull();
     expect(s.playing).toBe(false);
@@ -106,15 +131,16 @@ describe("transport", () => {
     s.play();
     const a = runSynth(s, 12_000);
     expect(peak([a.left])).toBeGreaterThan(0.01);
-    const p1 = s.position();
-    expect(p1?.pulse).toBeGreaterThan(0);
+    // 96 pulses a beat: a frame is tempo * 96 / (60 * sampleRate) pulses
+    const pulses = (frames: number) =>
+      (frames * fixtureSong().song.tempo * 96) / (60 * SR);
+    expect(s.position()?.pulse).toBeCloseTo(pulses(12_000), 1);
     s.pause();
     runSynth(s, 4800);
-    const p2 = s.position();
-    expect(p2?.pulse).toBeCloseTo(p1?.pulse ?? 0, 0);
+    expect(s.position()?.pulse).toBeCloseTo(pulses(12_000), 1);
     s.play();
     runSynth(s, 4800);
-    expect(s.position()?.pulse).toBeGreaterThan(p2?.pulse ?? 0);
+    expect(s.position()?.pulse).toBeCloseTo(pulses(16_800), 1);
   });
 
   it("stop releases the voices and the audio decays to silence", () => {
@@ -144,6 +170,14 @@ describe("transport", () => {
       order: 1,
       row: 8,
     });
+    // while playing, a seek keeps it playing from the new position
+    s.seek(0, 4);
+    expect(s.playing).toBe(true);
+    const after = runSynth(s, 1200);
+    expect(after.events.find((e) => e.type === "row")).toMatchObject({
+      order: 0,
+      row: 4,
+    });
   });
 
   it("loop false plays once and emits an end event, loop true emits loop events", () => {
@@ -159,23 +193,25 @@ describe("transport", () => {
     expect(b.events.some((e) => e.type === "end")).toBe(false);
   });
 
-  it("setTempo scales the time between rows", () => {
-    const rowFrames = (tempo: number | null): number[] => {
+  it("setTempo sets the time between rows: the fixture song at 150 BPM has 4800 frames a row, at 300 BPM 2400", () => {
+    const rowFrames = (tempo: number | null, frames = 24_000): number[] => {
       const s = songSynth();
       if (tempo !== null) {
         s.setTempo(tempo);
       }
       s.play();
-      return runSynth(s, SR * 2)
+      return runSynth(s, frames)
         .events.filter((e) => e.type === "row")
         .map((e) => e.frame);
     };
-    const normal = rowFrames(null);
-    const fast = rowFrames(300);
-    expect(fast.length).toBeGreaterThan(normal.length);
-    expect((fast[1] ?? 0) - (fast[0] ?? 0)).toBeLessThan(
-      (normal[1] ?? 0) - (normal[0] ?? 0)
-    );
+    // a row is 60 * sampleRate / (tempo * rowsPerBeat) frames
+    expect(rowFrames(null)).toEqual([0, 4800, 9600, 14_400, 19_200]);
+    // a tempo is held within 20..400 BPM: 1800 frames a row at the top, 36000 at the bottom
+    expect(rowFrames(1000).slice(0, 3)).toEqual([0, 1800, 3600]);
+    expect(rowFrames(5, 40_000)).toEqual([0, 36_000]);
+    expect(rowFrames(300)).toEqual([
+      0, 2400, 4800, 7200, 9600, 12_000, 14_400, 16_800, 19_200, 21_600,
+    ]);
   });
 
   it("unloadSong goes back to preview mode", () => {
@@ -237,44 +273,84 @@ describe("sfx voices", () => {
     expect(s.trigger("coin")).toBe(0);
   });
 
-  it("velocity scales the level, pan moves the image", () => {
+  it("velocity scales the level linearly", () => {
     const level = (velocity: number): number => {
       const s = newSynth();
-      s.loadSfx("coin", fixtureSfx());
-      s.trigger("coin", { velocity });
+      s.loadSfx("sq", customSfx("square"));
+      s.trigger("sq", { velocity });
       const o = runSynth(s, 9600);
       return peak([o.left, o.right]);
     };
-    expect(level(0.25)).toBeLessThan(level(1) * 0.6);
-    const side = (pan: number) => {
-      // pan is free on snes and custom only: nes and gameboy-style chips mix to mono
+    expect(level(0.25) / level(1)).toBeCloseTo(0.25, 2);
+    expect(level(0.5) / level(1)).toBeCloseTo(0.5, 2);
+    // out of range velocities are clamped to 0..1
+    expect(level(3)).toBeCloseTo(level(1), 6);
+    expect(level(-1)).toBe(0);
+  });
+
+  describe("pan", () => {
+    const sides = (sfx: Sfx, pan: number) => {
       const s = newSynth();
-      s.loadSong(fixtureDemo("snes").song, fixtureDemo("snes").instruments);
-      s.loadSfx("coin", fixtureDemo("snes").sfx);
-      s.trigger("coin", { pan });
+      s.loadSfx("fx", sfx);
+      s.trigger("fx", { pan });
       const o = runSynth(s, 9600);
       return { l: rms(o.left), r: rms(o.right) };
     };
-    const left = side(-1);
-    const right = side(1);
-    expect(left.l).toBeGreaterThan(left.r * 2);
-    expect(right.r).toBeGreaterThan(right.l * 2);
+
+    it("is an equal power pan on a chip with free panning", () => {
+      const sq = customSfx("square");
+      const left = sides(sq, -1);
+      const centre = sides(sq, 0);
+      const half = sides(sq, -0.5);
+      const right = sides(sq, 1);
+      // hard left and right keep only their own side
+      expect(left.r).toBeLessThan(left.l * 0.001);
+      expect(right.l).toBeLessThan(right.r * 0.001);
+      // the centre is 1 / sqrt(2) of a hard pan on each side
+      expect(centre.l).toBeCloseTo(centre.r, 5);
+      expect(centre.l / left.l).toBeCloseTo(Math.SQRT1_2, 2);
+      // L = cos((pan + 1) pi / 4), R = sin((pan + 1) pi / 4): 2.414 at -0.5
+      expect(half.l / half.r).toBeCloseTo(1 / Math.tan(Math.PI / 8), 1);
+    });
+
+    it.each([
+      ["nes", fixtureSfx()],
+      ["c64", fixtureDemo("c64").sfx],
+      ["adlib", fixtureDemo("adlib").sfx],
+    ])("is ignored on %s, which mixes mono to both sides", (_, sfx) => {
+      const hard = sides(sfx, -1);
+      expect(hard.l).toBeGreaterThan(0.01);
+      expect(hard.r).toBeCloseTo(hard.l, 5);
+    });
+
+    it.each([
+      ["genesis", fixtureDemo("genesis").sfx],
+      ["gameboy", fixtureDemo("gameboy").sfx],
+    ])("snaps to left, centre or right on %s", (_, sfx) => {
+      const left = sides(sfx, -1);
+      const right = sides(sfx, 1);
+      const near = sides(sfx, 0.3);
+      expect(left.l).toBeGreaterThan(0.01);
+      expect(left.r).toBeLessThan(left.l * 0.001);
+      expect(right.r).toBeGreaterThan(0.01);
+      expect(right.l).toBeLessThan(right.r * 0.001);
+      // a pan that is not near either side is the centre
+      expect(near.l).toBeCloseTo(near.r, 5);
+    });
   });
 
-  it("pitch shifts the sfx", () => {
-    const s = newSynth();
-    s.loadSfx("coin", fixtureSfx());
-    const base = (() => {
-      s.trigger("coin");
-      return runSynth(s, 4800);
-    })();
-    const up = (() => {
-      const t = newSynth();
-      t.loadSfx("coin", fixtureSfx());
-      t.trigger("coin", { pitch: 12 });
-      return runSynth(t, 4800);
-    })();
-    expect(hashChannels([base.left])).not.toBe(hashChannels([up.left]));
+  it("pitch is a semitone offset to the start frequency", () => {
+    const hz = (pitch: number | undefined) => {
+      const s = newSynth();
+      s.loadSfx("sq", customSfx("square"));
+      s.trigger("sq", pitch === undefined ? {} : { pitch });
+      const o = runSynth(s, 24_000);
+      return zeroCrossingHz(o.left.subarray(2400, 24_000), SR);
+    };
+    expect(hz(undefined)).toBeCloseTo(500, 0);
+    expect(hz(12)).toBeCloseTo(1000, 0);
+    expect(hz(-12)).toBeCloseTo(250, 0);
+    expect(hz(7)).toBeCloseTo(500 * 2 ** (7 / 12), 0);
   });
 
   it("the same seed gives the same sound, a different seed a different noise sound", () => {
@@ -310,18 +386,57 @@ describe("sfx voices", () => {
     expect(tailRms(4800)).toBeLessThan(0.002);
   });
 
-  it("release with a stale or zero handle does nothing", () => {
-    const s = newSynth();
-    s.loadSfx("coin", fixtureSfx());
-    s.release(0);
-    s.release(12_345);
-    const h = s.trigger("coin");
-    runSynth(s, 48_000);
-    s.release(h);
-    expect(peak([runSynth(s, 480).left])).toBeLessThan(1e-3);
+  it("release with a zero, unknown or stale handle leaves the sounding sfx alone", () => {
+    const sfx = longSfx(1.5);
+    // one voice: the second trigger steals the voice the first one had
+    const tailRms = (stale: boolean) => {
+      const s = newSynth({ sfxVoices: 1 });
+      s.loadSfx("hold", sfx);
+      const first = s.trigger("hold");
+      runSynth(s, 4800);
+      s.trigger("hold");
+      if (stale) {
+        s.release(0);
+        s.release(12_345);
+        s.release(first);
+      }
+      return rms(runSynth(s, 12_000).left, 4800, 12_000);
+    };
+    const untouched = tailRms(false);
+    expect(untouched).toBeGreaterThan(0.02);
+    // the stolen sound's handle is not the new sound's handle
+    expect(tailRms(true)).toBe(untouched);
   });
 
-  it("voice stealing: more triggers than voices still sound, with no NaN and no clip", () => {
+  it("releasing the handle of a sounding sfx ends it", () => {
+    const s = newSynth({ sfxVoices: 1 });
+    s.loadSfx("hold", longSfx(1.5));
+    s.trigger("hold");
+    runSynth(s, SR);
+    const second = s.trigger("hold");
+    s.release(second);
+    expect(rms(runSynth(s, 12_000).left, 4800, 12_000)).toBeLessThan(0.002);
+  });
+
+  it("voice stealing: with fewer voices than triggers, only that many sounds play at once", () => {
+    // steady in-phase sines, so n sounding voices add up to n times the level. The limiter is off
+    const level = (voices: number): number => {
+      const s = newSynth({ sfxVoices: voices });
+      s.setMaster({ limiter: false });
+      s.loadSfx("sine", customSfx("sine", 1));
+      for (let i = 0; i < 6; i += 1) {
+        s.trigger("sine");
+        runSynth(s, 4800);
+      }
+      return rms(runSynth(s, 4800).left);
+    };
+    const one = level(1);
+    expect(one).toBeGreaterThan(0.1);
+    expect(level(2) / one).toBeCloseTo(2, 1);
+    expect(level(6) / one).toBeCloseTo(6, 1);
+  });
+
+  it("handles stay unique when voices are stolen, and releasing a stolen handle is harmless", () => {
     const s = newSynth({ sfxVoices: 2 });
     s.loadSfx("hold", longSfx(1));
     const handles: number[] = [];
@@ -333,91 +448,103 @@ describe("sfx voices", () => {
     expect(handles.every((h) => h > 0)).toBe(true);
     expect(new Set(handles).size).toBe(6);
     expect(finite(left)).toBe(true);
-    expect(peak([left])).toBeLessThan(1);
     expect(rms(left, 24_000, 28_800)).toBeGreaterThan(0.01);
-    // releasing a handle that was stolen is harmless
     s.release(handles[0] ?? 0);
     const after = runSynth(s, 4800);
     expect(finite(after.left)).toBe(true);
+    expect(rms(after.left)).toBeGreaterThan(0.01);
   });
 
-  it("a stolen voice fades instead of clicking", () => {
+  it("a stolen voice fades out instead of jumping to the new sound", () => {
+    const maxStep = (a: Float32Array): number => {
+      let worst = 0;
+      for (let i = 1; i < a.length; i += 1) {
+        worst = Math.max(worst, Math.abs((a[i] ?? 0) - (a[i - 1] ?? 0)));
+      }
+      return worst;
+    };
     const s = newSynth({ sfxVoices: 1 });
-    s.loadSfx("hold", longSfx(2));
-    s.trigger("hold");
-    runSynth(s, 9600);
-    s.trigger("hold", { pitch: 7 });
-    const out = runSynth(s, 4800);
-    let worst = 0;
-    for (let i = 1; i < out.left.length; i += 1) {
-      worst = Math.max(
-        worst,
-        Math.abs((out.left[i] ?? 0) - (out.left[i - 1] ?? 0))
-      );
-    }
-    expect(worst).toBeLessThan(0.35);
-  });
-
-  it("eight sfx at once stay under the limiter ceiling", () => {
-    const s = newSynth();
-    s.loadSfx("hold", longSfx(0.5));
-    for (let i = 0; i < 8; i += 1) {
-      s.trigger("hold", { seed: i });
-    }
-    const out = runSynth(s, 24_000);
-    expect(peak([out.left, out.right])).toBeLessThanOrEqual(
-      10 ** (-0.3 / 20) + 1e-4
-    );
+    s.loadSfx("sine", customSfx("sine", 1));
+    s.trigger("sine");
+    // 500 Hz has a 96 frame period: stop a quarter period past a zero, at the wave's crest
+    const before = runSynth(s, 9600 + 24).left;
+    s.trigger("sine", { pitch: 7 });
+    const after = runSynth(s, 4800).left;
+    const crest = Math.abs(before.at(-1) ?? 0);
+    expect(crest).toBeGreaterThan(0.15);
+    // an abrupt cut would step by the whole crest. The 2 ms fade steps by a small part of it
+    // (a 500 Hz sine at this level moves by under 0.02 per frame by itself)
+    expect(maxStep(after)).toBeLessThan(0.03);
+    // and the old sound is really gone: only the new, higher sound is left afterwards
+    const hz = zeroCrossingHz(after.subarray(1200, 4800), SR);
+    expect(hz).toBeCloseTo(500 * 2 ** (7 / 12), -1);
   });
 });
 
 describe("channels and master", () => {
-  it("muting every channel silences the song, muting one changes the mix", () => {
-    const frames = 24_000;
-    const mix = (setup: (s: Synth) => void): { h: string; p: number } => {
-      const s = songSynth();
-      setup(s);
-      s.play();
-      const o = runSynth(s, frames);
-      return { h: hashChannels([o.left, o.right]), p: peak([o.left, o.right]) };
-    };
-    const base = mix(() => undefined);
-    const noPulse = mix((s) => s.setChannel(0, { muted: true }));
-    const none = mix((s) => {
+  /** The scope stem peak and a copy of the last 4096 frames of each channel, after playing the song 0.5 s. */
+  const stems = (setup: (s: Synth) => void) => {
+    const s = songSynth();
+    setup(s);
+    s.play();
+    const o = runSynth(s, 24_000);
+    const reader = createScopeReader(s.scopes, SR);
+    const channels = s.channels().map((_, c) => reader.latest(c, 4096).slice());
+    return { channels, master: [o.left, o.right] };
+  };
+  const same = (a: Float32Array | undefined, b: Float32Array | undefined) =>
+    Array.from(a ?? []).join() === Array.from(b ?? []).join();
+
+  it("muting a channel silences its stem and leaves the other channels unchanged", () => {
+    const base = stems(() => undefined);
+    const muted = stems((s) => s.setChannel(0, { muted: true }));
+    expect(peak([base.channels[0] ?? new Float32Array()])).toBeGreaterThan(
+      0.05
+    );
+    expect(peak([muted.channels[0] ?? new Float32Array()])).toBe(0);
+    for (const c of [1, 2, 3]) {
+      expect(same(muted.channels[c], base.channels[c])).toBe(true);
+    }
+    // the channel is gone from the mix too
+    expect(peak(muted.master)).toBeLessThan(peak(base.master));
+  });
+
+  it("muting every channel silences the song, and unmuting brings it back", () => {
+    const none = stems((s) => {
       for (let c = 0; c < s.channels().length; c += 1) {
         s.setChannel(c, { muted: true });
       }
     });
-    expect(noPulse.h).not.toBe(base.h);
-    expect(none.p).toBeLessThan(1e-4);
-    expect(base.p).toBeGreaterThan(0.05);
+    expect(peak(none.master)).toBe(0);
+    const back = stems((s) => {
+      s.setChannel(0, { muted: true });
+      s.setChannel(0, { muted: false });
+    });
+    expect(same(back.channels[0], stems(() => undefined).channels[0])).toBe(
+      true
+    );
   });
 
-  it("solo keeps only the soloed channel", () => {
-    const frames = 24_000;
-    const run = (setup: (s: Synth) => void) => {
-      const s = songSynth();
-      setup(s);
-      s.play();
-      const o = runSynth(s, frames);
-      return hashChannels([o.left, o.right]);
-    };
-    const soloed = run((s) => s.setChannel(2, { solo: true }));
-    const mutedOthers = run((s) => {
-      for (let c = 0; c < s.channels().length; c += 1) {
-        s.setChannel(c, { muted: c !== 2 });
-      }
-    });
-    expect(soloed).toBe(mutedOthers);
-    const unsoloed = run((s) => {
+  it("solo keeps only the soloed channel, and clearing the solo restores the others", () => {
+    const base = stems(() => undefined);
+    const solo = stems((s) => s.setChannel(2, { solo: true }));
+    expect(peak([solo.channels[2] ?? new Float32Array()])).toBeGreaterThan(
+      0.05
+    );
+    expect(same(solo.channels[2], base.channels[2])).toBe(true);
+    for (const c of [0, 1, 3]) {
+      expect(peak([solo.channels[c] ?? new Float32Array()])).toBe(0);
+    }
+    const cleared = stems((s) => {
       s.setChannel(2, { solo: true });
       s.setChannel(2, { solo: false });
     });
-    const plain = run(() => undefined);
-    expect(unsoloed).toBe(plain);
+    for (const c of [0, 1, 2, 3]) {
+      expect(same(cleared.channels[c], base.channels[c])).toBe(true);
+    }
   });
 
-  it("channel volume and pan apply", () => {
+  it("channel volume scales the channel and pan places it", () => {
     const run = (opts: { volume?: number; pan?: number }) => {
       const d = fixtureDemo("snes");
       const s = newSynth();
@@ -430,45 +557,47 @@ describe("channels and master", () => {
       return { l: rms(o.left), r: rms(o.right) };
     };
     const full = run({ volume: 1 });
-    const quiet = run({ volume: 0.25 });
-    expect(quiet.l).toBeLessThan(full.l * 0.6);
+    expect(run({ volume: 0.25 }).l / full.l).toBeCloseTo(0.25, 1);
+    expect(run({ volume: 0 }).l).toBe(0);
     const hardLeft = run({ pan: -1 });
-    expect(hardLeft.l).toBeGreaterThan(hardLeft.r * 3);
+    expect(hardLeft.l).toBeGreaterThan(0.01);
+    expect(hardLeft.r).toBeLessThan(hardLeft.l * 0.01);
+    const hardRight = run({ pan: 1 });
+    expect(hardRight.l).toBeLessThan(hardRight.r * 0.01);
   });
 
-  it("master volume scales the output and 0 silences it", () => {
+  it("master volume scales the output linearly and 0 silences it", () => {
     const run = (volume: number) => {
       const s = songSynth();
       s.setMaster({ volume });
       s.play();
-      const o = runSynth(s, 24_000);
-      return rms(o.left);
+      return rms(runSynth(s, 24_000).left);
     };
-    expect(run(0)).toBeLessThan(1e-6);
-    expect(run(0.5)).toBeLessThan(run(1) * 0.75);
+    expect(run(0)).toBe(0);
+    expect(run(0.5) / run(1)).toBeCloseTo(0.5, 2);
+    expect(run(0.25) / run(1)).toBeCloseTo(0.25, 2);
+    // the master is held within 0..2
+    expect(run(5)).toBe(run(2));
+    expect(run(-1)).toBe(0);
   });
 
-  it("the limiter can be turned off, and then loud input is not trimmed to the ceiling", () => {
-    const s = newSynth();
-    s.setMaster({ limiter: false, volume: 2 });
-    s.loadSfx("hold", longSfx(0.5));
-    for (let i = 0; i < 8; i += 1) {
-      s.trigger("hold", { seed: i });
-    }
-    const off = runSynth(s, 12_000);
-    const t = newSynth();
-    t.setMaster({ limiter: true, volume: 2 });
-    t.loadSfx("hold", longSfx(0.5));
-    for (let i = 0; i < 8; i += 1) {
-      t.trigger("hold", { seed: i });
-    }
-    const on = runSynth(t, 12_000);
-    expect(peak([on.left, on.right])).toBeLessThanOrEqual(
-      10 ** (-0.3 / 20) + 1e-4
-    );
-    expect(peak([off.left, off.right])).toBeGreaterThanOrEqual(
-      peak([on.left, on.right])
-    );
+  it("the limiter holds loud input at the ceiling, and off it lets the input through", () => {
+    const loud = (limiter: boolean) => {
+      const s = newSynth();
+      s.setMaster({ limiter, volume: 2 });
+      s.loadSfx("hold", longSfx(0.5));
+      for (let i = 0; i < 8; i += 1) {
+        s.trigger("hold", { seed: i });
+      }
+      const o = runSynth(s, 12_000);
+      return peak([o.left, o.right]);
+    };
+    const ceiling = 10 ** (-0.3 / 20);
+    const on = loud(true);
+    expect(on).toBeLessThanOrEqual(ceiling + 1e-4);
+    // the limiter works the signal down to the ceiling, not far below it
+    expect(on).toBeGreaterThan(ceiling - 0.1);
+    expect(loud(false)).toBeGreaterThan(1.2);
   });
 });
 
@@ -505,18 +634,37 @@ describe("live instrument edit", () => {
 });
 
 describe("events", () => {
-  it("noteOn events carry the channel, note, frequency and instrument", () => {
+  it("noteOn and noteOff events follow the fixture song's patterns", () => {
     const s = songSynth();
     s.play();
     const out = runSynth(s, SR * 3);
-    const ons = out.events.filter((e) => e.type === "noteOn");
-    expect(ons.length).toBeGreaterThan(4);
-    for (const e of ons) {
-      expect(e.channel).toBeGreaterThanOrEqual(0);
-      expect(e.hz).toBeGreaterThan(8);
-      expect(e.channelId.length).toBeGreaterThan(0);
-      expect(e.velocity).toBeGreaterThan(0);
-    }
+    // a row is 4800 frames. The intro has pulse1 C-5 at row 0, E-5 at row 4, G-5 at row 8, OFF at row 14,
+    // and triangle C-2 at row 0 and G-1 at row 16
+    const hzOf = (note: number) => 440 * 2 ** ((note - 69) / 12);
+    const notes = (channelId: string, type: "noteOff" | "noteOn") =>
+      out.events
+        .filter((e) => e.type === type && e.channelId === channelId)
+        .map((e) => [e.frame, e.note]);
+    expect(notes("pulse1", "noteOn")).toEqual([
+      [0, 72],
+      [19_200, 76],
+      [38_400, 79],
+    ]);
+    expect(notes("pulse1", "noteOff")).toEqual([[67_200, 79]]);
+    expect(notes("triangle", "noteOn")).toEqual([
+      [0, 36],
+      [76_800, 31],
+    ]);
+    const first = out.events.find(
+      (e) => e.type === "noteOn" && e.channelId === "pulse1"
+    );
+    expect(first).toMatchObject({ channel: 0, id: "lead", velocity: 1 });
+    expect(first?.hz).toBeCloseTo(hzOf(72), 6);
+    // the song's own channel index is the index in channels()
+    expect(
+      out.events.find((e) => e.type === "noteOn" && e.channelId === "triangle")
+        ?.channel
+    ).toBe(2);
     const frames = out.events.map((e) => e.frame);
     expect([...frames].sort((a, b) => a - b)).toEqual(frames);
   });
@@ -535,21 +683,18 @@ describe("events", () => {
 });
 
 describe("scopes", () => {
-  it("rings fill with the channel stems and the master", () => {
+  it("the master ring holds the output that was rendered, and a muted channel's ring stays silent", () => {
     const s = songSynth();
+    s.setChannel(1, { muted: true });
     s.play();
-    runSynth(s, 12_000);
+    const out = runSynth(s, 12_000);
     const reader = createScopeReader(s.scopes, SR);
     const master = reader.latest(-1, 1024);
-    expect(master.length).toBe(1024);
-    expect(peak([master])).toBeGreaterThan(0.01);
-    let any = false;
-    for (let c = 0; c < s.channels().length; c += 1) {
-      if (peak([reader.latest(c, 512).slice()]) > 0.001) {
-        any = true;
-      }
-    }
-    expect(any).toBe(true);
+    expect(Array.from(master)).toEqual(
+      Array.from(out.left.subarray(12_000 - 1024))
+    );
+    expect(peak([reader.latest(0, 4096).slice()])).toBeGreaterThan(0.05);
+    expect(peak([reader.latest(1, 4096).slice()])).toBe(0);
   });
 
   it("latest equals at(head - frames): at takes the start of the window", () => {
@@ -595,7 +740,7 @@ describe("scopes", () => {
     const sab = new SharedArrayBuffer(scopeBufferBytes(s.scopes.frames));
     s.setScopeBuffer(sab);
     s.play();
-    runSynth(s, 12_000);
+    const out = runSynth(s, 12_000);
     const head = new Uint32Array(sab, 0, 1);
     expect(head[0]).toBe(12_000 % s.scopes.frames);
     const master = new Float32Array(
@@ -603,7 +748,11 @@ describe("scopes", () => {
       4 + 10 * s.scopes.frames * 4,
       s.scopes.frames
     );
-    expect(peak([master.slice()])).toBeGreaterThan(0.01);
+    // the master ring is the last ring: the same frames the host got back
+    const end = head[0] ?? 0;
+    expect(Array.from(master.subarray(end - 256, end))).toEqual(
+      Array.from(out.left.subarray(12_000 - 256))
+    );
   });
 });
 

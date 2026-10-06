@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -6,12 +7,58 @@ import { WebSocket } from "ws";
 import { CliError } from "../src/output.ts";
 import { type RunningServer, startServer } from "../src/server/index.ts";
 import { classify, cleanRelPath } from "../src/server/paths.ts";
-import { makeProject, readJson, run, tempDir, writeJson } from "./helpers.ts";
+import {
+  makeProject,
+  readJson,
+  readWav,
+  run,
+  tempDir,
+  wavLevels,
+  writeJson,
+} from "./helpers.ts";
 
 let server: RunningServer;
 let base: string;
 let project: string;
 let dist: string;
+let outer: string;
+
+/** A file outside both the project and the studio dist that no request may ever return. */
+const SECRET = "bleepkit-test-secret-do-not-serve";
+
+/** architecture.md 6.3: the etag is the sha1 of the file bytes, 12 hex chars. Computed here from the bytes, not with the server's helper. */
+function etagOfBytes(bytes: Uint8Array): string {
+  return createHash("sha1").update(bytes).digest("hex").slice(0, 12);
+}
+
+function etagOfFile(file: string): string {
+  return etagOfBytes(fs.readFileSync(file));
+}
+
+/** Every file the API may list, found by walking the folder: project.json, sfx|instruments|songs/*.json, out/**. */
+function expectedFiles(root: string): string[] {
+  const found = ["project.json"];
+  for (const dir of ["sfx", "instruments", "songs"]) {
+    for (const f of fs.readdirSync(path.join(root, dir))) {
+      if (f.endsWith(".json") && !f.startsWith(".")) {
+        found.push(`${dir}/${f}`);
+      }
+    }
+  }
+  const walk = (rel: string): void => {
+    for (const d of fs.readdirSync(path.join(root, rel), {
+      withFileTypes: true,
+    })) {
+      if (d.isDirectory()) {
+        walk(`${rel}/${d.name}`);
+      } else if (!d.name.startsWith(".")) {
+        found.push(`${rel}/${d.name}`);
+      }
+    }
+  };
+  walk("out");
+  return found.sort();
+}
 
 interface Json {
   [key: string]: any;
@@ -41,21 +88,29 @@ async function api(
   return { body: parsed, headers: res.headers, status: res.status };
 }
 
+/**
+ * A websocket client that records every message. `next(type, where)` resolves with the first unread message of that
+ * type whose fields equal `where` (the watcher also reports files written by earlier tests, so the file tests name
+ * the path they are waiting for).
+ */
 function connect(): Promise<{
   close: () => void;
   messages: Json[];
-  next: (type: string, timeoutMs?: number) => Promise<Json>;
+  next: (type: string, where?: Json, timeoutMs?: number) => Promise<Json>;
   socket: WebSocket;
 }> {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(`${base.replace("http", "ws")}/ws`);
     const messages: Json[] = [];
-    const waiters: { resolve: (m: Json) => void; type: string }[] = [];
+    const waiters: {
+      accept: (m: Json) => boolean;
+      resolve: (m: Json) => void;
+    }[] = [];
     socket.on("message", (data) => {
       const m = JSON.parse(String(data)) as Json;
       messages.push(m);
       for (const w of [...waiters]) {
-        if (w.type === m.type) {
+        if (w.accept(m)) {
           waiters.splice(waiters.indexOf(w), 1);
           w.resolve(m);
         }
@@ -65,8 +120,11 @@ function connect(): Promise<{
     const handle = {
       close: () => socket.close(),
       messages,
-      next: (type: string, timeoutMs = 3000) => {
-        const existing = messages.find((m) => m.type === type);
+      next: (type: string, where: Json = {}, timeoutMs = 3000) => {
+        const accept = (m: Json): boolean =>
+          m.type === type &&
+          Object.entries(where).every(([k, v]) => m[k] === v);
+        const existing = messages.find(accept);
         if (existing) {
           messages.splice(messages.indexOf(existing), 1);
           return Promise.resolve(existing);
@@ -76,18 +134,18 @@ function connect(): Promise<{
             () =>
               rej(
                 new Error(
-                  `no ${type} message within ${timeoutMs} ms; got ${JSON.stringify(messages)}`
+                  `no ${type} message ${JSON.stringify(where)} within ${timeoutMs} ms; got ${JSON.stringify(messages)}`
                 )
               ),
             timeoutMs
           );
           waiters.push({
+            accept,
             resolve: (m) => {
               clearTimeout(t);
               messages.splice(messages.indexOf(m), 1);
               res(m);
             },
-            type,
           });
         });
       },
@@ -134,7 +192,10 @@ beforeAll(async () => {
     "--mml",
     "pulse1=o4 l8 cdefgab>c",
   ]);
-  dist = tempDir("bleepkit-dist-");
+  outer = tempDir("bleepkit-dist-outer-");
+  fs.writeFileSync(path.join(outer, "secret.txt"), SECRET);
+  dist = path.join(outer, "dist");
+  fs.mkdirSync(dist);
   fs.writeFileSync(
     path.join(dist, "index.html"),
     "<!doctype html><title>studio</title>"
@@ -204,15 +265,26 @@ describe("static files and headers", () => {
     expect(res.headers.get("cross-origin-embedder-policy")).toBe(
       "require-corp"
     );
+    expect(res.headers.get("cross-origin-resource-policy")).toBe("same-origin");
     expect(res.headers.get("content-type")).toContain("text/html");
     const js = await fetch(`${base}/assets/app.js`);
     expect(js.headers.get("content-type")).toContain("javascript");
     expect(js.headers.get("cross-origin-embedder-policy")).toBe("require-corp");
   });
 
-  it("does not serve files outside dist", async () => {
-    const r = await rawGet(`${base}/..%2F..%2Fetc%2Fpasswd`, {});
-    expect([403, 404]).toContain(r.status);
+  it("does not serve files outside dist, however the traversal is spelled", async () => {
+    // secret.txt sits next to dist/: one level up from the served folder
+    for (const spelling of [
+      "/..%2Fsecret.txt",
+      "/%2e%2e%2fsecret.txt",
+      "/assets/..%2F..%2Fsecret.txt",
+      "/..%2F..%2F..%2F..%2F..%2Fetc%2Fpasswd",
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, the assertion names the spelling that leaked
+      const r = await rawGet(`${base}${spelling}`, {});
+      expect([403, 404], spelling).toContain(r.status);
+      expect(r.body, spelling).not.toContain(SECRET);
+    }
   });
 
   it("explains how to build the studio when there is no dist", async () => {
@@ -258,27 +330,40 @@ describe("static files and headers", () => {
       origin: "http://localhost:5173",
     });
     expect(local.status).toBe(200);
+    const loopback = await rawGet(`${base}/api/health`, {
+      host: `127.0.0.1:${server.port}`,
+      origin: "http://127.0.0.1:5173",
+    });
+    expect(loopback.status).toBe(200);
   });
 
-  it("fails with a bind error when the port is taken", async () => {
-    await expect(
-      startServer({
-        port: server.port,
-        root: project,
-        studioDist: null,
-        version: "x",
-      })
-    ).rejects.toMatchObject({
-      code: "bind",
-    });
-    await expect(
-      startServer({
-        port: server.port,
-        root: project,
-        studioDist: null,
-        version: "x",
-      })
-    ).rejects.toBeInstanceOf(CliError);
+  it("is not fooled by hosts and origins that merely start with localhost", async () => {
+    for (const headers of [
+      { origin: "http://localhost.evil.example" },
+      { origin: "http://127.0.0.1.evil.example" },
+      { origin: "https://evil.example/http://localhost" },
+      { origin: "null" },
+      { host: "localhost.evil.example" },
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, the assertion names the headers that got through
+      const r = await rawGet(`${base}/api/health`, headers);
+      expect(r.status, JSON.stringify(headers)).toBe(403);
+    }
+  });
+
+  it("fails with a bind error (exit code 6) when the port is taken", async () => {
+    const failure = await startServer({
+      port: server.port,
+      root: project,
+      studioDist: null,
+      version: "x",
+    }).then(
+      () => null,
+      (error: unknown) => error
+    );
+    expect(failure).toBeInstanceOf(CliError);
+    expect(failure).toMatchObject({ code: "bind", exitCode: 6 });
+    expect((failure as CliError).hint).toContain("--port");
   });
 });
 
@@ -288,7 +373,7 @@ describe("GET /api/health and /api/project", () => {
     expect(r.body).toEqual({ ok: true, root: project, version: "9.9.9" });
   });
 
-  it("lists the project and its files with etags", async () => {
+  it("lists the project and exactly the files the API may serve, with kind, size and etag", async () => {
     const r = await api("GET", "/api/project");
     expect(r.status).toBe(200);
     expect(r.body.root).toBe(project);
@@ -300,33 +385,33 @@ describe("GET /api/health and /api/project", () => {
       path: string;
       size: number;
     }[];
-    const paths = files.map((f) => f.path);
-    expect(paths).toEqual(
-      expect.arrayContaining([
-        "project.json",
-        "sfx/coin.json",
-        "instruments/lead.json",
-        "songs/title.json",
-      ])
-    );
-    expect(files.find((f) => f.path === "sfx/coin.json")).toMatchObject({
-      kind: "sfx",
-    });
+    expect(files.map((f) => f.path).sort()).toEqual(expectedFiles(project));
+    const kindOf = (rel: string): string =>
+      ({
+        instruments: "instrument",
+        out: "render",
+        "project.json": "project",
+        sfx: "sfx",
+        songs: "song",
+      })[rel.split("/")[0] as string] as string;
     for (const f of files) {
-      expect(f.etag).toMatch(/^[0-9a-f]{12}$/);
-      expect(f.size).toBeGreaterThan(0);
+      const abs = path.join(project, f.path);
+      expect(f.kind, f.path).toBe(kindOf(f.path));
+      expect(f.size, f.path).toBe(fs.statSync(abs).size);
+      expect(f.etag, f.path).toBe(etagOfFile(abs));
     }
   });
 });
 
 describe("/api/file", () => {
-  it("GET returns the JSON with an etag and mtime", async () => {
+  it("GET returns the parsed JSON, its etag (sha1 of the bytes) and its mtime", async () => {
+    const file = path.join(project, "sfx", "coin.json");
     const r = await api("GET", "/api/file?path=sfx/coin.json");
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ path: "sfx/coin.json" });
-    expect(r.body.etag).toMatch(/^[0-9a-f]{12}$/);
-    expect(r.body.json.category).toBe("coin");
-    expect(typeof r.body.mtime).toBe("number");
+    expect(r.body.etag).toBe(etagOfFile(file));
+    expect(r.body.json).toEqual(readJson(file));
+    expect(r.body.mtime).toBe(fs.statSync(file).mtimeMs);
   });
 
   it("403 for anything outside the allowed set and 404 for a missing allowed path", async () => {
@@ -353,28 +438,62 @@ describe("/api/file", () => {
     ).toBe(403);
   });
 
-  it("PUT saves atomically, normalizes, and returns the new etag", async () => {
+  it("does not follow a symlink in out/ to a file outside the project", async () => {
+    const link = path.join(project, "out", "leak.txt");
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.symlinkSync(path.join(outer, "secret.txt"), link);
+    try {
+      const r = await api("GET", "/api/file?path=out/leak.txt");
+      expect(r.status).toBe(403);
+      expect(JSON.stringify(r.body)).not.toContain(SECRET);
+    } finally {
+      fs.rmSync(link, { force: true });
+    }
+  });
+
+  it("PUT saves the normalized document without leaving temp files, and returns the new etag", async () => {
+    const dir = path.join(project, "sfx");
     const get = await api("GET", "/api/file?path=sfx/coin.json");
     const doc = structuredClone(get.body.json);
     doc.volume = 0.31;
+    const before = fs.readdirSync(dir).sort();
     const put = await api("PUT", "/api/file?path=sfx/coin.json", {
       ifMatch: get.body.etag,
       json: doc,
     });
     expect(put.status).toBe(200);
     expect(put.body.ok).toBe(true);
-    expect(put.body.etag).not.toBe(get.body.etag);
+    const onDisk = path.join(dir, "coin.json");
     expect(put.body.json.volume).toBe(0.31);
-    expect(
-      (readJson(path.join(project, "sfx", "coin.json")) as { volume: number })
-        .volume
-    ).toBe(0.31);
-    const leftovers = fs
-      .readdirSync(path.join(project, "sfx"))
-      .filter((f) => f.endsWith(".tmp") || f.startsWith("."));
-    expect(leftovers).toEqual([]);
+    expect(readJson(onDisk)).toEqual(put.body.json);
+    expect(put.body.etag).not.toBe(get.body.etag);
+    expect(put.body.etag).toBe(etagOfFile(onDisk));
+    // temp then rename: nothing but the target is left in the folder
+    expect(fs.readdirSync(dir).sort()).toEqual(before);
     const again = await api("GET", "/api/file?path=sfx/coin.json");
     expect(again.body.etag).toBe(put.body.etag);
+  });
+
+  it("PUT normalizes first: defaults are filled in, out of range values clamped and reported", async () => {
+    const put = await api("PUT", "/api/file?path=sfx/minimal.json", {
+      json: {
+        category: "coin",
+        chip: "nes",
+        version: 1,
+        volume: 5,
+        wave: "square",
+      },
+    });
+    expect(put.status).toBe(200);
+    const onDisk = readJson(path.join(project, "sfx", "minimal.json")) as Json;
+    expect(onDisk.volume).toBe(1);
+    expect(onDisk.envelope).toEqual(
+      expect.objectContaining({ decay: expect.any(Number) })
+    );
+    expect(put.body.issues).toEqual([
+      expect.objectContaining({ path: "/volume", severity: "warning" }),
+    ]);
+    await api("DELETE", "/api/file?path=sfx/minimal.json");
   });
 
   it("PUT with a stale etag is 412 with the current document", async () => {
@@ -445,11 +564,38 @@ describe("/api/file", () => {
     const song = (await api("GET", "/api/file?path=songs/title.json")).body
       .json;
     song.channels[0].instrument = "does-not-exist";
+    const before = fs.readFileSync(
+      path.join(project, "songs", "title.json"),
+      "utf8"
+    );
     const r = await api("PUT", "/api/file?path=songs/title.json", {
       json: song,
     });
     expect(r.status).toBe(422);
-    expect(JSON.stringify(r.body.issues)).toContain("does-not-exist");
+    expect(r.body.issues).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining("does-not-exist"),
+        path: "/channels/0/instrument",
+        severity: "error",
+      }),
+    ]);
+    expect(
+      fs.readFileSync(path.join(project, "songs", "title.json"), "utf8")
+    ).toBe(before);
+  });
+
+  it("PUT validates project.json too and leaves it alone when it has errors", async () => {
+    const file = path.join(project, "project.json");
+    const before = fs.readFileSync(file, "utf8");
+    const current = readJson(file) as Json;
+    const r = await api("PUT", "/api/file?path=project.json", {
+      json: { ...current, chip: "amiga" },
+    });
+    expect(r.status).toBe(422);
+    expect(r.body.issues).toEqual([
+      expect.objectContaining({ path: "/chip", severity: "error" }),
+    ]);
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
   });
 
   it("DELETE removes a document, 404 when missing, 403 for project.json", async () => {
@@ -492,17 +638,46 @@ describe("render, analyze, export, play", () => {
     expect(full.headers.get("accept-ranges")).toBe("bytes");
     const bytes = new Uint8Array(await full.arrayBuffer());
     expect(String.fromCharCode(...bytes.subarray(0, 4))).toBe("RIFF");
-    const part = await fetch(`${base}/api/file?path=out/sfx/coin.wav`, {
-      headers: { range: "bytes=0-15" },
-    });
-    expect(part.status).toBe(206);
-    expect(part.headers.get("content-range")).toBe(
-      `bytes 0-15/${bytes.length}`
-    );
-    expect((await part.arrayBuffer()).byteLength).toBe(16);
+    expect(
+      Buffer.from(bytes).equals(
+        fs.readFileSync(path.join(project, "out", "sfx", "coin.wav"))
+      )
+    ).toBe(true);
     const json = await api("GET", "/api/file?path=out/sfx/coin.meta.json");
     expect(json.body.json.hash).toMatch(/^[0-9a-f]{40}$/);
     ws.close();
+  });
+
+  it("serves out/ files by HTTP Range (RFC 9110): closed, open ended and suffix ranges, 416 past the end", async () => {
+    await api("POST", "/api/render", { ref: "sfx/coin" });
+    const url = `${base}/api/file?path=out/sfx/coin.wav`;
+    const whole = fs.readFileSync(path.join(project, "out", "sfx", "coin.wav"));
+    const n = whole.length;
+    const cases: { header: string; first: number; last: number }[] = [
+      { first: 0, header: "bytes=0-15", last: 15 },
+      { first: 8, header: "bytes=8-23", last: 23 },
+      { first: n - 10, header: `bytes=${n - 10}-`, last: n - 1 },
+      { first: n - 8, header: "bytes=-8", last: n - 1 },
+      { first: 100, header: `bytes=100-${n + 5000}`, last: n - 1 },
+    ];
+    for (const c of cases) {
+      // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, the assertion names the range that failed
+      const res = await fetch(url, { headers: { range: c.header } });
+      expect(res.status, c.header).toBe(206);
+      expect(res.headers.get("content-range"), c.header).toBe(
+        `bytes ${c.first}-${c.last}/${n}`
+      );
+      expect(res.headers.get("content-type")).toBe("audio/wav");
+      expect(
+        Buffer.from(await res.arrayBuffer()).equals(
+          whole.subarray(c.first, c.last + 1)
+        ),
+        c.header
+      ).toBe(true);
+    }
+    const past = await fetch(url, { headers: { range: `bytes=${n}-` } });
+    expect(past.status).toBe(416);
+    expect(past.headers.get("content-range")).toBe(`bytes */${n}`);
   });
 
   it("render errors are typed: 404 unknown ref, 422 invalid, 400 missing ref", async () => {
@@ -524,20 +699,51 @@ describe("render, analyze, export, play", () => {
     fs.rmSync(path.join(project, "sfx", "broken.json"));
   });
 
-  it("POST /api/analyze returns the analysis object", async () => {
+  it("POST /api/analyze returns the analysis of the render, matching the WAV on disk", async () => {
     const r = await api("POST", "/api/analyze", { ref: "sfx/coin" });
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ ok: true, ref: "sfx/coin" });
-    expect(r.body).toHaveProperty("peakDb");
-    expect(r.body).toHaveProperty("envelope");
+    expect(r.body).toMatchObject({
+      file: "out/sfx/coin.wav",
+      ok: true,
+      ref: "sfx/coin",
+      sampleRate: 48_000,
+    });
+    const wav = readWav(path.join(project, "out", "sfx", "coin.wav"));
+    expect(r.body.frames).toBe(wav.frames);
+    expect(r.body.duration).toBeCloseTo(wav.frames / wav.sampleRate, 5);
+    expect(r.body.peakDb).toBeCloseTo(wavLevels(wav).peakDb, 1);
+    expect(r.body.envelope.length).toBeGreaterThan(0);
+    expect(
+      (await api("POST", "/api/analyze", { ref: "sfx/nope" })).status
+    ).toBe(404);
   });
 
-  it("POST /api/export with dryRun lists changes without writing", async () => {
-    const r = await api("POST", "/api/export", { dryRun: true });
-    expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ dryRun: true, ok: true });
-    expect(r.body.written.length).toBeGreaterThan(0);
-    expect(fs.existsSync(path.join(project, "..", "public"))).toBe(false);
+  it("POST /api/export with dryRun lists what it would write, and a real export then writes exactly that", async () => {
+    const publicDir = path.join(project, "..", "public");
+    const dry = await api("POST", "/api/export", { dryRun: true });
+    expect(dry.status).toBe(200);
+    expect(dry.body).toMatchObject({ dryRun: true, ok: true });
+    expect(dry.body.written).toEqual(
+      expect.arrayContaining([
+        "../public/audio/coin.ogg",
+        "../src/audio.ts",
+        "../public/audio/manifest.json",
+      ])
+    );
+    expect(fs.existsSync(publicDir)).toBe(false);
+    const real = await api("POST", "/api/export", {});
+    expect(real.status).toBe(200);
+    expect(real.body).toMatchObject({ ok: true });
+    expect([...real.body.written].sort()).toEqual([...dry.body.written].sort());
+    expect(
+      fs
+        .readFileSync(path.join(publicDir, "audio", "coin.ogg"))
+        .subarray(0, 4)
+        .toString("latin1")
+    ).toBe("OggS");
+    expect(fs.existsSync(path.join(project, "..", "src", "audio.ts"))).toBe(
+      true
+    );
   });
 
   it("POST /api/play broadcasts to every connected studio and reports the count", async () => {
@@ -555,6 +761,12 @@ describe("render, analyze, export, play", () => {
       visual: true,
     });
     expect(await b.next("play")).toMatchObject({ ref: "sfx/coin" });
+    await api("POST", "/api/play", { ref: "sfx/coin" });
+    expect(await a.next("play")).toEqual({
+      ref: "sfx/coin",
+      type: "play",
+      visual: false,
+    });
     expect((await api("POST", "/api/play", { ref: "sfx/nope" })).status).toBe(
       404
     );
@@ -587,7 +799,7 @@ describe("websocket", () => {
     const doc = readJson(file) as { name: string };
     doc.name = "Changed on disk";
     writeJson(file, doc);
-    const msg = await ws.next("file");
+    const msg = await ws.next("file", { path: "sfx/coin.json" });
     expect(msg.path).toBe("sfx/coin.json");
     expect(msg.json.name).toBe("Changed on disk");
     expect(msg.etag).toMatch(/^[0-9a-f]{12}$/);
@@ -602,16 +814,18 @@ describe("websocket", () => {
     const fresh = path.join(project, "sfx", "zap.json");
     const coin = readJson(path.join(project, "sfx", "coin.json"));
     writeJson(fresh, coin);
-    expect((await ws.next("file")).path).toBe("sfx/zap.json");
+    expect((await ws.next("file", { path: "sfx/zap.json" })).path).toBe(
+      "sfx/zap.json"
+    );
     fs.rmSync(fresh);
-    expect(await ws.next("deleted")).toEqual({
+    expect(await ws.next("deleted", { path: "sfx/zap.json" })).toEqual({
       path: "sfx/zap.json",
       type: "deleted",
     });
     const put = await api("PUT", "/api/file?path=sfx/zap2.json", {
       json: coin,
     });
-    const msg = await ws.next("file");
+    const msg = await ws.next("file", { path: "sfx/zap2.json" });
     expect(msg).toMatchObject({ etag: put.body.etag, path: "sfx/zap2.json" });
     await new Promise((r) => setTimeout(r, 250));
     expect(
@@ -630,24 +844,42 @@ describe("websocket", () => {
       writeJson(file, { ...doc, name: `burst ${i}` });
     }
     fs.writeFileSync(path.join(project, "sfx", ".scratch.tmp"), "x");
-    const msg = await ws.next("file");
-    expect(msg.path).toBe("instruments/lead.json");
+    const msg = await ws.next("file", { path: "instruments/lead.json" });
     expect(msg.json.name).toBe("burst 4");
     await new Promise((r) => setTimeout(r, 250));
-    expect(ws.messages.filter((m) => m.type === "file")).toHaveLength(0);
+    // one message for the five writes, and none for the temp file
+    expect(
+      ws.messages.filter((m) => m.path === "instruments/lead.json")
+    ).toHaveLength(0);
+    expect(
+      ws.messages.some((m) => String(m.path ?? "").includes("scratch"))
+    ).toBe(false);
     fs.rmSync(path.join(project, "sfx", ".scratch.tmp"));
     ws.close();
   });
 
-  it("refuses websocket upgrades from other origins", async () => {
-    const result = await new Promise<string>((resolve) => {
-      const socket = new WebSocket(`${base.replace("http", "ws")}/ws`, {
-        headers: { origin: "https://evil.example" },
+  it("accepts websocket upgrades from localhost pages and refuses every other origin", async () => {
+    const attempt = (origin: string) =>
+      new Promise<string>((resolve) => {
+        const socket = new WebSocket(`${base.replace("http", "ws")}/ws`, {
+          headers: { origin },
+        });
+        socket.on("open", () => {
+          socket.close();
+          resolve("open");
+        });
+        socket.on("error", () => resolve("refused"));
+        socket.on("unexpected-response", () => resolve("refused"));
       });
-      socket.on("open", () => resolve("open"));
-      socket.on("error", () => resolve("refused"));
-      socket.on("unexpected-response", () => resolve("refused"));
-    });
-    expect(result).toBe("refused");
+    // the Vite dev server (pnpm dev) is a localhost page that proxies /ws
+    expect(await attempt("http://localhost:5173")).toBe("open");
+    for (const origin of [
+      "https://evil.example",
+      "http://localhost.evil.example",
+      "null",
+    ]) {
+      // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, the assertion names the origin that got in
+      expect(await attempt(origin), origin).toBe("refused");
+    }
   });
 });

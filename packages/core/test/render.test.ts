@@ -19,6 +19,7 @@ import {
   renderSong,
 } from "../src/index.ts";
 import { analyze } from "../src/tools.ts";
+import type { Demo } from "./helpers.ts";
 import {
   bandEnergy,
   fixtureDemo,
@@ -30,6 +31,7 @@ import {
   rms,
   runSynth,
   toDb,
+  zeroCrossingHz,
 } from "./helpers.ts";
 
 const CHIPS = ["gameboy", "c64", "genesis", "adlib", "snes", "custom"] as const;
@@ -55,31 +57,22 @@ function allFinite(r: RenderResult): boolean {
 }
 
 describe("renderSong", () => {
-  it("renders the fixture song: audible, finite, under the limiter ceiling, no DC", () => {
-    const { song, instruments } = fixtureSong();
-    const r = renderSong(song, instruments);
+  it.each<[string, Demo]>([
+    ["nes", fixtureSong() as Demo],
+    ...CHIPS.map((chip): [string, Demo] => [chip, fixtureDemo(chip)]),
+  ])("%s song: stereo, audible, finite, under the ceiling, no DC", (_, d) => {
+    const r = renderSong(d.song, d.instruments);
     expect(r.sampleRate).toBe(48_000);
     expect(r.channels).toHaveLength(2);
     expect(r.channels[0]?.length).toBe(r.frames);
     expect(r.channels[1]?.length).toBe(r.frames);
     expect(allFinite(r)).toBe(true);
-    expect(peak(r.channels)).toBeGreaterThan(0.1);
-    expect(peak(r.channels)).toBeLessThanOrEqual(CEILING + 1e-4);
-    expect(Math.abs(dc(r.channels[0] as Float32Array))).toBeLessThan(0.005);
+    const p = peak(r.channels);
+    expect(p).toBeGreaterThan(0.1);
+    expect(p).toBeLessThanOrEqual(CEILING + 1e-4);
+    expect(Math.abs(dc(r.channels[0] as Float32Array))).toBeLessThan(0.006);
+    expect(Math.abs(dc(r.channels[1] as Float32Array))).toBeLessThan(0.006);
   });
-
-  for (const chip of CHIPS) {
-    it(`${chip}: audible, finite, under the ceiling, no DC`, () => {
-      const d = fixtureDemo(chip);
-      const r = renderSong(d.song, d.instruments);
-      expect(allFinite(r)).toBe(true);
-      const p = peak(r.channels);
-      expect(p).toBeGreaterThan(0.1);
-      expect(p).toBeLessThanOrEqual(CEILING + 1e-4);
-      expect(Math.abs(dc(r.channels[0] as Float32Array))).toBeLessThan(0.006);
-      expect(Math.abs(dc(r.channels[1] as Float32Array))).toBeLessThan(0.006);
-    });
-  }
 
   it("honours the sample rate", () => {
     const { song, instruments } = fixtureSong();
@@ -121,7 +114,7 @@ describe("renderSong", () => {
     expect(zero.loopEnd).toBe(one.loopEnd);
   });
 
-  it("the loop is seamless: the audio one pass later matches in level and pitch content", () => {
+  it("later passes of the loop keep the level of the one before (the passes are not sample identical: noise runs on)", () => {
     const { song, instruments } = fixtureSong();
     const r = renderSong(song, instruments, { loops: 3, tail: 0 });
     const ls = r.loopStart ?? 0;
@@ -247,31 +240,44 @@ describe("renderSong", () => {
     expect(renderSong(song, instruments, { tail: 0.1 }).stems).toBeUndefined();
   });
 
-  it("events: noteOn and row events are inside the render and ordered by frame", () => {
+  it("events: one row event per row, the end event where the last row ends, nothing past the render", () => {
     const { song, instruments } = fixtureSong();
-    const r = renderSong(song, instruments, { tail: 0.1 });
-    expect(r.events.length).toBeGreaterThan(20);
-    let last = -1;
+    const r = renderSong({ ...song, loop: null }, instruments, { tail: 0.1 });
+    // intro 32 rows and two verses of 64: 160 rows of 4800 frames at 150 BPM, 4 rows a beat
+    const rows = r.events.filter((e) => e.type === "row");
+    expect(rows).toHaveLength(160);
+    expect(rows.map((e) => e.frame)).toEqual(
+      Array.from({ length: 160 }, (_, i) => i * 4800)
+    );
+    expect(r.events.find((e) => e.type === "end")?.frame).toBe(160 * 4800);
+    // the tail is 0.1 s after the end
+    expect(r.frames).toBe(160 * 4800 + 4800);
     for (const e of r.events) {
-      expect(e.frame).toBeGreaterThanOrEqual(last);
       expect(e.frame).toBeLessThan(r.frames);
-      last = e.frame;
     }
-    expect(r.events.some((e) => e.type === "end")).toBe(true);
+    const frames = r.events.map((e) => e.frame);
+    expect([...frames].sort((a, b) => a - b)).toEqual(frames);
   });
 
-  it("onProgress is called and returning false aborts the render", () => {
+  it("onProgress reports frames against the expected total, and returning false aborts the render", () => {
     const { song, instruments } = fixtureSong();
-    let calls = 0;
+    const calls: [number, number][] = [];
     const aborted = renderSong(song, instruments, {
-      onProgress: () => {
-        calls += 1;
-        return calls < 2 ? undefined : false;
+      onProgress: (frames, total) => {
+        calls.push([frames, total]);
+        return calls.length < 2 ? undefined : false;
       },
     });
-    const full = renderSong(song, instruments);
-    expect(calls).toBeGreaterThanOrEqual(2);
-    expect(aborted.frames).toBeLessThan(full.frames);
+    // the intro and verse pass, one more pass of the two verses (loop at order 1), and the 1 s tail
+    const expected = 160 * 4800 + 128 * 4800 + 48_000;
+    expect(calls).toEqual([
+      [65_536, expected],
+      [131_072, expected],
+    ]);
+    // it stopped at the second call, short of the second block of progress
+    expect(aborted.frames).toBeGreaterThan(65_536);
+    expect(aborted.frames).toBeLessThanOrEqual(131_072);
+    expect(renderSong(song, instruments).frames).toBe(expected);
   });
 
   it("an empty song renders silence of the tail length at most", () => {
@@ -289,15 +295,23 @@ describe("renderSong", () => {
     expect(r.frames).toBeLessThan(48_000 * 2);
   });
 
-  it("master volume and limiter come from the song", () => {
+  it("master volume comes from the song, and the options set only the limiter", () => {
     const { song, instruments } = fixtureSong();
-    const quiet = renderSong(
-      { ...song, master: { ...song.master, volume: 0.25 } },
-      instruments,
-      { tail: 0.1 }
-    );
-    const normal = renderSong(song, instruments, { tail: 0.1 });
-    expect(peak(quiet.channels)).toBeLessThan(peak(normal.channels) * 0.6);
+    const peakOf = (volume: number, opts: Record<string, unknown> = {}) =>
+      peak(
+        renderSong(
+          { ...song, loop: null, master: { ...song.master, volume } },
+          instruments,
+          { tail: 0.1, ...opts }
+        ).channels
+      );
+    // below the limiter the render is linear in the master volume
+    expect(peakOf(0.25) / peakOf(0.8)).toBeCloseTo(0.25 / 0.8, 3);
+    // a loud master is held to the ceiling, and without the limiter it is not. The options' volume is ignored
+    expect(peakOf(2)).toBeLessThanOrEqual(CEILING + 1e-4);
+    expect(
+      peakOf(2, { master: { limiter: false, volume: 0.1 } })
+    ).toBeGreaterThan(1.2);
   });
 });
 
@@ -326,15 +340,30 @@ describe("renderSfx", () => {
     });
   }
 
-  it("the seed drives noise sfx", () => {
-    const base = fixtureJson("sfx-coin.json") as Record<string, unknown>;
-    const noisy = (seed: number) =>
-      renderSfx(normalizeSfxSeed(base, seed), { seed });
-    const a = noisy(1);
-    const b = noisy(1);
-    expect(
-      Array.from((a.channels[0] as Float32Array).subarray(0, 2000))
-    ).toEqual(Array.from((b.channels[0] as Float32Array).subarray(0, 2000)));
+  it("the render seed picks the noise sequence: the same seed repeats, another seed differs, 1 is the default", () => {
+    const noisy = normalizeSfx({
+      ...(fixtureJson("sfx-coin.json") as Record<string, unknown>),
+      wave: "noise",
+    }).value;
+    const first = (opts?: { seed: number }) =>
+      Array.from(
+        (renderSfx(noisy, opts).channels[0] as Float32Array).subarray(0, 4000)
+      );
+    const one = first({ seed: 1 });
+    expect(first({ seed: 1 })).toEqual(one);
+    expect(first()).toEqual(one);
+    const other = first({ seed: 2 });
+    expect(other).not.toEqual(one);
+    // a different noise, not the same sound shifted: the two correlate weakly
+    let dot = 0;
+    let a2 = 0;
+    let b2 = 0;
+    for (let i = 0; i < one.length; i += 1) {
+      dot += (one[i] ?? 0) * (other[i] ?? 0);
+      a2 += (one[i] ?? 0) ** 2;
+      b2 += (other[i] ?? 0) ** 2;
+    }
+    expect(Math.abs(dot / Math.sqrt(a2 * b2))).toBeLessThan(0.5);
   });
 
   function squareSfx(chip: ChipId, volume = 1) {
@@ -465,65 +494,100 @@ describe("renderSfx", () => {
     });
   });
 
-  it("tail 0 trims right after the sound and a long tail is trimmed back to silence", () => {
-    const a = renderSfx(fixtureSfx(), { tail: 0 });
-    const b = renderSfx(fixtureSfx(), { tail: 2 });
-    expect(b.frames).toBeLessThan(a.frames + 48_000);
+  it("a longer tail adds room only up to the end of the sound: the render is trimmed back to silence", () => {
+    const frames = (tail: number) => renderSfx(fixtureSfx(), { tail }).frames;
+    // the sfx program lasts 14880 frames, the release and echo ring on a little past it
+    expect(frames(0)).toBeLessThan(frames(0.25));
+    // beyond that the tail changes nothing, so a 2 s tail does not leave 2 s of silence
+    expect(frames(1)).toBe(frames(0.25));
+    expect(frames(2)).toBe(frames(0.25));
+    const long = renderSfx(fixtureSfx(), { tail: 2 });
+    // the render ends 10 ms (480 frames) after the last frame above -90 dBFS
+    const [l, r] = long.channels as [Float32Array, Float32Array];
+    let last = long.frames - 1;
+    while (
+      last > 0 &&
+      Math.abs(l[last] ?? 0) <= 10 ** (-90 / 20) &&
+      Math.abs(r[last] ?? 0) <= 10 ** (-90 / 20)
+    ) {
+      last -= 1;
+    }
+    expect(long.frames - 1 - last).toBe(480);
   });
 });
 
-function normalizeSfxSeed(base: Record<string, unknown>, seed: number) {
-  const sfx = fixtureSfx();
-  return {
-    ...sfx,
-    name: String(base.name ?? "n"),
-    seed,
-    wave: "noise" as const,
-  };
-}
-
 describe("renderInstrumentNote", () => {
-  it("plays a note and its release", () => {
+  const left = (r: RenderResult) => r.channels[0] as Float32Array;
+
+  it("holds the note for the duration, then releases it for the release time", () => {
     const inst = fixtureInstruments().lead as Instrument;
     const r = renderInstrumentNote(inst, 69, { duration: 0.3, release: 0.3 });
-    expect(r.frames).toBeGreaterThanOrEqual(0.55 * 48_000);
-    expect(peak(r.channels)).toBeGreaterThan(0.05);
-    expect(rms(r.channels[0] as Float32Array, r.frames - 2400)).toBeLessThan(
-      0.005
+    // 0.3 s held and 0.3 s of release, as frames
+    expect(r.frames).toBe(28_800);
+    expect(rms(left(r), 2400, 14_000)).toBeGreaterThan(0.03);
+    expect(rms(left(r), 14_600, 16_400)).toBeLessThan(
+      rms(left(r), 2400, 14_000) * 0.25
     );
+    expect(rms(left(r), r.frames - 2400)).toBeLessThan(1e-4);
+    // a short release ends sooner
+    expect(
+      renderInstrumentNote(inst, 69, { duration: 0.3, release: 0.05 }).frames
+    ).toBe(16_800);
   });
 
-  it("uses the chip of the instrument, and falls back to custom for a kind the chip lacks", () => {
+  it("the note number sets the pitch: an octave up doubles it", () => {
+    const inst = fixtureInstruments().lead as Instrument;
+    const hz = (note: number) =>
+      zeroCrossingHz(
+        left(
+          renderInstrumentNote(inst, note, { duration: 0.3, release: 0.1 })
+        ).subarray(2400, 13_000),
+        48_000
+      );
+    expect(hz(81) / hz(69)).toBeCloseTo(2, 1);
+    expect(hz(57) / hz(69)).toBeCloseTo(0.5, 1);
+  });
+
+  it("renders on the chip asked for, and a chip without the instrument's kind falls back to custom", () => {
+    const lead = fixtureInstruments().lead as Instrument;
+    const render = (inst: Instrument, chip: ChipId) =>
+      Array.from(
+        left(
+          renderInstrumentNote(inst, 57, { chip, duration: 0.2, release: 0.1 })
+        ).subarray(0, 6000)
+      );
+    // a chip colors the sound: the same note on nes and on gameboy differs
+    expect(render(lead, "nes")).not.toEqual(render(lead, "gameboy"));
+    // the nes has no FM channel: the render is the one on the custom chip, which has every kind
     const fm = normalizeInstrument(
       fixtureJson("instrument-fm-bass.json")
     ).value;
-    const r = renderInstrumentNote(fm, 45, { duration: 0.3, release: 0.2 });
-    expect(peak(r.channels)).toBeGreaterThan(0.02);
-    const asNes = renderInstrumentNote(fm, 45, {
-      chip: "nes",
-      duration: 0.3,
-      release: 0.2,
-    });
-    expect(allFinite(asNes)).toBe(true);
-    expect(peak(asNes.channels)).toBeGreaterThan(0.02);
+    const asNes = render(fm, "nes");
+    expect(asNes).toEqual(render(fm, "custom"));
+    expect(Math.max(...asNes.map(Math.abs))).toBeGreaterThan(0.02);
+    expect(asNes).not.toEqual(render(fm, "genesis"));
   });
 
-  it("sample instruments play their generator", () => {
+  it("sample instruments play their generator and release to silence", () => {
     const inst = normalizeInstrument(
       fixtureJson("instrument-snes-pluck.json")
     ).value;
     const r = renderInstrumentNote(inst, 60, { duration: 0.4, release: 0.2 });
-    expect(peak(r.channels)).toBeGreaterThan(0.05);
+    expect(allFinite(r)).toBe(true);
+    expect(rms(left(r), 1000, 12_000)).toBeGreaterThan(0.01);
+    expect(rms(left(r), r.frames - 2400)).toBeLessThan(1e-3);
   });
 });
 
 /* A click is a step at a note boundary much larger than anything else nearby. Each channel is soloed through the real
    synth (limiter off, so only the voice and its chip bus shape the signal) and every noteOn and noteOff is inspected. */
 describe("no clicks at note boundaries", () => {
-  function scan(chip: string): { worst: number; where: string }[] {
+  function scan(
+    chip: string
+  ): { boundaries: number; worst: number; where: string }[] {
     const d = chip === "nes" ? null : fixtureDemo(chip);
     const { song, instruments } = d ?? fixtureSong();
-    const out: { worst: number; where: string }[] = [];
+    const out: { boundaries: number; worst: number; where: string }[] = [];
     for (let c = 0; c < song.channels.length; c += 1) {
       const s = createSynth({ sampleRate: 48_000 });
       s.loadSong(song, instruments);
@@ -542,6 +606,7 @@ describe("no clicks at note boundaries", () => {
       }
       let worst = 0;
       let where = "";
+      let boundaries = 0;
       for (const e of r.events) {
         if (e.channel !== c || (e.type !== "noteOn" && e.type !== "noteOff")) {
           continue;
@@ -550,6 +615,7 @@ describe("no clicks at note boundaries", () => {
         if (f < 400 || f > m.length - 400) {
           continue;
         }
+        boundaries += 1;
         let step = 0;
         for (let i = f - 1; i <= f + 2; i += 1) {
           step = Math.max(step, Math.abs((m[i] ?? 0) - (m[i - 1] ?? 0)));
@@ -568,14 +634,18 @@ describe("no clicks at note boundaries", () => {
           where = `${song.channels[c]?.id} ${e.type} at ${e.frame}`;
         }
       }
-      out.push({ where, worst });
+      out.push({ boundaries, where, worst });
     }
     return out;
   }
 
   for (const chip of ["nes", ...CHIPS] as const) {
     it(`${chip}: no boundary step stands out from its neighbourhood`, () => {
-      for (const r of scan(chip)) {
+      const scanned = scan(chip);
+      // the scan must really have looked at note boundaries on some audible channels
+      expect(scanned.length).toBeGreaterThanOrEqual(2);
+      expect(scanned.reduce((n, r) => n + r.boundaries, 0)).toBeGreaterThan(8);
+      for (const r of scanned) {
         expect(r.worst, r.where).toBeLessThan(1.6);
       }
     });

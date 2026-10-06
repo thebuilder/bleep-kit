@@ -73,14 +73,16 @@ async function load() {
   const processor = new Ctor({ processorOptions: { scopeFrames: 2048 } });
   const left = new Float32Array(128);
   const right = new Float32Array(128);
+  /** Render blocks and report the largest sample seen in each channel. */
   const render = (blocks: number) => {
-    let peak = 0;
+    const peak = { left: 0, right: 0 };
     for (let i = 0; i < blocks; i += 1) {
       vi.stubGlobal("currentTime", clock.time);
       processor.process([], [[left, right]], {});
       clock.time += 128 / RATE;
-      for (const v of left) {
-        peak = Math.max(peak, Math.abs(v));
+      for (let k = 0; k < left.length; k += 1) {
+        peak.left = Math.max(peak.left, Math.abs(left[k] ?? 0));
+        peak.right = Math.max(peak.right, Math.abs(right[k] ?? 0));
       }
     }
     return peak;
@@ -109,13 +111,17 @@ describe("the worklet bundle with the real engine", () => {
   it("announces ready, plays a triggered sfx and releases its handle", async () => {
     const w = await load();
     expect(w.of("ready")).toEqual([{ sampleRate: RATE, type: "ready" }]);
-    expect(w.render(4)).toBe(0);
+    expect(w.render(4)).toEqual({ left: 0, right: 0 });
     w.send({ id: "coin", sfx, type: "loadSfx" });
     w.send({ handle: 1, id: "coin", type: "trigger", velocity: 1 });
-    expect(w.render(40)).toBeGreaterThan(0.01);
+    const sounding = w.render(40);
+    expect(sounding.left).toBeGreaterThan(0.01);
+    expect(sounding.right).toBeGreaterThan(0.01);
     w.send({ handle: 1, type: "release" });
     w.render(200);
     expect(w.of("error")).toEqual([]);
+    // a sound effect ends: nothing keeps ringing after it
+    expect(w.render(50)).toEqual({ left: 0, right: 0 });
     const triggers = w
       .of("events")
       .flatMap((m) => m.events)
@@ -127,7 +133,9 @@ describe("the worklet bundle with the real engine", () => {
     const w = await load();
     w.send({ instruments, song, type: "loadSong" });
     w.send({ loop: true, type: "play" });
-    expect(w.render(120)).toBeGreaterThan(0.01);
+    const sounding = w.render(120);
+    expect(sounding.left).toBeGreaterThan(0.01);
+    expect(sounding.right).toBeGreaterThan(0.01);
     expect(w.of("error")).toEqual([]);
     const events = w.of("events").flatMap((m) => m.events);
     expect(events.some((e) => e.type === "noteOn")).toBe(true);
@@ -159,14 +167,18 @@ describe("the worklet bundle with the real engine", () => {
     w.send({ type: "stop" });
     w.render(300);
     expect(w.of("error")).toEqual([]);
+    // the song was stopped and its release has died away
+    expect(w.render(20)).toEqual({ left: 0, right: 0 });
   });
 
-  it("reports a bad document as an error message and keeps rendering", async () => {
+  it("reports a bad document as an error message and keeps working", async () => {
     const w = await load();
     w.send({ instruments: {}, song: { not: "a song" }, type: "loadSong" });
-    w.render(2);
-    w.send({ handle: 1, id: "x", type: "trigger" });
+    expect(w.of("error")).toHaveLength(1);
     expect(() => w.render(10)).not.toThrow();
-    expect(w.of("ready")).toHaveLength(1);
+    // the engine is still usable: a good document afterwards plays
+    w.send({ id: "coin", sfx, type: "loadSfx" });
+    w.send({ handle: 1, id: "coin", type: "trigger", velocity: 1 });
+    expect(w.render(40).left).toBeGreaterThan(0.01);
   });
 });

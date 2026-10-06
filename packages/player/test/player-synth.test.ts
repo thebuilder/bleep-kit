@@ -5,10 +5,12 @@ import type { AudioManifest, BleepPlayer } from "../src/types.ts";
 import {
   audioBytes,
   FakeContext,
-  type FakeGain,
+  type FakeSource,
   FakeWorkletNode,
   fakeFetch,
+  heardLevel,
   installWebAudioGlobals,
+  type Linked,
   linkWorklets,
 } from "./fake-audio.ts";
 
@@ -69,8 +71,20 @@ async function make(opts: Partial<Parameters<typeof createPlayer>[0]> = {}) {
   });
 }
 
-const calls = (index: number) => rig.linked[index]?.synth().calls ?? [];
-const names = (index: number) => calls(index).map((c) => c[0]);
+// the sfx engine is the one made with a voice count; the music engine is the other one
+const sfxEngine = () =>
+  rig.linked.find(
+    (l) => l.node.options.processorOptions?.sfxVoices !== undefined
+  ) as Linked;
+const musicEngine = () =>
+  rig.linked.find(
+    (l) => l.node.options.processorOptions?.sfxVoices === undefined
+  ) as Linked;
+const callsOf = (engine: Linked) => engine.synth().calls;
+const namesOf = (engine: Linked) => callsOf(engine).map((c) => c[0]);
+/** Level at the speakers of what an engine node outputs, at context time `at`. */
+const gainOf = (engine: Linked, at = ctx.currentTime) =>
+  ctx.audibleGain(engine.node, at);
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -94,28 +108,29 @@ afterEach(() => {
 });
 
 describe("synth mode setup", () => {
-  it("makes one engine per kind of document and wires them to their buses", async () => {
-    await make({ maxSfxVoices: 6 });
-    expect(ctx.modules).toEqual(["/w.js", "/w.js"]);
-    const [sfxNode, musicNode] = FakeWorkletNode.instances;
-    expect(sfxNode?.options.processorOptions).toMatchObject({
+  it("makes one engine per kind of document, each reaching the speakers through its own bus", async () => {
+    await make({
+      buses: { master: 0.8, music: 0.25, sfx: 0.5 },
+      maxSfxVoices: 6,
+    });
+    expect(FakeWorkletNode.instances).toHaveLength(2);
+    expect(new Set(ctx.modules)).toEqual(new Set(["/w.js"]));
+    expect(sfxEngine().node.options.processorOptions).toMatchObject({
       scopes: false,
       sfxVoices: 6,
     });
-    expect(musicNode?.options.processorOptions).toMatchObject({
+    expect(musicEngine().node.options.processorOptions).toMatchObject({
       scopes: false,
     });
-    const [master, sfxBus, musicBus, fade] = ctx.gains as FakeGain[];
-    expect(master).toBeDefined();
-    expect(sfxNode?.outputs).toEqual([sfxBus]);
-    expect(musicNode?.outputs).toEqual([fade]);
-    expect(fade?.outputs).toEqual([musicBus]);
+    expect(gainOf(sfxEngine())).toBeCloseTo(0.5 * 0.8, 9);
+    expect(gainOf(musicEngine())).toBeCloseTo(0.25 * 0.8, 9);
   });
 
   it("makes only the engines the manifest has documents for", async () => {
     await make({ manifest: { ...manifest, songs: {} } });
     expect(FakeWorkletNode.instances).toHaveLength(1);
-    expect(FakeWorkletNode.instances[0]?.outputs[0]).toBe(ctx.gains[1]);
+    expect(rig.linked).toEqual([sfxEngine()]);
+    expect(gainOf(sfxEngine())).toBe(1);
   });
 
   it("stays on files when the manifest embeds nothing (auto) or the mode says files", async () => {
@@ -149,6 +164,36 @@ describe("synth mode setup", () => {
     p.sfx("coin");
     await vi.advanceTimersByTimeAsync(0);
     expect(ctx.sources).toHaveLength(1);
+    expect(ctx.heard(ctx.sources[0] as FakeSource)).toBe(1);
+  });
+});
+
+describe("synth mode setup failures", () => {
+  it("tears the first engine down and plays from files when a later engine cannot start", async () => {
+    const link = FakeWorkletNode.hook;
+    let made = 0;
+    FakeWorkletNode.hook = (node) => {
+      made += 1;
+      if (made === 2) {
+        node.port.emit({ message: "no audio thread", type: "error" });
+      } else {
+        link?.(node);
+      }
+    };
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch({ "/audio/coin.ogg": audioBytes(0.3) }).fn
+    );
+    const p = await make();
+    expect(errors.map((e) => e.message)).toEqual(["no audio thread"]);
+    const [first] = FakeWorkletNode.instances;
+    expect(first?.port.closed).toBe(true);
+    expect(first?.reaches(ctx.destination)).toBe(false);
+    // the sound still plays, from its file, through the player's buses
+    p.sfx("coin");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ctx.sources).toHaveLength(1);
+    expect(ctx.heard(ctx.sources[0] as FakeSource)).toBe(1);
   });
 });
 
@@ -157,14 +202,15 @@ describe("synth mode sound effects", () => {
     const p = await make();
     const h = p.sfx("coin", { pan: -1, pitch: 2, velocity: 0.5 });
     p.sfx("coin");
-    expect(names(0)).toEqual(["loadSfx", "trigger", "trigger"]);
-    expect(calls(0)[0]).toEqual(["loadSfx", "coin", { name: "coin" }]);
-    expect(calls(0)[1]).toEqual([
+    const sfx = sfxEngine();
+    expect(namesOf(sfx)).toEqual(["loadSfx", "trigger", "trigger"]);
+    expect(callsOf(sfx)[0]).toEqual(["loadSfx", "coin", { name: "coin" }]);
+    expect(callsOf(sfx)[1]).toEqual([
       "trigger",
       "coin",
       { pan: -1, pitch: 2, velocity: 0.5 },
     ]);
-    expect(calls(0)[2]).toEqual(["trigger", "coin", {}]);
+    expect(callsOf(sfx)[2]).toEqual(["trigger", "coin", {}]);
     expect(h.id).toBe("coin");
   });
 
@@ -173,7 +219,7 @@ describe("synth mode sound effects", () => {
     p.sfx("coin");
     const h = p.sfx("coin");
     h.stop();
-    expect(calls(0).at(-1)).toEqual(["release", 2]);
+    expect(callsOf(sfxEngine()).at(-1)).toEqual(["release", 2]);
   });
 
   it("plays a sound without a document from its file", async () => {
@@ -185,7 +231,8 @@ describe("synth mode sound effects", () => {
     p.sfx("laser");
     await vi.advanceTimersByTimeAsync(0);
     expect(ctx.sources).toHaveLength(1);
-    expect(names(0)).not.toContain("trigger");
+    expect(ctx.heard(ctx.sources[0] as FakeSource)).toBe(1);
+    expect(namesOf(sfxEngine())).not.toContain("trigger");
   });
 
   it("preloads documents into the engine", async () => {
@@ -195,7 +242,20 @@ describe("synth mode sound effects", () => {
     );
     const p = await make();
     await p.preload();
-    expect(names(0)).toEqual(["loadSfx"]);
+    expect(namesOf(sfxEngine())).toEqual(["loadSfx"]);
+  });
+
+  it("is heard: the engine renders the sound and it reaches the speakers through the sfx bus and master", async () => {
+    const p = await make({ buses: { master: 0.8, sfx: 0.5 } });
+    expect(heardLevel(ctx, sfxEngine())).toBe(0);
+    p.sfx("coin");
+    rig.runBlocks(ctx, 4);
+    const sfx = sfxEngine();
+    // the fake engine renders a 0.1 sine while a voice is held; the buses scale it
+    expect(sfx.peak).toBeGreaterThan(0.05);
+    expect(heardLevel(ctx, sfx)).toBeCloseTo(sfx.peak * 0.5 * 0.8, 9);
+    // the idle music engine adds nothing
+    expect(heardLevel(ctx, musicEngine())).toBe(0);
   });
 
   it("delivers worklet events to listeners when they become audible", async () => {
@@ -216,11 +276,52 @@ describe("synth mode sound effects", () => {
     expect(seen[0]).toMatchObject({ id: "coin", type: "trigger" });
   });
 
-  it("reports an error from the worklet and keeps going", async () => {
+  it("places a batch of events on the time line with the clock pair that batch carries", async () => {
+    const p = await make();
+    const seen: number[] = [];
+    p.on("noteOn", (e) => seen.push(e.time));
+    const { node } = musicEngine();
+    // the last clock disagrees with the batch (as it can by a little under load): the batch's own pair is the truth
+    node.port.emit({
+      frame: 0,
+      playing: true,
+      position: null,
+      time: 0,
+      type: "clock",
+    });
+    node.port.emit({
+      clockFrame: 48_000,
+      clockTime: 3,
+      events: [
+        {
+          channel: 0,
+          channelId: "pulse1",
+          frame: 48_000 + 4800,
+          hz: 440,
+          id: "lead",
+          note: 69,
+          order: -1,
+          row: -1,
+          type: "noteOn",
+          velocity: 1,
+        },
+      ],
+      type: "events",
+    });
+    ctx.currentTime = 10;
+    vi.advanceTimersByTime(10);
+    // 3 s + 0.1 s after the pair's frame, plus the 50 ms output latency
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toBeCloseTo(3.15, 9);
+  });
+
+  it("reports an error from the worklet and keeps playing", async () => {
     const p = await make();
     p.sfx("coin");
     FakeWorkletNode.instances[0]?.port.emit({ message: "boom", type: "error" });
     expect(errors.map((e) => e.message)).toEqual(["worklet: boom"]);
+    p.sfx("coin");
+    expect(namesOf(sfxEngine()).filter((n) => n === "trigger")).toHaveLength(2);
   });
 });
 
@@ -229,56 +330,79 @@ describe("synth mode music", () => {
     const p = await make();
     ctx.currentTime = 1;
     const h = await p.music("title", { fadeIn: 1, startAt: 2 });
-    expect(names(1)).toEqual(["loadSong", "play"]);
-    expect(calls(1)[1]).toEqual(["play", { loop: true, order: 1, row: 0 }]);
-    const fade = ctx.gains[3] as FakeGain;
-    expect(fade.gain.log.slice(-2)).toEqual([
-      ["set", 0, 1],
-      ["ramp", 1, 2],
+    const music = musicEngine();
+    expect(namesOf(music)).toEqual(["loadSong", "play"]);
+    expect(callsOf(music)[1]).toEqual([
+      "play",
+      { loop: true, order: 1, row: 0 },
     ]);
+    // faded in from silence over the second after it started
+    expect(gainOf(music, 1)).toBe(0);
+    expect(gainOf(music, 1.5)).toBeCloseTo(0.5, 9);
+    expect(gainOf(music, 2)).toBe(1);
     // the engine reports the position in its clock
     rig.runBlocks(ctx, 2);
     expect(h.position()).toMatchObject({ order: 1, row: 0 });
   });
 
+  it("is heard: the song renders and reaches the speakers through the music bus and master", async () => {
+    rig = linkWorklets({ songFrames: 128 * 200 });
+    const p = await make({ buses: { master: 0.8, music: 0.5 } });
+    await p.music("title");
+    rig.runBlocks(ctx, 4);
+    const music = musicEngine();
+    expect(music.peak).toBeGreaterThan(0.05);
+    expect(heardLevel(ctx, music)).toBeCloseTo(music.peak * 0.5 * 0.8, 9);
+    expect(heardLevel(ctx, sfxEngine())).toBe(0);
+  });
+
   it("does not loop a song without a loop section, unless asked", async () => {
     const p = await make();
     await p.music("boss");
-    expect(calls(1)[1]).toEqual(["play", { loop: false }]);
+    expect(callsOf(musicEngine())[1]).toEqual(["play", { loop: false }]);
     const second = p.music("boss", { loop: true });
     await vi.advanceTimersByTimeAsync(100);
     await second;
     expect(
-      calls(1)
+      callsOf(musicEngine())
         .filter((c) => c[0] === "play")
         .at(-1)
     ).toEqual(["play", { loop: true }]);
   });
 
-  it("fades the old song out before the next one replaces it", async () => {
+  it("fades the old song out before the next one replaces it, and the next one is heard", async () => {
     const p = await make();
     ctx.currentTime = 5;
     await p.music("title");
+    const music = musicEngine();
     const next = p.music("boss", { fadeIn: 0 });
-    const fade = ctx.gains[3] as FakeGain;
-    expect(fade.gain.log.slice(-3)).toEqual([
-      ["cancel", 5],
-      ["set", 1, 5],
-      ["ramp", 0, 5.04],
-    ]);
-    expect(names(1)).toEqual(["loadSong", "play"]);
+    // the old song is on its way down: full at the start of the switch, silent 40 ms later
+    expect(gainOf(music, 5)).toBe(1);
+    expect(gainOf(music, 5.02)).toBeCloseTo(0.5, 9);
+    expect(gainOf(music, 5.04)).toBe(0);
+    expect(namesOf(music)).toEqual(["loadSong", "play"]);
+    ctx.currentTime = 5.1;
     await vi.advanceTimersByTimeAsync(100);
     await next;
-    expect(names(1)).toEqual(["loadSong", "play", "stop", "loadSong", "play"]);
+    expect(namesOf(music)).toEqual([
+      "loadSong",
+      "play",
+      "stop",
+      "loadSong",
+      "play",
+    ]);
+    // the fade the switch left behind must not still be holding the new song silent
+    expect(gainOf(music, 5.1)).toBe(1);
   });
 
   it("stops after the fade out, unless a new song took over meanwhile", async () => {
     const p = await make();
+    const music = musicEngine();
     await p.music("title");
     p.stopMusic({ fadeOut: 0.5 });
-    expect(names(1)).toEqual(["loadSong", "play"]);
+    expect(namesOf(music)).toEqual(["loadSong", "play"]);
     await vi.advanceTimersByTimeAsync(600);
-    expect(names(1)).toEqual(["loadSong", "play", "stop"]);
+    expect(namesOf(music)).toEqual(["loadSong", "play", "stop"]);
 
     await p.music("boss");
     p.stopMusic({ fadeOut: 0.5 });
@@ -286,7 +410,24 @@ describe("synth mode music", () => {
     await p.music("title");
     await vi.advanceTimersByTimeAsync(600);
     // the stop scheduled for the first boss run never hits the newer title
-    expect(names(1).filter((n) => n === "stop")).toHaveLength(1);
+    expect(namesOf(music).filter((n) => n === "stop")).toHaveLength(1);
+  });
+
+  it("is silent after a fade out, and a song started afterwards is heard again", async () => {
+    rig = linkWorklets({ songFrames: 128 * 400 });
+    const p = await make();
+    const music = musicEngine();
+    await p.music("title");
+    p.stopMusic({ fadeOut: 0.5 });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(gainOf(music, 0.5)).toBe(0);
+    rig.runBlocks(ctx, 2);
+    expect(music.peak).toBe(0);
+    ctx.currentTime = 2;
+    await p.music("boss");
+    expect(gainOf(music, 2)).toBe(1);
+    rig.runBlocks(ctx, 4);
+    expect(heardLevel(ctx, music)).toBeGreaterThan(0.05);
   });
 
   it("stops through the handle only while it is current", async () => {
@@ -295,7 +436,7 @@ describe("synth mode music", () => {
     h.stop();
     h.stop();
     await vi.advanceTimersByTimeAsync(100);
-    expect(names(1).filter((n) => n === "stop")).toHaveLength(1);
+    expect(namesOf(musicEngine()).filter((n) => n === "stop")).toHaveLength(1);
     expect(h.position()).toBeNull();
   });
 
@@ -305,7 +446,9 @@ describe("synth mode music", () => {
     rig.runBlocks(ctx, 25);
     // a pending switch would wait on a timer; with fake timers that would hang this await
     await expect(p.music("title")).resolves.toMatchObject({ id: "title" });
-    expect(names(1).filter((n) => n === "loadSong")).toHaveLength(2);
+    expect(namesOf(musicEngine()).filter((n) => n === "loadSong")).toHaveLength(
+      2
+    );
   });
 
   it("stops files music when a song with a document starts, and the other way round", async () => {
@@ -318,13 +461,47 @@ describe("synth mode music", () => {
       },
     };
     const p = (await make({ manifest: mixed })) as BleepPlayer;
+    const music = musicEngine();
     await p.music("odd");
-    const fileSource = ctx.sources.at(-1);
+    const fileSource = ctx.sources.at(-1) as FakeSource;
+    expect(ctx.heard(fileSource)).toBe(1);
     await p.music("title");
-    expect(fileSource?.stops).toHaveLength(1);
+    // the file song is cut and the synth song is the one heard
+    expect(ctx.heard(fileSource, 0.05)).toBe(0);
+    expect(gainOf(music, 0.05)).toBe(1);
     await p.music("odd");
     await vi.advanceTimersByTimeAsync(100);
-    expect(names(1)).toContain("stop");
+    expect(namesOf(music)).toContain("stop");
+    expect(gainOf(music, 0.05)).toBe(0);
+    expect(ctx.heard(ctx.sources.at(-1) as FakeSource, 0.05)).toBe(1);
+  });
+
+  it("fades the song it replaces over the new song's fade in, whichever side plays it", async () => {
+    vi.stubGlobal("fetch", fakeFetch({ "/audio/odd.ogg": audioBytes(50) }).fn);
+    const mixed = {
+      ...manifest,
+      songs: {
+        ...manifest.songs,
+        odd: { duration: 50, file: "odd.ogg", loopEnd: null, loopStart: null },
+      },
+    };
+    const p = (await make({ manifest: mixed })) as BleepPlayer;
+    const music = musicEngine();
+    await p.music("odd");
+    const fileSource = ctx.sources.at(-1) as FakeSource;
+    // file song -> synth song: the file song fades out as the synth song fades in
+    ctx.currentTime = 10;
+    await p.music("title", { fadeIn: 2 });
+    expect([10, 11, 12].map((t) => ctx.heard(fileSource, t))).toEqual([
+      1, 0.5, 0,
+    ]);
+    expect([10, 11, 12].map((t) => gainOf(music, t))).toEqual([0, 0.5, 1]);
+    // synth song -> file song
+    ctx.currentTime = 20;
+    await p.music("odd", { fadeIn: 2 });
+    const second = ctx.sources.at(-1) as FakeSource;
+    expect([20, 21, 22].map((t) => gainOf(music, t))).toEqual([1, 0.5, 0]);
+    expect([20, 21, 22].map((t) => ctx.heard(second, t))).toEqual([0, 0.5, 1]);
   });
 
   it("reports a song id with no document", async () => {
@@ -343,13 +520,57 @@ describe("synth mode music", () => {
   });
 });
 
+describe("synth mode volume and mute", () => {
+  it("silences both engines when muted and brings them back when unmuted", async () => {
+    rig = linkWorklets({ songFrames: 128 * 400 });
+    const p = await make({ buses: { master: 0.8 } });
+    p.sfx("coin");
+    await p.music("title");
+    rig.runBlocks(ctx, 2);
+    expect(heardLevel(ctx, sfxEngine())).toBeGreaterThan(0.05);
+    expect(heardLevel(ctx, musicEngine())).toBeGreaterThan(0.05);
+
+    p.mute(true);
+    // the 10 ms ramp is over after four blocks
+    rig.runBlocks(ctx, 6);
+    expect(sfxEngine().peak).toBeGreaterThan(0.05);
+    expect(heardLevel(ctx, sfxEngine())).toBe(0);
+    expect(heardLevel(ctx, musicEngine())).toBe(0);
+
+    p.mute(false);
+    rig.runBlocks(ctx, 6);
+    expect(heardLevel(ctx, sfxEngine())).toBeCloseTo(sfxEngine().peak * 0.8, 9);
+    expect(heardLevel(ctx, musicEngine())).toBeCloseTo(
+      musicEngine().peak * 0.8,
+      9
+    );
+    expect(heardLevel(ctx, sfxEngine())).toBeGreaterThan(0.05);
+  });
+
+  it("applies bus volumes to what the engines render", async () => {
+    rig = linkWorklets({ songFrames: 128 * 400 });
+    const p = await make();
+    p.sfx("coin");
+    await p.music("title");
+    p.setVolume("sfx", 0.5, 0);
+    p.setVolume("music", 0.25, 0);
+    rig.runBlocks(ctx, 2);
+    expect(gainOf(sfxEngine())).toBe(0.5);
+    expect(gainOf(musicEngine())).toBe(0.25);
+    p.setVolume("master", 0, 0);
+    expect(heardLevel(ctx, sfxEngine())).toBe(0);
+    expect(heardLevel(ctx, musicEngine())).toBe(0);
+  });
+});
+
 describe("synth mode teardown", () => {
-  it("disposes the engines", async () => {
+  it("disposes the engines and stops routing them to the speakers", async () => {
     const p = await make();
     p.dispose();
     for (const node of FakeWorkletNode.instances) {
       expect(node.port.closed).toBe(true);
       expect(node.disconnected).toBe(true);
+      expect(node.reaches(ctx.destination)).toBe(false);
     }
   });
 });

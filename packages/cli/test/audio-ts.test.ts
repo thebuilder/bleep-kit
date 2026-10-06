@@ -112,17 +112,15 @@ afterAll(() => {
 });
 
 describe("generated audio.ts", () => {
-  it("is `as const satisfies AudioManifest` and type-checks against @bleepkit/player", async () => {
+  it("type-checks against @bleepkit/player: ids are typed, wrong ids do not compile", async () => {
     const consumer = await exportAudioTs(false);
-    const ts = fs.readFileSync(path.join(consumer, "audio.ts"), "utf8");
-    expect(ts).toContain("export const manifest = {");
-    expect(ts).toContain("} as const satisfies AudioManifest;");
     expect(typecheck(consumer)).toBe("");
   });
 
   it("still type-checks with the documents embedded", async () => {
     const consumer = await exportAudioTs(true);
     const ts = fs.readFileSync(path.join(consumer, "audio.ts"), "utf8");
+    // without this the test would be the one above: the documents really are in the file
     expect(ts).toContain('category: "coin"');
     expect(typecheck(consumer)).toBe("");
   });

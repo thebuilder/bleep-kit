@@ -1,7 +1,31 @@
 import fs from "node:fs";
 import path from "node:path";
+import { CHIP_IDS } from "@bleepkit/core";
 import { describe, expect, it } from "vitest";
-import { makeProject, readJson, run, tempDir, writeJson } from "./helpers.ts";
+import {
+  makeProject,
+  readJson,
+  readWav,
+  run,
+  tempDir,
+  wavLevels,
+  writeJson,
+} from "./helpers.ts";
+
+/** The character the house rules forbid in generated text, written as a code so this file has none. */
+const EM_DASH = String.fromCharCode(0x20_14);
+
+/** What `render --json` and `analyze --json` report must match the WAV that was written, measured here from its bytes. */
+function expectMatchesWav(
+  reported: { duration: number; peakDb: number; rmsDb: number },
+  file: string
+): void {
+  const wav = readWav(file);
+  const levels = wavLevels(wav);
+  expect(reported.duration).toBeCloseTo(wav.frames / wav.sampleRate, 5);
+  expect(reported.peakDb).toBeCloseTo(levels.peakDb, 1);
+  expect(reported.rmsDb).toBeCloseTo(levels.rmsDb, 1);
+}
 
 describe("global behavior", () => {
   it("prints the overview and exits 0 with no arguments", async () => {
@@ -39,7 +63,7 @@ describe("global behavior", () => {
     });
   });
 
-  it("every command has help with an example", async () => {
+  it("every command has help with an example, and asking for help changes nothing on disk", async () => {
     const names = [
       "init",
       "new",
@@ -55,11 +79,13 @@ describe("global behavior", () => {
       "help",
     ];
     for (const name of names) {
-      // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, each run is a child process and the failing name is reported by the assertion
-      const r = await run(tempDir(), [name, "--help"]);
+      const dir = tempDir();
+      // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, the failing name is reported by the assertion
+      const r = await run(dir, [name, "--help"]);
       expect(r.code, name).toBe(0);
       expect(r.stdout, name).toContain("Examples:");
       expect(r.stdout, name).toContain(`bleepkit ${name}`);
+      expect(fs.readdirSync(dir), name).toEqual([]);
     }
   });
 
@@ -74,6 +100,72 @@ describe("global behavior", () => {
     const bad = await run(tempDir(), ["list", "--project", repo, "--json"]);
     expect(bad.code).toBe(3);
     expect(bad.json.error.hint).toContain(project);
+  });
+
+  it("walks past a project.json that is not a Bleepkit project (numeric version and a chip or export are needed)", async () => {
+    const { project, repo } = await makeProject();
+    const web = path.join(repo, "web");
+    // a file with a chip but a string version, and one with a number but neither chip nor export
+    for (const lookalike of [
+      { chip: "nes", name: "web", version: "1.0.0" },
+      { name: "web", version: 3 },
+    ]) {
+      writeJson(path.join(web, "project.json"), lookalike);
+      // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, the shared folder changes between runs
+      const r = await run(web, ["list", "--json"]);
+      expect(r.code, JSON.stringify(lookalike)).toBe(0);
+      expect(r.json.root).toBe(project);
+    }
+    writeJson(path.join(web, "project.json"), { chip: "nes", version: 1 });
+    expect((await run(web, ["list", "--json"])).json.root).toBe(web);
+  });
+
+  it("exits 3 when project.json cannot be read as JSON", async () => {
+    const { project } = await makeProject();
+    fs.writeFileSync(path.join(project, "project.json"), "{ nope");
+    const r = await run(tempDir(), ["list", "--project", project, "--json"]);
+    expect(r.code).toBe(3);
+    expect(r.json).toMatchObject({ error: { code: "no-project" }, ok: false });
+    expect(r.json.error.message).toContain("not valid JSON");
+  });
+
+  it("exits 5 with code write when the output cannot be written", async () => {
+    const { project, repo } = await makeProject();
+    // init made out/ a folder: put a file where it should be
+    fs.rmSync(path.join(project, "out"), { recursive: true });
+    fs.writeFileSync(path.join(project, "out"), "a file, not a folder");
+    const r = await run(repo, ["render", "sfx/coin", "--json"]);
+    expect(r.code).toBe(5);
+    expect(r.json).toMatchObject({ error: { code: "write" }, ok: false });
+  });
+
+  it("every command prints exactly one JSON object on stdout with --json", async () => {
+    const { repo } = await makeProject();
+    const commands = [
+      ["new", "sfx", "jump", "--category", "jump"],
+      ["new", "instrument", "pluck", "--kind", "pulse"],
+      ["new", "song", "title", "--mml", "pulse1=o4 c d e"],
+      ["mutate", "sfx/jump"],
+      ["validate"],
+      ["list"],
+      ["render", "sfx/jump"],
+      ["analyze", "sfx/jump"],
+      ["describe", "sfx/jump"],
+      ["export", "--dry-run"],
+      ["help"],
+      ["help", "workflow"],
+      ["help", "formats", "mml"],
+    ];
+    for (const args of commands) {
+      // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, each command builds on the files of the one before
+      const r = await run(repo, [...args, "--json"]);
+      expect(r.code, args.join(" ")).toBe(0);
+      expect(r.stdout.trim().split("\n"), args.join(" ")).toHaveLength(1);
+      expect(r.json, args.join(" ")).toMatchObject({ ok: true });
+    }
+    const init = await run(tempDir(), ["init", "--json"]);
+    expect(init.stdout.trim().split("\n")).toHaveLength(1);
+    expect(init.json).toMatchObject({ ok: true });
   });
 });
 
@@ -100,6 +192,9 @@ describe("init, new, list, validate", () => {
         "sfx/coin.json",
       ])
     );
+    for (const file of r.json.files) {
+      expect(fs.existsSync(path.join(repo, "audio", file)), file).toBe(true);
+    }
     const project = readJson(path.join(repo, "audio", "project.json")) as {
       chip: string;
       name: string;
@@ -117,10 +212,34 @@ describe("init, new, list, validate", () => {
     expect((await run(repo, ["init", "--force", "--json"])).code).toBe(0);
   });
 
-  it("init rejects a chip it does not know with exit 2", async () => {
+  it("init writes a valid starter project, with a sfx that renders audibly, for every chip", async () => {
+    for (const chip of CHIP_IDS) {
+      const repo = tempDir();
+      // biome-ignore lint/performance/noAwaitInLoops: sequential on purpose, the failing chip is named by the assertions
+      const init = await run(repo, ["init", "--chip", chip, "--json"]);
+      expect(init.code, chip).toBe(0);
+      const project = readJson(path.join(repo, "audio", "project.json")) as {
+        chip: string;
+      };
+      expect(project.chip, chip).toBe(chip);
+      const validate = await run(repo, ["validate", "--json"]);
+      expect(validate.code, `${chip}: ${JSON.stringify(validate.json)}`).toBe(
+        0
+      );
+      const render = await run(repo, ["render", "sfx/coin", "--json"]);
+      expect(render.code, `${chip}: ${render.stderr}`).toBe(0);
+      const { peakDb } = render.json.renders[0];
+      expect(peakDb, chip).toBeLessThan(0);
+      expect(peakDb, chip).toBeGreaterThan(-40);
+    }
+  });
+
+  it("init rejects a chip it does not know with exit 2 and lists the chips it does", async () => {
     const r = await run(tempDir(), ["init", "--chip", "amiga"]);
     expect(r.code).toBe(2);
-    expect(r.stderr).toContain("nes");
+    for (const chip of CHIP_IDS) {
+      expect(r.stderr, chip).toContain(chip);
+    }
   });
 
   it("new sfx writes a document, exits 1 when it exists and 2 without --category", async () => {
@@ -135,15 +254,18 @@ describe("init, new, list, validate", () => {
     ]);
     expect(r.code).toBe(0);
     expect(r.json).toMatchObject({ ok: true, path: "sfx/jump.json" });
-    expect(typeof r.json.description).toBe("string");
+    expect(r.json.description).toContain("jump");
     expect(r.json.doc).toMatchObject({
       category: "jump",
       chip: "nes",
       version: 1,
     });
-    expect(
-      (readJson(path.join(project, "sfx", "jump.json")) as { id?: string }).id
-    ).toBeUndefined();
+    // the document on disk is the one reported, and the id lives in the file name only
+    const onDisk = readJson(path.join(project, "sfx", "jump.json")) as {
+      id?: string;
+    };
+    expect(onDisk).toEqual(r.json.doc);
+    expect(onDisk.id).toBeUndefined();
     expect(
       (await run(repo, ["new", "sfx", "jump", "--category", "jump"])).code
     ).toBe(1);
@@ -157,7 +279,7 @@ describe("init, new, list, validate", () => {
     ).toBe(2);
   });
 
-  it("new sfx is deterministic for a given seed", async () => {
+  it("new sfx is deterministic for a given seed, and a different seed gives a different sound", async () => {
     const { repo } = await makeProject();
     const a = await run(repo, [
       "new",
@@ -180,9 +302,21 @@ describe("init, new, list, validate", () => {
       "--json",
     ]);
     expect({ ...a.json.doc, name: "" }).toEqual({ ...b.json.doc, name: "" });
+    const c = await run(repo, [
+      "new",
+      "sfx",
+      "c",
+      "--category",
+      "laser",
+      "--seed",
+      "6",
+      "--json",
+    ]);
+    expect(c.json.doc.seed).toBe(6);
+    expect(c.json.doc.frequency).not.toEqual(a.json.doc.frequency);
   });
 
-  it("new instrument and new song write validated documents", async () => {
+  it("new instrument and new song write valid documents with the requested preset, tempo, MML and template", async () => {
     const { repo } = await makeProject();
     const inst = await run(repo, [
       "new",
@@ -196,6 +330,33 @@ describe("init, new, list, validate", () => {
     ]);
     expect(inst.code).toBe(0);
     expect(inst.json.doc).toMatchObject({ kind: "pulse", name: "pluck" });
+    // each preset has the character its name promises (not its exact numbers)
+    const preset = async (name: string) =>
+      (
+        await run(repo, [
+          "new",
+          "instrument",
+          `i-${name}`,
+          "--kind",
+          "pulse",
+          "--preset",
+          name,
+          "--json",
+        ])
+      ).json.doc.envelope as {
+        attack: number;
+        decay: number;
+        sustain: number;
+      };
+    const bell = await preset("bell");
+    expect(bell.sustain).toBeLessThan(0.2);
+    expect(bell.decay).toBeGreaterThan(0.5);
+    expect((await preset("pad")).attack).toBeGreaterThan(0.1);
+    expect((await preset("bass")).sustain).toBeGreaterThanOrEqual(0.5);
+    const drums = await preset("drums");
+    expect(drums.sustain).toBe(0);
+    expect(drums.decay).toBeLessThan(0.2);
+    expect(inst.json.doc.envelope).toEqual(bell);
     const song = await run(repo, [
       "new",
       "song",
@@ -241,6 +402,9 @@ describe("init, new, list, validate", () => {
     ]);
     expect(loop.json.doc).toMatchObject({ loop: 0, order: expect.any(Array) });
     expect(loop.json.doc.order).toHaveLength(8);
+    // everything written above is a valid document
+    const validate = await run(repo, ["validate", "--json"]);
+    expect(validate.code, JSON.stringify(validate.json)).toBe(0);
   });
 
   it("list shows documents of every kind and a single kind", async () => {
@@ -307,7 +471,15 @@ describe("init, new, list, validate", () => {
     fs.rmSync(path.join(repo, "audio", "instruments", "lead.json"));
     const r = await run(repo, ["validate", "song/s", "--json"]);
     expect(r.code).toBe(1);
-    expect(JSON.stringify(r.json)).toContain("lead");
+    const [doc] = r.json.documents;
+    expect(doc.ok).toBe(false);
+    expect(doc.issues).toContainEqual(
+      expect.objectContaining({
+        message: expect.stringContaining("lead"),
+        path: "/channels/0/instrument",
+        severity: "error",
+      })
+    );
   });
 });
 
@@ -321,7 +493,17 @@ describe("mutate and describe", () => {
       "coin-m2",
     ]);
     expect(a.json.results[0]).toMatchObject({ path: "sfx/coin-m1.json" });
-    expect(typeof a.json.results[0].description).toBe("string");
+    expect(a.json.results[0].description).toContain("coin");
+    // a variant is the same kind of sound with some parameters moved
+    const source = readJson(path.join(project, "sfx", "coin.json")) as Record<
+      string,
+      unknown
+    >;
+    const variant = readJson(
+      path.join(project, "sfx", "coin-m1.json")
+    ) as Record<string, unknown>;
+    expect(variant).toMatchObject({ category: "coin", chip: "nes" });
+    expect({ ...variant, name: "" }).not.toEqual({ ...source, name: "" });
     const b = await run(repo, ["mutate", "sfx/coin", "--json"]);
     expect(b.json.results[0].id).toBe("coin-m3");
     const c = await run(repo, [
@@ -337,6 +519,19 @@ describe("mutate and describe", () => {
     expect(fs.existsSync(path.join(project, "sfx", "coin-wild.json"))).toBe(
       true
     );
+    // --amount 0 moves nothing
+    await run(repo, [
+      "mutate",
+      "sfx/coin",
+      "--amount",
+      "0",
+      "--out",
+      "coin-same",
+    ]);
+    const same = readJson(
+      path.join(project, "sfx", "coin-same.json")
+    ) as Record<string, unknown>;
+    expect({ ...same, name: "" }).toEqual({ ...source, name: "" });
     expect(
       (await run(repo, ["mutate", "sfx/coin", "--out", "coin-wild"])).code
     ).toBe(1);
@@ -362,7 +557,7 @@ describe("mutate and describe", () => {
       ref: "sfx/coin",
       render: null,
     });
-    expect(sfx.json.description.length).toBeGreaterThan(20);
+    expect(sfx.json.description).toContain("coin");
     expect(sfx.json.facts).toMatchObject({ category: "coin", chip: "nes" });
     const song = await run(repo, ["describe", "title", "--json"]);
     expect(song.json.kind).toBe("song");
@@ -379,7 +574,7 @@ describe("mutate and describe", () => {
 });
 
 describe("render and analyze", () => {
-  it("render --json has the documented shape and writes out/ files", async () => {
+  it("render --json reports what the written WAV contains and writes the hash sidecar", async () => {
     const { project, repo } = await makeProject();
     const r = await run(repo, ["render", "sfx/coin", "--json"]);
     expect(r.code).toBe(0);
@@ -391,13 +586,18 @@ describe("render and analyze", () => {
       path: "out/sfx/coin.wav",
       ref: "sfx/coin",
     });
-    expect(e.duration).toBeGreaterThan(0.05);
-    expect(e.peakDb).toBeLessThan(0);
     expect(e.rmsDb).toBeLessThan(e.peakDb);
     expect(e.loopStart).toBeNull();
-    expect(fs.existsSync(path.join(project, "out", "sfx", "coin.wav"))).toBe(
-      true
-    );
+    expect(e.loopEnd).toBeNull();
+    // the numbers describe the file that was written, whose format section 8 fixes: 16-bit WAV at the project's rate
+    const wav = readWav(path.join(project, "out", "sfx", "coin.wav"));
+    expect(wav).toMatchObject({
+      bitsPerSample: 16,
+      channels: 2,
+      sampleRate: 48_000,
+    });
+    expect(wav.loop).toBeNull();
+    expectMatchesWav(e, path.join(project, "out", "sfx", "coin.wav"));
     const meta = readJson(
       path.join(project, "out", "sfx", "coin.meta.json")
     ) as { hash: string };
@@ -427,11 +627,100 @@ describe("render and analyze", () => {
       (await run(repo, ["render", "sfx/coin", "--json"])).json.renders[0].cached
     ).toBe(true);
     const list = await run(repo, ["list", "sfx", "--json"]);
-    expect(list.json.sfx[0].render).toMatchObject({ stale: false });
+    const [rendered] = (await run(repo, ["render", "sfx/coin", "--json"])).json
+      .renders;
+    expect(list.json.sfx[0].render).toEqual({
+      clipped: false,
+      duration: rendered.duration,
+      path: "out/sfx/coin.wav",
+      peakDb: rendered.peakDb,
+      stale: false,
+    });
     writeJson(file, { ...coin, volume: 0.3 });
     expect(
       (await run(repo, ["list", "sfx", "--json"])).json.sfx[0].render.stale
     ).toBe(true);
+  });
+
+  it("an edited instrument makes the songs that use it stale, and a changed project master makes sfx stale and louder or quieter", async () => {
+    const { project, repo } = await makeProject();
+    await run(repo, [
+      "new",
+      "song",
+      "title",
+      "--mml",
+      "pulse1=o4 l8 cdef L gabc",
+    ]);
+    const first = await run(repo, ["render", "--json"]);
+    expect(
+      first.json.renders.map((r: { cached: boolean }) => r.cached)
+    ).toEqual([false, false]);
+    const peaks = Object.fromEntries(
+      first.json.renders.map((r: { peakDb: number; ref: string }) => [
+        r.ref,
+        r.peakDb,
+      ])
+    );
+
+    const leadFile = path.join(project, "instruments", "lead.json");
+    const lead = readJson(leadFile) as { envelope: { sustain: number } };
+    writeJson(leadFile, {
+      ...lead,
+      envelope: { ...lead.envelope, sustain: 0.2 },
+    });
+    const listed = await run(repo, ["list", "--json"]);
+    expect(listed.json.songs[0].render.stale).toBe(true);
+    expect(listed.json.sfx[0].render.stale).toBe(false);
+    const afterInstrument = await run(repo, ["render", "--json"]);
+    const cachedByRef = Object.fromEntries(
+      afterInstrument.json.renders.map(
+        (r: { cached: boolean; ref: string }) => [r.ref, r.cached]
+      )
+    );
+    expect(cachedByRef).toEqual({ "sfx/coin": true, "song/title": false });
+
+    // architecture.md 3.8: the project master volume applies to sfx, songs keep their own master
+    const projectFile = path.join(project, "project.json");
+    const p = readJson(projectFile) as { master: { volume: number } };
+    writeJson(projectFile, {
+      ...p,
+      master: { ...p.master, volume: p.master.volume / 2 },
+    });
+    const afterMaster = await run(repo, ["render", "sfx/coin", "--json"]);
+    expect(afterMaster.json.renders[0].cached).toBe(false);
+    expect(afterMaster.json.renders[0].peakDb - peaks["sfx/coin"]).toBeCloseTo(
+      -6.02,
+      0
+    );
+    const song = await run(repo, ["render", "song/title", "--json"]);
+    expect(
+      Math.abs(song.json.renders[0].peakDb - peaks["song/title"])
+    ).toBeLessThan(1);
+  });
+
+  it("renders the same bytes for the same inputs, and --seed (the run's seed) changes a noise sound", async () => {
+    const { project, repo } = await makeProject();
+    await run(repo, ["new", "sfx", "boom", "--category", "explosion"]);
+    const wav = path.join(project, "out", "sfx", "boom.wav");
+    const render = async (...flags: string[]): Promise<string> => {
+      const r = await run(repo, [
+        "render",
+        "sfx/boom",
+        "--force",
+        ...flags,
+        "--json",
+      ]);
+      expect(r.code, r.stderr).toBe(0);
+      return fs.readFileSync(wav).toString("base64");
+    };
+    const normal = await render();
+    expect(readJson(path.join(project, "sfx", "boom.json"))).toMatchObject({
+      wave: "noise",
+    });
+    expect(await render()).toBe(normal);
+    const seeded = await render("--seed", "2");
+    expect(seeded).not.toBe(normal);
+    expect(await render("--seed", "2")).toBe(seeded);
   });
 
   it("with no refs renders everything, and reports invalid documents per entry with exit 1", async () => {
@@ -474,21 +763,81 @@ describe("render and analyze", () => {
     ).toBe(true);
   });
 
-  it("render --analyze adds the analysis object and --format wav needs no encoder", async () => {
-    const { repo } = await makeProject();
-    const r = await run(repo, [
+  it("render --analyze adds the analysis object, measured from the WAV that was written", async () => {
+    const { project, repo } = await makeProject();
+    const r = await run(repo, ["render", "sfx/coin", "--analyze", "--json"]);
+    const [entry] = r.json.renders;
+    const file = path.join(project, "out", "sfx", "coin.wav");
+    const wav = readWav(file);
+    expect(entry.analysis).toMatchObject({
+      channels: 2,
+      file: "out/sfx/coin.wav",
+      frames: wav.frames,
+      sampleRate: 48_000,
+    });
+    expectMatchesWav(entry.analysis, file);
+    expect(entry.analysis.envelope.length).toBeGreaterThan(0);
+  });
+
+  it("render --format ogg and mp3 write the encoded file next to the WAV master", async () => {
+    const { project, repo } = await makeProject();
+    const ogg = await run(repo, [
       "render",
       "sfx/coin",
-      "--analyze",
-      "--json",
       "--format",
-      "wav",
+      "ogg",
+      "--json",
     ]);
-    const a = r.json.renders[0].analysis;
-    expect(a).toMatchObject({ channels: 2, sampleRate: 48_000 });
-    expect(a.file).toBe("out/sfx/coin.wav");
-    expect(a.peakDb).toBeCloseTo(r.json.renders[0].peakDb, 0);
-    expect(Array.isArray(a.envelope)).toBe(true);
+    expect(ogg.code, ogg.stderr).toBe(0);
+    expect(ogg.json.renders[0].path).toBe("out/sfx/coin.ogg");
+    const oggBytes = fs.readFileSync(
+      path.join(project, "out", "sfx", "coin.ogg")
+    );
+    expect(oggBytes.subarray(0, 4).toString("latin1")).toBe("OggS");
+    const mp3 = await run(repo, [
+      "render",
+      "sfx/coin",
+      "--format",
+      "mp3",
+      "--json",
+    ]);
+    expect(mp3.code, mp3.stderr).toBe(0);
+    expect(mp3.json.renders[0].path).toBe("out/sfx/coin.mp3");
+    const mp3Bytes = fs.readFileSync(
+      path.join(project, "out", "sfx", "coin.mp3")
+    );
+    // an MP3 frame header starts with 11 set bits (or an ID3 tag comes first)
+    const [b0, b1] = mp3Bytes;
+    expect(
+      mp3Bytes.subarray(0, 3).toString("latin1") === "ID3" ||
+        (b0 === 0xff && (b1 ?? 0) >= 0xe0)
+    ).toBe(true);
+    // the WAV master is always there
+    expect(fs.existsSync(path.join(project, "out", "sfx", "coin.wav"))).toBe(
+      true
+    );
+  });
+
+  it("render --rate sets the sample rate of the WAV, and a different rate is a different render", async () => {
+    const { project, repo } = await makeProject();
+    const wavFile = path.join(project, "out", "sfx", "coin.wav");
+    const at48 = await run(repo, ["render", "sfx/coin", "--json"]);
+    const at44 = await run(repo, [
+      "render",
+      "sfx/coin",
+      "--rate",
+      "44100",
+      "--json",
+    ]);
+    expect(at44.json.renders[0]).toMatchObject({ cached: false, rate: 44_100 });
+    expect(readWav(wavFile).sampleRate).toBe(44_100);
+    expect(at44.json.renders[0].duration).toBeCloseTo(
+      at48.json.renders[0].duration,
+      2
+    );
+    const back = await run(repo, ["render", "sfx/coin", "--json"]);
+    expect(back.json.renders[0]).toMatchObject({ cached: false, rate: 48_000 });
+    expect(readWav(wavFile).sampleRate).toBe(48_000);
   });
 
   it("render rejects instruments, a bad rate and unknown refs", async () => {
@@ -497,40 +846,79 @@ describe("render and analyze", () => {
     expect(
       (await run(repo, ["render", "sfx/coin", "--rate", "100"])).code
     ).toBe(2);
+    // --loops counts extra passes: at least 1 (architecture.md 6.2)
+    const song = await run(repo, [
+      "new",
+      "song",
+      "title",
+      "--mml",
+      "pulse1=o4 c L d",
+    ]);
+    expect(song.code, song.stderr).toBe(0);
+    expect(
+      (await run(repo, ["render", "song/title", "--loops", "0"])).code
+    ).toBe(2);
+    expect((await run(repo, ["render", "sfx/coin", "--tail", "-1"])).code).toBe(
+      2
+    );
     expect((await run(repo, ["render", "sfx/nope"])).code).toBe(4);
     expect((await run(repo, ["render", "--format", "flac"])).code).toBe(2);
   });
 
-  it("analyze renders when stale, then reuses; --json is the Analysis plus ok", async () => {
-    const { repo } = await makeProject();
+  it("analyze --json is the Analysis of the written WAV plus ok, and reuses a current render", async () => {
+    const { project, repo } = await makeProject();
     const first = await run(repo, ["analyze", "sfx/coin", "--json"]);
     expect(first.code).toBe(0);
+    const file = path.join(project, "out", "sfx", "coin.wav");
+    const wav = readWav(file);
     expect(first.json).toMatchObject({
       cached: false,
+      channels: 2,
+      clipped: { first: null, frames: 0 },
+      file: "out/sfx/coin.wav",
+      frames: wav.frames,
       ok: true,
       ref: "sfx/coin",
+      sampleRate: 48_000,
     });
-    for (const key of [
-      "file",
-      "sampleRate",
-      "frames",
-      "duration",
-      "peakDb",
-      "rmsDb",
-      "lufs",
-      "clipped",
-      "pitch",
-      "spectrum",
-      "envelope",
-    ]) {
-      expect(first.json, key).toHaveProperty(key);
+    expectMatchesWav(first.json, file);
+    for (const band of ["lowDb", "midDb", "highDb"]) {
+      expect(typeof first.json.spectrum.bands[band], band).toBe("number");
     }
+    expect(first.json.envelope.length).toBeGreaterThan(0);
+    expect(first.json.envelope.length).toBeLessThanOrEqual(1000);
     expect(
       (await run(repo, ["analyze", "sfx/coin", "--json"])).json.cached
     ).toBe(true);
     const human = await run(repo, ["analyze", "sfx/coin"]);
     expect(human.stdout).toContain("level");
     expect(human.stdout).toContain("envelope");
+  });
+
+  it("analyze renders again when the document changed, and reports the new sound", async () => {
+    const { project, repo } = await makeProject();
+    const file = path.join(project, "sfx", "coin.json");
+    const coin = readJson(file) as Record<string, unknown> & {
+      envelope: Record<string, number>;
+    };
+    // a square (it has a volume, unlike the NES triangle) whose envelope decays in 0.18 s, then in 0.36 s
+    const square = { ...coin, volume: 0.55, wave: "square" };
+    writeJson(file, {
+      ...square,
+      envelope: { attack: 0, decay: 0.18, punch: 0, sustain: 0 },
+    });
+    const short = await run(repo, ["analyze", "sfx/coin", "--json"]);
+    writeJson(file, {
+      ...square,
+      envelope: { attack: 0, decay: 0.36, punch: 0, sustain: 0 },
+    });
+    const long = await run(repo, ["analyze", "sfx/coin", "--json"]);
+    expect(short.json.cached).toBe(false);
+    expect(long.json.cached).toBe(false);
+    expect(short.json.duration).toBeGreaterThan(0.17);
+    expect(short.json.duration).toBeLessThan(0.24);
+    expect(long.json.duration).toBeGreaterThan(0.34);
+    expect(long.json.duration).toBeLessThan(0.42);
   });
 
   it("analyze accepts a wav path and refuses ogg and mp3 paths with a fix", async () => {
@@ -552,6 +940,10 @@ describe("render and analyze", () => {
     const r = await run(repo, ["render", "sfx/coin", "--images", "--json"]);
     expect(r.code).toBe(0);
     const [{ images }] = r.json.renders;
+    expect(images).toEqual({
+      spectrogram: "out/analysis/coin.spectrogram.png",
+      waveform: "out/analysis/coin.waveform.png",
+    });
     for (const rel of [images.waveform, images.spectrogram]) {
       const bytes = fs.readFileSync(path.join(project, rel));
       expect([...bytes.subarray(0, 8)]).toEqual([
@@ -560,29 +952,137 @@ describe("render and analyze", () => {
     }
   });
 
-  it("renders a looping song with loop points, events and stems", async () => {
+  it("renders a looping song with the loop points, events and stems its MML and tempo imply", async () => {
     const { project, repo } = await makeProject();
+    // 120 bpm and l8: a note lasts 0.25 s (12000 frames at 48 kHz). The intro "cdef" is 1 s, the loop "gabc" 1 s.
     await run(repo, [
       "new",
       "song",
       "title",
       "--mml",
       "pulse1=o4 l8 cdef L gabc",
-      "--mml",
-      "triangle=o2 l4 c g c g",
     ]);
     const r = await run(repo, ["render", "song/title", "--stems", "--json"]);
-    expect(r.code).toBe(0);
+    expect(r.code, r.stderr).toBe(0);
     const [e] = r.json.renders;
-    expect(e.duration).toBeGreaterThan(1);
-    expect(e.loopStart).toBeGreaterThan(0);
-    expect(e.loopEnd).toBeGreaterThan(e.loopStart);
-    expect(e.stems.length).toBeGreaterThan(0);
+    // architecture.md 6.2: the render holds the intro and two passes, and the loop is the second pass; plus 1 s of tail
+    expect(e).toMatchObject({ duration: 4, loopEnd: 3, loopStart: 2 });
+
+    const master = readWav(path.join(project, "out", "songs", "title.wav"));
+    expect(master.frames).toBe(4 * 48_000);
+    // architecture.md 8: the smpl chunk holds the same loop, in frames (the stored end is the last frame of the loop)
+    expect(master.loop).toEqual({ end: 3 * 48_000 - 1, start: 2 * 48_000 });
+
     const events = readJson(
       path.join(project, "out", "songs", "title.events.json")
-    ) as { events: unknown[]; sampleRate: number };
-    expect(events.sampleRate).toBe(48_000);
-    expect(events.events.length).toBeGreaterThan(0);
+    ) as {
+      duration: number;
+      events: {
+        channelId: string;
+        frame: number;
+        note: number;
+        type: string;
+      }[];
+      loopEnd: number;
+      loopStart: number;
+      sampleRate: number;
+    };
+    expect(events).toMatchObject({
+      duration: 4,
+      loopEnd: 3,
+      loopStart: 2,
+      sampleRate: 48_000,
+    });
+    const notes = events.events
+      .filter((x) => x.type === "noteOn" && x.channelId === "pulse1")
+      .map((x) => [x.frame, x.note]);
+    // MIDI numbers of c d e f g a b c in octave 4 (c4 = 60), then the loop body again: g a b c
+    expect(notes).toEqual([
+      [0, 60],
+      [12_000, 62],
+      [24_000, 64],
+      [36_000, 65],
+      [48_000, 67],
+      [60_000, 69],
+      [72_000, 71],
+      [84_000, 60],
+      [96_000, 67],
+      [108_000, 69],
+      [120_000, 71],
+      [132_000, 60],
+    ]);
+    expect(events.events.filter((x) => x.type === "loop")).toHaveLength(1);
+
+    // one stem per NES channel, each as long as the master; only the channel that plays is not silent
+    const channels = ["pulse1", "pulse2", "triangle", "noise"];
+    expect(e.stems).toEqual(
+      channels.map((c) => `out/songs/title.stem-${c}.wav`)
+    );
+    for (const c of channels) {
+      const stem = readWav(path.join(project, `out/songs/title.stem-${c}.wav`));
+      expect(stem.frames, c).toBe(master.frames);
+      expect(
+        stem.samples.every((v) => v === 0),
+        c
+      ).toBe(c !== "pulse1");
+    }
+  });
+
+  it("--loops adds passes after the loop and --tail adds release time, without moving the loop", async () => {
+    const { repo } = await makeProject();
+    await run(repo, [
+      "new",
+      "song",
+      "title",
+      "--mml",
+      "pulse1=o4 l8 cdef L gabc",
+    ]);
+    const duration = async (...flags: string[]) => {
+      const r = await run(repo, ["render", "song/title", ...flags, "--json"]);
+      expect(r.code, r.stderr).toBe(0);
+      return r.json.renders[0];
+    };
+    // intro 1 s + passes of 1 s + tail
+    expect(await duration("--tail", "0")).toMatchObject({
+      duration: 3,
+      loopEnd: 3,
+      loopStart: 2,
+    });
+    expect(await duration("--loops", "2", "--tail", "0")).toMatchObject({
+      duration: 4,
+      loopEnd: 3,
+      loopStart: 2,
+    });
+    expect(await duration("--loops", "2", "--tail", "2")).toMatchObject({
+      duration: 6,
+      loopEnd: 3,
+      loopStart: 2,
+    });
+  });
+
+  it("analyze reports the loop of a song, a clean seam for a repeating melody, and trims the pitch track unless --pitch", async () => {
+    const { repo } = await makeProject();
+    await run(repo, [
+      "new",
+      "song",
+      "title",
+      "--mml",
+      "pulse1=o4 l8 cdef L gabc",
+    ]);
+    const a = await run(repo, ["analyze", "song/title", "--json"]);
+    expect(a.code, a.stderr).toBe(0);
+    expect(a.json.loop).toMatchObject({ end: 3, start: 2 });
+    // identical audio before the loop end and before the loop start: below -40 dB is clean (AGENTS.md)
+    expect(a.json.loop.seamDiffDb).toBeLessThan(-40);
+    // 4 s at a 512 frame hop is about 375 entries: 200 in --json, all of them with --pitch
+    expect(a.json.pitch.track).toHaveLength(200);
+    const full = await run(repo, [
+      "analyze",
+      "song/title",
+      "--pitch",
+      "--json",
+    ]);
+    expect(full.json.pitch.track.length).toBeGreaterThan(300);
   });
 });
 
@@ -662,12 +1162,33 @@ describe("export", () => {
       >;
     };
     expect(manifest.base).toBe("/audio/");
+    expect(manifest.sampleRate).toBe(48_000);
     expect(manifest.sfx.coin).toMatchObject({ file: "coin.wav" });
-    expect(manifest.sfx.coin?.duration).toBeGreaterThan(0.05);
     expect(manifest.songs.title).toMatchObject({
       events: "title.events.json",
       file: "title.wav",
     });
+    // the manifest describes the exported files: durations and loop points agree with the WAV chunks (section 8)
+    const audio = path.join(repo, "public", "audio");
+    const coin = readWav(path.join(audio, "coin.wav"));
+    expect(manifest.sfx.coin?.duration).toBeCloseTo(
+      coin.frames / coin.sampleRate,
+      5
+    );
+    const title = readWav(path.join(audio, "title.wav"));
+    expect(manifest.songs.title?.duration).toBeCloseTo(
+      title.frames / title.sampleRate,
+      5
+    );
+    expect(title.loop).not.toBeNull();
+    expect(manifest.songs.title?.loopStart).toBeCloseTo(
+      (title.loop?.start ?? 0) / title.sampleRate,
+      5
+    );
+    expect(manifest.songs.title?.loopEnd).toBeCloseTo(
+      ((title.loop?.end ?? 0) + 1) / title.sampleRate,
+      5
+    );
     const again = await run(repo, ["export", "--json"]);
     expect(again.json.written).toEqual([]);
     expect(again.json.rendered).toEqual([]);
@@ -736,21 +1257,28 @@ describe("export", () => {
     expect(r.stderr).toContain("share the id");
   });
 
-  it("honors --dir and --manifest relative to the cwd and --embed", async () => {
-    const { project, repo } = await makeProject();
-    setExport(project, { musicFormat: "wav", sfxFormat: "wav" });
+  it("honors --dir, --manifest, --sfx-format, --music-format and --embed over the project's settings, relative to the cwd", async () => {
+    const { repo } = await makeProject();
     const r = await run(repo, [
       "export",
       "--dir",
       "dist/snd",
       "--manifest",
       "dist/audio.ts",
+      "--sfx-format",
+      "wav",
+      "--music-format",
+      "wav",
       "--embed",
       "--json",
     ]);
     expect(r.code, r.stderr).toBe(0);
+    // the project says ogg; the flag wins
     expect(fs.existsSync(path.join(repo, "dist", "snd", "coin.wav"))).toBe(
       true
+    );
+    expect(fs.existsSync(path.join(repo, "dist", "snd", "coin.ogg"))).toBe(
+      false
     );
     const m = readJson(path.join(repo, "dist", "snd", "manifest.json")) as {
       sfx: { coin: { data?: { category: string } } };
@@ -810,7 +1338,7 @@ describe("export", () => {
   });
 });
 
-describe("help and play", () => {
+describe("help", () => {
   it("help formats prints the document formats and MML; --json wraps the text", async () => {
     const r = await run(tempDir(), ["help", "formats"]);
     expect(r.code).toBe(0);
@@ -826,7 +1354,11 @@ describe("help and play", () => {
     ]) {
       expect(r.stdout, needle).toContain(needle);
     }
-    expect(r.stdout).not.toContain("\u2014");
+    expect(r.stdout).not.toContain(EM_DASH);
+    // an agent learns the chip ids from here: all of core's must be listed
+    for (const chip of CHIP_IDS) {
+      expect(r.stdout, chip).toContain(chip);
+    }
     const mml = await run(tempDir(), ["help", "formats", "mml", "--json"]);
     expect(mml.json).toMatchObject({
       ok: true,
@@ -841,19 +1373,5 @@ describe("help and play", () => {
     expect((await run(tempDir(), ["help", "render"])).stdout).toContain(
       "--analyze"
     );
-  });
-
-  it("play exits 4 with a fix when no studio answers", async () => {
-    const { repo } = await makeProject();
-    const r = await run(repo, [
-      "play",
-      "sfx/coin",
-      "--studio",
-      "http://127.0.0.1:1",
-      "--json",
-    ]);
-    expect(r.code).toBe(4);
-    expect(r.json.error.code).toBe("not-found");
-    expect(r.json.error.hint).toContain("bleepkit studio");
   });
 });

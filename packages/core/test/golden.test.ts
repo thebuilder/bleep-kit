@@ -30,6 +30,7 @@ import {
   fixtureSfx,
   fixtureSong,
   hashChannels,
+  peak,
   runSynth,
 } from "./helpers.ts";
 
@@ -37,6 +38,20 @@ const GOLDEN = fileURLToPath(new URL("./golden/", import.meta.url));
 const UPDATE = process.env.UPDATE_GOLDEN === "1";
 const RATES = [48_000, 44_100] as const;
 const CHIPS = ["gameboy", "c64", "genesis", "adlib", "snes", "custom"] as const;
+const INSTRUMENT_FILES = [
+  "instrument-lead",
+  "instrument-bass",
+  "instrument-drums",
+  "instrument-fm-bass",
+  "instrument-snes-pluck",
+] as const;
+/** Every golden file there should be: nes is covered by the coin and the title song, the other chips by their demos. */
+const GOLDEN_IDS: readonly string[] = [
+  "sfx-coin",
+  "song-title",
+  ...CHIPS.flatMap((chip) => [`demo-${chip}`, `demo-${chip}-sfx`]),
+  ...INSTRUMENT_FILES,
+];
 
 interface Entry {
   events: number;
@@ -83,7 +98,13 @@ function checkGolden(id: string, make: (rate: number) => RenderResult): void {
   const path = `${GOLDEN}${id}.json`;
   const now: GoldenFile = { engineVersion: ENGINE_VERSION, renders: {} };
   for (const rate of RATES) {
-    now.renders[String(rate)] = summarize(make(rate));
+    const render = make(rate);
+    // a hash of silence would pin nothing: every golden scenario has to make a sound
+    expect(
+      peak(render.channels),
+      `${id} at ${rate} Hz is silent`
+    ).toBeGreaterThan(0.01);
+    now.renders[String(rate)] = summarize(render);
   }
   if (UPDATE) {
     writeGolden(id, path, now);
@@ -163,9 +184,26 @@ describe("golden files and ENGINE_VERSION", () => {
     }
   });
 
-  it("is a string that the CLI render hash can include", () => {
-    expect(typeof ENGINE_VERSION).toBe("string");
-    expect(ENGINE_VERSION.length).toBeGreaterThan(0);
+  it("there is one golden file per scenario below, no more and no fewer", () => {
+    const files = readdirSync(GOLDEN)
+      .filter((name) => name.endsWith(".json"))
+      .map((name) => name.slice(0, -".json".length));
+    expect(files.sort()).toEqual([...GOLDEN_IDS].sort());
+  });
+
+  it("no two scenarios share a hash, so none is a copy of another", () => {
+    const owners = new Map<string, string>();
+    for (const id of GOLDEN_IDS) {
+      const golden = readGolden(`${GOLDEN}${id}.json`) as GoldenFile;
+      for (const [rate, render] of Object.entries(golden.renders)) {
+        const key = `${rate}:${render.hash}`;
+        expect(owners.get(key), `${id} and ${owners.get(key)} at ${rate}`).toBe(
+          undefined
+        );
+        owners.set(key, id);
+      }
+    }
+    expect(owners.size).toBe(GOLDEN_IDS.length * RATES.length);
   });
 });
 
@@ -198,14 +236,7 @@ describe("golden renders", () => {
     });
   }
 
-  const instrumentFiles = [
-    "instrument-lead",
-    "instrument-bass",
-    "instrument-drums",
-    "instrument-fm-bass",
-    "instrument-snes-pluck",
-  ];
-  for (const file of instrumentFiles) {
+  for (const file of INSTRUMENT_FILES) {
     it(file, () => {
       const inst = normalizeInstrument(fixtureJson(`${file}.json`)).value;
       checkGolden(file, (sampleRate) =>
@@ -267,7 +298,13 @@ describe("determinism", () => {
     const plain = renderSong(song, instruments, { tail: 0.1 });
     const withStems = renderSong(song, instruments, { stems: true, tail: 0.1 });
     expect(hashChannels(withStems.channels)).toBe(hashChannels(plain.channels));
-    expect(withStems.stems?.length).toBe(withStems.stemIds?.length);
+    // one mono stem per channel of the nes song, each as long as the mix, and every id named
+    expect(withStems.stemIds).toEqual(song.channels.map((c) => c.id));
+    expect(withStems.stems).toHaveLength(song.channels.length);
+    for (const stem of withStems.stems ?? []) {
+      expect(stem.length).toBe(withStems.frames);
+    }
+    expect(plain.stems).toBeUndefined();
   });
 });
 
@@ -275,7 +312,8 @@ describe("block size independence", () => {
   function runSong(
     chip: (typeof CHIPS)[number] | "nes",
     blockSize: number,
-    frames: number
+    frames: number,
+    withSfx = true
   ) {
     const synth = createSynth({ sampleRate: 48_000 });
     if (chip === "nes") {
@@ -290,7 +328,9 @@ describe("block size independence", () => {
     synth.play({ loop: true });
     // sfx triggered mid song at a fixed frame count: run in two parts so the trigger lands on the same frame
     const first = runSynth(synth, 9600, blockSize);
-    synth.trigger("coin", { pan: 0.4, seed: 7, velocity: 0.8 });
+    if (withSfx) {
+      synth.trigger("coin", { pan: 0.4, seed: 7, velocity: 0.8 });
+    }
     const second = runSynth(synth, frames - 9600, blockSize);
     const left = new Float32Array(frames);
     const right = new Float32Array(frames);
@@ -306,11 +346,31 @@ describe("block size independence", () => {
       const frames = 48_000;
       const a = runSong(chip, 128, frames);
       const b = runSong(chip, 64, frames);
+      // equal silence would prove nothing
+      expect(peak([a.left, a.right])).toBeGreaterThan(0.05);
       expect(hashChannels([a.left, a.right])).toBe(
         hashChannels([b.left, b.right])
       );
     });
   }
+
+  it("the sfx trigger lands on frame 9600 whatever the block size: the audio before it is the song alone", () => {
+    const frames = 24_000;
+    for (const blockSize of [128, 37]) {
+      const withSfx = runSong("nes", blockSize, frames);
+      const songOnly = runSong("nes", blockSize, frames, false);
+      const same = (from: number, to: number) =>
+        hashChannels([withSfx.left.subarray(from, to)]) ===
+        hashChannels([songOnly.left.subarray(from, to)]);
+      expect(same(0, 9600), `before the trigger, blocks of ${blockSize}`).toBe(
+        true
+      );
+      expect(
+        same(9600, frames),
+        `after the trigger, blocks of ${blockSize}`
+      ).toBe(false);
+    }
+  });
 
   it("odd block sizes give identical audio too", () => {
     const a = runSong("nes", 128, 24_000);
@@ -328,6 +388,11 @@ describe("block size independence", () => {
       s.play();
       return runSynth(s, 48_000, block).events;
     };
-    expect(make(64)).toEqual(make(128));
+    const events = make(128);
+    // the first second holds several notes and rows (150 BPM, 4 rows a beat): the comparison is of real events
+    expect(events.filter((e) => e.type === "noteOn").length).toBeGreaterThan(5);
+    expect(events.filter((e) => e.type === "row").length).toBeGreaterThan(5);
+    expect(make(64)).toEqual(events);
+    expect(make(37)).toEqual(events);
   });
 });

@@ -56,15 +56,25 @@ describe("LocalStore documents", () => {
     expect(await store.importDocument("a.json", "{}")).toBeNull();
   });
 
-  it("reads files back as bytes, text as UTF-8 and a missing file as null", async () => {
+  it("stores documents as pretty JSON with a trailing newline, as the CLI writes them", async () => {
     const { store } = await put("a.json", sfx);
-    const text = await store.readBytes("sfx/a.json");
-    expect(new TextDecoder().decode(text as Uint8Array)).toContain("envelope");
+    const text = new TextDecoder().decode(
+      (await store.readBytes("sfx/a.json")) as Uint8Array
+    );
+    expect(text).toBe(`${JSON.stringify(sfx, null, 2)}\n`);
+    expect((await store.readJson("sfx/a.json")).json).toEqual(sfx);
+  });
+
+  it("reads binary files back as they were written, and a missing file as null or an error", async () => {
+    const { store } = await put("a.json", sfx);
     await store.writeBytes("out/a.wav", new Uint8Array([1, 2, 3]));
     expect(Array.from((await store.readBytes("out/a.wav")) ?? [])).toEqual([
       1, 2, 3,
     ]);
     expect(await store.readBytes("sfx/none.json")).toBeNull();
+    await expect(store.readJson("sfx/none.json")).rejects.toThrow(
+      "No such file"
+    );
   });
 
   it("starts over with the starter kit", async () => {
@@ -73,13 +83,19 @@ describe("LocalStore documents", () => {
     const paths = (await store.list()).map((f) => f.path);
     expect(paths).not.toContain("sfx/mine.json");
     expect(paths).toContain("project.json");
+    expect(paths).toContain("sfx/coin.json");
   });
 });
 
 describe("probeServer", () => {
   it("answers with the health body when a studio server is there", async () => {
-    vi.stubGlobal("fetch", async () => json({ ok: true, root: "/game" }));
+    const fetched: string[] = [];
+    vi.stubGlobal("fetch", (url: string) => {
+      fetched.push(url);
+      return Promise.resolve(json({ ok: true, root: "/game" }));
+    });
     expect(await probeServer("http://x")).toEqual({ ok: true, root: "/game" });
+    expect(fetched).toEqual(["http://x/api/health"]);
   });
 
   it("says no to an error status, a page that is not JSON, a body that is not ok, and a network failure", async () => {
@@ -115,20 +131,33 @@ class FakeSocket {
 }
 
 describe("ServerStore", () => {
-  const route = (table: Record<string, () => Response>) =>
+  interface Call {
+    body: unknown;
+    headers: Record<string, string>;
+    method: string;
+    url: string;
+  }
+  let calls: Call[] = [];
+  const route = (table: Record<string, () => Response>) => {
+    calls = [];
     vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      calls.push({
+        body:
+          typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+        headers: (init?.headers ?? {}) as Record<string, string>,
+        method,
+        url: String(url),
+      });
       const handler =
-        table[
-          `${init?.method ?? "GET"} ${String(url).replace("http://srv", "")}`
-        ];
+        table[`${method} ${String(url).replace("http://srv", "")}`];
       return handler
         ? Promise.resolve(handler())
-        : Promise.reject(
-            new Error(`unexpected ${init?.method ?? "GET"} ${url}`)
-          );
+        : Promise.reject(new Error(`unexpected ${method} ${url}`));
     });
+  };
 
-  it("opens, lists, reads, removes and exports through the HTTP api", async () => {
+  it("opens, lists, reads and removes through the HTTP api", async () => {
     FakeSocket.all = [];
     vi.stubGlobal("WebSocket", FakeSocket);
     const info = {
@@ -142,7 +171,6 @@ describe("ServerStore", () => {
       "GET /api/file?path=sfx%2Fnone.json": () =>
         new Response("", { status: 404 }),
       "GET /api/project": () => json(info),
-      "POST /api/export": () => json({ files: ["x"] }),
     });
     const store = new ServerStore("http://srv");
     expect((await store.open()).root).toBe("/game");
@@ -152,8 +180,35 @@ describe("ServerStore", () => {
     await expect(store.readJson("sfx/none.json")).rejects.toThrow("404");
     expect(await store.readBytes("sfx/none.json")).toBeNull();
     await store.remove("sfx/a.json");
+    // the delete has to reach the server: a studio that only forgets the file brings it back on the next reload
+    expect(calls.at(-1)).toMatchObject({
+      method: "DELETE",
+      url: "http://srv/api/file?path=sfx%2Fa.json",
+    });
+  });
+
+  it("asks the server to run the export, and says whether it is a dry run", async () => {
+    route({ "POST /api/export": () => json({ files: ["x"] }) });
+    const store = new ServerStore("http://srv");
     expect(await store.exportAll(false)).toEqual({ files: ["x"] });
-    await store.writeBytes();
+    expect(calls.at(-1)?.body).toEqual({ dryRun: false });
+    await store.exportAll(true);
+    expect(calls.at(-1)?.body).toEqual({ dryRun: true });
+  });
+
+  it("sends a save with the etag the document was loaded at, and without one to overwrite", async () => {
+    const store = new ServerStore("http://srv");
+    route({ "PUT /api/file?path=sfx%2Fa.json": () => json({ etag: "e2" }) });
+    await store.writeJson("sfx/a.json", { v: 1 }, "e1");
+    expect(calls.at(-1)).toMatchObject({
+      body: { ifMatch: "e1", json: { v: 1 } },
+      method: "PUT",
+      url: "http://srv/api/file?path=sfx%2Fa.json",
+    });
+    expect(calls.at(-1)?.headers["content-type"]).toBe("application/json");
+    await store.writeJson("sfx/a.json", { v: 2 });
+    // "Keep mine": no ifMatch key at all, or the server would refuse the overwrite
+    expect(calls.at(-1)?.body).toEqual({ json: { v: 2 } });
   });
 
   it("reads the server's answers to a write", async () => {

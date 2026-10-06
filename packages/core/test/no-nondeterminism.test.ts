@@ -87,6 +87,23 @@ describe("no nondeterminism in core, sfx and player", () => {
     ).toEqual(["crypto"]);
   });
 
+  it("the scanner catches the less obvious spellings too", () => {
+    expect(findViolations("const r = Math\n  .random();")).toEqual([
+      "Math.random",
+    ]);
+    expect(findViolations("const t = new Date(0);")).toEqual(["Date"]);
+    expect(findViolations("const t = Date.UTC(2020, 0);")).toEqual(["Date"]);
+    expect(findViolations("const t = Date();")).toEqual(["Date"]);
+    expect(findViolations("const t = globalThis.performance.now();")).toEqual([
+      "performance",
+    ]);
+    expect(findViolations("const k = crypto.subtle;")).toEqual(["crypto"]);
+    expect(findViolations('const c = require("crypto");')).toEqual(["crypto"]);
+    expect(
+      findViolations("const a = Math.random(); const b = Date.now();")
+    ).toEqual(["Math.random", "Date"]);
+  });
+
   it("the scanner ignores comments and injected host properties", () => {
     expect(findViolations("// Math.random is banned\nconst a = 1;")).toEqual(
       []
@@ -99,6 +116,15 @@ describe("no nondeterminism in core, sfx and player", () => {
     ).toEqual([]);
     expect(
       findViolations("const dateOfBirth = 1; const updateDate = 2;")
+    ).toEqual([]);
+    // a url inside a string is not a comment, and a comment after code does not hide the code before it
+    expect(
+      findViolations(
+        'const u = "http://x.test"; const r = Math.random(); // fine'
+      )
+    ).toEqual(["Math.random"]);
+    expect(
+      findViolations("const a = 1; // Math.random() is banned here")
     ).toEqual([]);
   });
 

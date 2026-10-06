@@ -4,7 +4,6 @@ import type { AudioManifest, BleepPlayer } from "../src/types.ts";
 import {
   audioBytes,
   FakeContext,
-  type FakeGain,
   type FakeSource,
   fakeFetch,
 } from "./fake-audio.ts";
@@ -71,10 +70,10 @@ async function make(opts: Partial<Parameters<typeof createPlayer>[0]> = {}) {
   return player;
 }
 
-const sfxBus = () => ctx.gains[1] as FakeGain;
-const musicBus = () => ctx.gains[2] as FakeGain;
-const masterGain = () => ctx.gains[0] as FakeGain;
 const lastSource = () => ctx.sources.at(-1) as FakeSource;
+/** Level of a source at the speakers: its own gain times every bus gain on the way out, 0 once it stopped sounding. */
+const heard = (source: FakeSource, at = ctx.currentTime) =>
+  ctx.heard(source, at);
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -97,40 +96,116 @@ afterEach(() => {
 });
 
 describe("buses and volume", () => {
-  it("builds sfx and music buses into a master gain into the destination", async () => {
-    await make({ buses: { master: 0.9, music: 0.5, sfx: 0.25 } });
-    expect(masterGain().gain.value).toBe(0.9);
-    expect(sfxBus().gain.value).toBe(0.25);
-    expect(musicBus().gain.value).toBe(0.5);
-    expect(sfxBus().outputs).toEqual([masterGain()]);
-    expect(musicBus().outputs).toEqual([masterGain()]);
-    expect(masterGain().outputs).toEqual([ctx.destination]);
+  it("lets sfx and music out of the speakers at full level by default", async () => {
+    const p = await make();
+    await p.preload();
+    p.sfx("coin");
+    const sfx = lastSource();
+    await p.music("boss");
+    const music = lastSource();
+    expect(heard(sfx)).toBe(1);
+    expect(heard(music)).toBe(1);
   });
 
-  it("ramps volume changes from where they are, with a tiny default ramp, clamped to 0..1", async () => {
+  it("applies the initial bus volumes: sound x its bus x master", async () => {
+    const p = await make({ buses: { master: 0.9, music: 0.5, sfx: 0.25 } });
+    await p.preload();
+    p.sfx("coin", { velocity: 0.5 });
+    const sfx = lastSource();
+    await p.music("boss");
+    const music = lastSource();
+    expect(heard(sfx)).toBeCloseTo(0.5 * 0.25 * 0.9, 9);
+    expect(heard(music)).toBeCloseTo(0.5 * 0.9, 9);
+  });
+
+  it("clamps the initial bus volumes to 0..1", async () => {
+    const p = await make({ buses: { master: 4, sfx: -1 } });
+    await p.preload();
+    p.sfx("coin");
+    const sfx = lastSource();
+    await p.music("boss");
+    expect(heard(sfx)).toBe(0);
+    expect(heard(lastSource())).toBe(1);
+  });
+
+  it("ramps a bus from its current level to the new one over the given time", async () => {
     const p = await make();
+    await p.music("boss");
+    const music = lastSource();
     ctx.currentTime = 4;
     p.setVolume("music", 0.4, 1);
-    expect(musicBus().gain.log.slice(-3)).toEqual([
-      ["cancel", 4],
-      ["set", 1, 4],
-      ["ramp", 0.4, 5],
-    ]);
-    p.setVolume("sfx", 3);
-    expect(sfxBus().gain.target).toBeCloseTo(1, 9);
-    expect(sfxBus().gain.log.at(-1)).toEqual(["ramp", 1, 4.01]);
-    p.setVolume("sfx", 0.5, 0);
-    expect(sfxBus().gain.log.at(-1)).toEqual(["set", 0.5, 4]);
+    expect(heard(music, 4)).toBe(1);
+    expect(heard(music, 4.5)).toBeCloseTo(0.7, 9);
+    expect(heard(music, 5)).toBeCloseTo(0.4, 9);
+    expect(heard(music, 9)).toBeCloseTo(0.4, 9);
   });
 
-  it("mutes the master and restores the latest master volume", async () => {
-    const p = await make({ buses: { master: 0.8 } });
+  it("moves a bus in a tiny default ramp, clamps to 0..1, and a zero ramp is immediate", async () => {
+    const p = await make();
+    await p.preload();
+    p.sfx("coin", { loop: true });
+    const sfx = lastSource();
+    ctx.currentTime = 4;
+    p.setVolume("sfx", 0.5);
+    // no jump at the instant of the change (a click), but settled within a few milliseconds
+    expect(heard(sfx, 4)).toBe(1);
+    expect(heard(sfx, 4.005)).toBeGreaterThan(0.5);
+    expect(heard(sfx, 4.005)).toBeLessThan(1);
+    expect(heard(sfx, 4.01)).toBeCloseTo(0.5, 9);
+    p.setVolume("sfx", 3);
+    expect(heard(sfx, 5)).toBe(1);
+    p.setVolume("sfx", -2);
+    expect(heard(sfx, 5)).toBe(0);
+    p.setVolume("sfx", 0.5, 0);
+    expect(heard(sfx, 4)).toBe(0.5);
+  });
+
+  it("continues a fade that is interrupted from the level it had reached", async () => {
+    const p = await make();
+    await p.music("boss");
+    const music = lastSource();
+    p.setVolume("music", 0, 2);
+    ctx.currentTime = 1;
+    expect(heard(music)).toBeCloseTo(0.5, 9);
+    p.setVolume("music", 1, 1);
+    expect(heard(music, 1)).toBeCloseTo(0.5, 9);
+    expect(heard(music, 1.5)).toBeCloseTo(0.75, 9);
+    expect(heard(music, 2)).toBeCloseTo(1, 9);
+  });
+
+  it("changes the volume of sounds that are already playing", async () => {
+    const p = await make();
+    await p.preload();
+    p.sfx("coin", { loop: true });
+    const sfx = lastSource();
+    await p.music("boss");
+    const music = lastSource();
+    p.setVolume("master", 0.5, 0);
+    p.setVolume("sfx", 0.5, 0);
+    expect(heard(sfx)).toBe(0.25);
+    expect(heard(music)).toBe(0.5);
+  });
+
+  it("mutes everything and restores each bus and the latest master volume when unmuted", async () => {
+    const p = await make({ buses: { master: 0.8, sfx: 0.5 } });
+    await p.preload();
+    p.sfx("coin", { loop: true });
+    const sfx = lastSource();
+    await p.music("boss");
+    const music = lastSource();
+    expect(heard(sfx)).toBeCloseTo(0.4, 9);
+    ctx.currentTime = 1;
     p.mute(true);
-    expect(masterGain().gain.target).toBe(0);
+    // a short ramp, then silence on every route to the speakers
+    expect(heard(sfx, 1.02)).toBe(0);
+    expect(heard(music, 1.02)).toBe(0);
+    // the master volume changed while muted is what comes back
     p.setVolume("master", 0.6);
-    expect(masterGain().gain.target).toBe(0);
+    expect(heard(sfx, 1.1)).toBe(0);
+    ctx.currentTime = 2;
     p.mute(false);
-    expect(masterGain().gain.target).toBe(0.6);
+    expect(heard(sfx, 2.02)).toBeCloseTo(0.5 * 0.6, 9);
+    expect(heard(music, 2.02)).toBeCloseTo(0.6, 9);
   });
 });
 
@@ -175,11 +250,15 @@ describe("context", () => {
     expect(made[0]?.closed).toBe(true);
   });
 
-  it("leaves a context it was given open", async () => {
+  it("leaves a context it was given open, but routes nothing to its speakers any more", async () => {
     const p = await make();
+    await p.preload();
+    p.sfx("coin", { loop: true });
+    const source = lastSource();
+    expect(source.reaches(ctx.destination)).toBe(true);
     p.dispose();
     expect(ctx.closed).toBe(false);
-    expect(masterGain().disconnected).toBe(true);
+    expect(source.reaches(ctx.destination)).toBe(false);
   });
 });
 
@@ -189,32 +268,32 @@ describe("sound effects", () => {
     p = await make();
   });
 
-  it("plays a preloaded file through gain, pan and rate into the sfx bus", async () => {
+  it("plays a preloaded file through gain, pan and rate out of the speakers", async () => {
     await p.preload(["coin"]);
     expect(fetchStub.requested).toEqual(["/audio/coin.ogg"]);
     const handle = p.sfx("coin", { pan: -0.5, pitch: 12, velocity: 0.5 });
     const source = lastSource();
     expect(source.buffer?.duration).toBeCloseTo(0.3, 9);
-    expect(source.starts).toEqual([{ offset: undefined, when: undefined }]);
     expect(source.playbackRate.value).toBe(2);
     expect(source.loop).toBe(false);
-    const gain = source.outputs[0] as FakeGain;
-    expect(gain.gain.value).toBe(0.5);
+    // velocity is the only attenuation with the buses at unity
+    expect(heard(source)).toBeCloseTo(0.5, 9);
     const [panner] = ctx.panners;
     expect(panner?.pan.value).toBe(-0.5);
-    expect(gain.outputs).toEqual([panner]);
-    expect(panner?.outputs).toEqual([sfxBus()]);
+    expect(source.reaches(panner as NonNullable<typeof panner>)).toBe(true);
+    expect(panner?.reaches(ctx.destination)).toBe(true);
     expect(handle).toMatchObject({ id: "coin" });
     expect(handle.handle).toBeGreaterThan(0);
   });
 
-  it("skips the panner when centered, and loops on request", async () => {
+  it("plays centered without any pan, and loops on request", async () => {
     await p.preload();
     p.sfx("laser", { loop: true });
     const source = lastSource();
-    expect(ctx.panners).toHaveLength(0);
     expect(source.loop).toBe(true);
-    expect((source.outputs[0] as FakeGain).outputs).toEqual([sfxBus()]);
+    expect(ctx.panners.every((x) => x.pan.value === 0)).toBe(true);
+    // 10 s into a 0.4 s file it is still sounding, at full level
+    expect(heard(source, 10)).toBe(1);
   });
 
   it("gives each play its own handle number", async () => {
@@ -229,6 +308,7 @@ describe("sound effects", () => {
     expect(ctx.sources).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(0);
     expect(ctx.sources).toHaveLength(1);
+    expect(heard(lastSource())).toBe(1);
     // the second play is instant
     p.sfx("coin");
     expect(ctx.sources).toHaveLength(2);
@@ -264,16 +344,14 @@ describe("sound effects", () => {
   it("stops a voice with a short fade", async () => {
     await p.preload();
     ctx.currentTime = 3;
-    const h = p.sfx("coin", { velocity: 0.8 });
+    const h = p.sfx("coin", { loop: true, velocity: 0.8 });
     h.stop();
     const source = lastSource();
-    const gain = source.outputs[0] as FakeGain;
-    expect(gain.gain.log.slice(-3)).toEqual([
-      ["cancel", 3],
-      ["set", 0.8, 3],
-      ["ramp", 0, 3.008],
-    ]);
-    expect(source.stops[0]).toBeCloseTo(3.01, 9);
+    // no jump at the instant of the stop, a straight fade to silence, then the source is released
+    expect(heard(source, 3)).toBeCloseTo(0.8, 9);
+    expect(heard(source, 3.004)).toBeCloseTo(0.4, 9);
+    expect(heard(source, 3.008)).toBeCloseTo(0, 9);
+    expect(source.soundingAt(3.02)).toBe(false);
   });
 
   it("allows 4 instances per id and stops the oldest beyond that", async () => {
@@ -281,15 +359,14 @@ describe("sound effects", () => {
     for (let i = 0; i < 5; i += 1) {
       p.sfx("coin");
     }
-    const coins = ctx.sources;
+    const coins = [...ctx.sources];
     expect(coins).toHaveLength(5);
-    expect(coins[0]?.stops).toHaveLength(1);
-    for (const s of coins.slice(1)) {
-      expect(s.stops).toHaveLength(0);
-    }
+    // after the quick fade only the oldest is gone (the files are 0.3 s long, so nothing ended by itself)
+    ctx.currentTime = 0.05;
+    expect(coins.map((s) => heard(s))).toEqual([0, 1, 1, 1, 1]);
     p.sfx("laser");
-    expect(ctx.sources.at(-1)?.stops).toHaveLength(0);
-    expect(coins[1]?.stops).toHaveLength(0);
+    expect(heard(lastSource())).toBe(1);
+    expect(ctx.soundingCount()).toBe(5);
   });
 
   it("caps all sound effects together and stops the oldest first", async () => {
@@ -299,11 +376,8 @@ describe("sound effects", () => {
     small.sfx("laser");
     small.sfx("coin");
     small.sfx("laser");
-    const [a, b, c, d] = ctx.sources;
-    expect(a?.stops).toHaveLength(1);
-    expect(b?.stops).toHaveLength(0);
-    expect(c?.stops).toHaveLength(0);
-    expect(d?.stops).toHaveLength(0);
+    ctx.currentTime = 0.05;
+    expect(ctx.sources.map((s) => heard(s))).toEqual([0, 1, 1, 1]);
   });
 
   it("frees a slot when a voice ends by itself", async () => {
@@ -315,6 +389,9 @@ describe("sound effects", () => {
     first.finish();
     expect(first.disconnected).toBe(true);
     p.sfx("coin");
+    // room was made by the voice that ended: nobody else was cut, and the ended one was not touched again
+    ctx.currentTime = 0.05;
+    expect(ctx.soundingCount()).toBe(4);
     expect(ctx.sources.every((s) => s.stops.length === 0)).toBe(true);
   });
 
@@ -396,9 +473,9 @@ describe("music", () => {
     expect(source.loopStart).toBe(4.8);
     expect(source.loopEnd).toBe(24);
     expect(source.starts).toEqual([{ offset: 0, when: 2 }]);
-    const gain = source.outputs[0] as FakeGain;
-    expect(gain.outputs).toEqual([musicBus()]);
-    expect(gain.gain.log.at(-1)).toEqual(["set", 1, 2]);
+    // audible at full level, and still going long after the 25 s file would have run out
+    expect(heard(source)).toBe(1);
+    expect(heard(source, 200)).toBe(1);
     expect(handle.id).toBe("title");
   });
 
@@ -408,10 +485,9 @@ describe("music", () => {
     const source = lastSource();
     expect(source.loop).toBe(false);
     expect(source.starts).toEqual([{ offset: 7.5, when: 5 }]);
-    expect((source.outputs[0] as FakeGain).gain.log.slice(-2)).toEqual([
-      ["set", 0, 5],
-      ["ramp", 1, 7],
-    ]);
+    expect(heard(source, 5)).toBe(0);
+    expect(heard(source, 6)).toBeCloseTo(0.5, 9);
+    expect(heard(source, 7)).toBe(1);
 
     await p.music("boss");
     expect(lastSource().loop).toBe(false);
@@ -432,54 +508,51 @@ describe("music", () => {
     const first = lastSource();
     ctx.currentTime = 10;
     await p.music("boss", { fadeIn: 3 });
-    // the old song fades from full to silence over the new song's fade in (3 s from t = 10)
-    const old = first.outputs[0] as FakeGain;
-    expect(old.gain.log.slice(-3)).toEqual([
-      ["cancel", 10],
-      ["set", 1, 10],
-      ["ramp", 0, 13],
-    ]);
-    expect(first.stops[0]).toBeCloseTo(13.01, 9);
-    // and the new one fades in over the same time
-    expect((lastSource().outputs[0] as FakeGain).gain.log.slice(-2)).toEqual([
-      ["set", 0, 10],
-      ["ramp", 1, 13],
-    ]);
+    const next = lastSource();
+    // over the new song's fade in (3 s from t = 10) the old one falls from full to silence and the new one rises
+    expect([10, 11.5, 13].map((t) => heard(first, t))).toEqual([1, 0.5, 0]);
+    expect([10, 11.5, 13].map((t) => heard(next, t))).toEqual([0, 0.5, 1]);
+    // the old source is released once it is silent
+    expect(first.soundingAt(13.02)).toBe(false);
+    expect(next.soundingAt(13.02)).toBe(true);
   });
 
   it("stops music with a fade out, from the level it had reached in a fade in", async () => {
     ctx.currentTime = 0;
     await p.music("title", { fadeIn: 4 });
-    const gain = ctx.gains.at(-1) as FakeGain;
+    const source = lastSource();
     ctx.currentTime = 1;
     p.stopMusic({ fadeOut: 2 });
-    // a quarter of the way up the fade in when it was interrupted
-    expect(gain.gain.log.slice(-3)).toEqual([
-      ["cancel", 1],
-      ["set", 0.25, 1],
-      ["ramp", 0, 3],
-    ]);
-    expect(lastSource().stops[0]).toBeCloseTo(3.01, 9);
+    // a quarter of the way up the fade in when it was interrupted, then down to silence at t = 3
+    expect(heard(source, 1)).toBeCloseTo(0.25, 9);
+    expect(heard(source, 2)).toBeCloseTo(0.125, 9);
+    expect(heard(source, 3)).toBe(0);
+    expect(source.soundingAt(3.02)).toBe(false);
   });
 
   it("stops at once but without a click when no fade is given", async () => {
     await p.music("boss");
+    const source = lastSource();
     ctx.currentTime = 2;
     p.stopMusic();
-    const gain = ctx.gains.at(-1) as FakeGain;
-    expect(gain.gain.log.at(-1)).toEqual(["ramp", 0, 2.008]);
+    expect(heard(source, 2)).toBe(1);
+    expect(heard(source, 2.004)).toBeCloseTo(0.5, 9);
+    expect(heard(source, 2.008)).toBe(0);
+    expect(source.soundingAt(2.02)).toBe(false);
   });
 
   it("stops through the handle, but only while it is the current song", async () => {
     const first = await p.music("title");
-    const source = lastSource();
     const second = await p.music("boss");
-    const stopsBefore = ctx.sources.at(-1)?.stops.length ?? 0;
+    const current = lastSource();
+    ctx.currentTime = 1;
+    // the first song was replaced: its handle must not cut the song that is playing now
     first.stop({ fadeOut: 1 });
-    expect(ctx.sources.at(-1)?.stops).toHaveLength(stopsBefore);
-    expect(source.stops).toHaveLength(1);
+    ctx.currentTime = 3;
+    expect(heard(current)).toBe(1);
     second.stop();
-    expect(ctx.sources.at(-1)?.stops).toHaveLength(stopsBefore + 1);
+    ctx.currentTime = 3.05;
+    expect(heard(current)).toBe(0);
   });
 
   it("lets the newest request win while a song is still loading", async () => {
@@ -567,13 +640,28 @@ describe("music events from the events file", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("fires end for a song that plays through, and works without an events file", async () => {
+  it("fires end when a song without a loop plays through to the end of its file", async () => {
+    const p = await make();
+    const seen: string[] = [];
+    p.on("end", (e) => seen.push(`end@${e.time.toFixed(2)}`));
+    ctx.currentTime = 0;
+    await p.music("title", { loop: false });
+    // the 25 s file ends at t = 25, heard 50 ms later
+    ctx.currentTime = 25.04;
+    vi.advanceTimersByTime(10);
+    expect(seen).toEqual([]);
+    ctx.currentTime = 25.06;
+    vi.advanceTimersByTime(10);
+    expect(seen).toEqual(["end@25.05"]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("plays a song without an events file: nothing is fetched for it and nothing is announced", async () => {
     const p = await make();
     const seen: string[] = [];
     p.on("end", (e) => seen.push(`end@${e.time.toFixed(2)}`));
     ctx.currentTime = 0;
     await p.music("boss");
-    expect(seen).toEqual([]);
     ctx.currentTime = 20;
     vi.advanceTimersByTime(50);
     expect(seen).toEqual([]);
@@ -616,11 +704,14 @@ describe("preload and dispose", () => {
   it("stops everything on dispose, quietly", async () => {
     const p = await make();
     await p.preload();
-    p.sfx("coin");
+    p.sfx("coin", { loop: true });
     await p.music("boss");
+    expect(ctx.soundingCount()).toBe(2);
     p.dispose();
     p.dispose();
-    expect(ctx.sources.every((s) => s.stops.length > 0)).toBe(true);
+    ctx.currentTime = 0.1;
+    // the buses are cut loose, but the sources themselves are stopped too: a looping source would play on forever
+    expect(ctx.sources.some((s) => s.soundingAt(0.1))).toBe(false);
     expect(vi.getTimerCount()).toBe(0);
     // a call after dispose does not throw or start anything
     const before = ctx.sources.length;

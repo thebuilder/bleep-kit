@@ -9,8 +9,7 @@ import {
   runEnvelope,
   setEnvelopeParams,
 } from "../src/dsp/envelope.ts";
-import { MOD_INDEX, rateSeconds } from "../src/dsp/fm.ts";
-import { LIMITER_CEILING, Limiter } from "../src/dsp/limiter.ts";
+import { Limiter } from "../src/dsp/limiter.ts";
 import {
   compileMacro,
   macroRelease,
@@ -27,17 +26,21 @@ import {
   seedNoise,
   stepNoise,
 } from "../src/dsp/noise.ts";
+import type { PhaseState } from "../src/dsp/osc.ts";
 import {
   newPhase,
   renderPulse,
   renderSaw,
+  renderSine,
   renderStepped,
   renderTriangle,
 } from "../src/dsp/osc.ts";
+import type { SidOsc } from "../src/dsp/sid.ts";
+import { newSidOsc, renderSidGroup, sidSetRate } from "../src/dsp/sid.ts";
 import { setSidFilter } from "../src/dsp/sid-filter.ts";
-import { newSvf, svfProcess } from "../src/dsp/svf.ts";
+import { newSvf, SVF_BP, SVF_HP, SVF_LP, svfProcess } from "../src/dsp/svf.ts";
 import { nesTriangleTable, oplWave, sineTable } from "../src/dsp/tables.ts";
-import type { ChannelKind, ChipId } from "../src/index.ts";
+import type { ChannelKind, ChipId, Instrument } from "../src/index.ts";
 import {
   defaultInstrument,
   noteToHz,
@@ -47,6 +50,9 @@ import { mulberry32 } from "../src/prng.ts";
 import { bandEnergy, fftPeakHz, rms, toDb, zeroCrossingHz } from "./helpers.ts";
 
 const SR = 48_000;
+
+/** The limiter ceiling of the contract (architecture 3.8) as a linear amplitude: -0.3 dBFS. */
+const CEILING = 10 ** (-0.3 / 20);
 
 describe("oscillators", () => {
   it.each([0.125, 0.25, 0.5, 0.75])(
@@ -68,38 +74,44 @@ describe("oscillators", () => {
     }
   );
 
-  it("triangle, saw and pulse land on 440 Hz by zero crossings and FFT", () => {
-    const n = SR;
-    for (const render of [
-      (ph: ReturnType<typeof newPhase>, o: Float32Array) =>
-        renderPulse(ph, 0.5, o, n),
-      (ph: ReturnType<typeof newPhase>, o: Float32Array) =>
-        renderTriangle(ph, o, n),
-      (ph: ReturnType<typeof newPhase>, o: Float32Array) => renderSaw(ph, o, n),
-    ]) {
-      const out = new Float32Array(n);
+  const sources: [
+    string,
+    (ph: PhaseState, out: Float32Array, n: number) => void,
+  ][] = [
+    ["pulse", (ph, out, n) => renderPulse(ph, 0.5, out, n)],
+    ["triangle", (ph, out, n) => renderTriangle(ph, out, n)],
+    ["saw", (ph, out, n) => renderSaw(ph, out, n)],
+    ["sine", (ph, out, n) => renderSine(ph, sineTable(), out, n)],
+  ];
+
+  it.each(sources)(
+    "%s lands on 440 Hz by zero crossings and FFT",
+    (_, render) => {
+      const out = new Float32Array(SR);
       const ph = newPhase();
       ph.dt = 440 / SR;
-      render(ph, out);
+      render(ph, out, SR);
       expect(Math.abs(zeroCrossingHz(out, SR) - 440) / 440).toBeLessThan(0.005);
       expect(Math.abs(fftPeakHz(out, SR, 0, 16_384) - 440) / 440).toBeLessThan(
         0.005
       );
     }
-  });
+  );
 
-  it("the NES triangle table has 32 steps over 16 levels (15 down to 0 and back up)", () => {
-    const t = nesTriangleTable();
-    expect(t).toHaveLength(32);
-    const levels = new Set(
-      Array.from(t, (v) => Math.round(((v + 1) / 2) * 15))
-    );
-    expect(levels.size).toBe(16);
+  it("the NES triangle steps from level 15 down to 0 and back up, one level per step", () => {
+    const table = nesTriangleTable();
+    const levels = Array.from(table, (v) => Math.round(((v + 1) * 15) / 2));
+    const down = Array.from({ length: 16 }, (_, i) => 15 - i);
+    const up = Array.from({ length: 16 }, (_, i) => i);
+    expect(levels).toEqual([...down, ...up]);
+    expect(Math.min(...table)).toBe(-1);
+    expect(Math.max(...table)).toBe(1);
+    // a phase increment of 1/32 plays one table entry per sample, over and over
     const out = new Float32Array(64);
     const ph = newPhase();
     ph.dt = 1 / 32;
-    renderStepped(ph, t, out, 64);
-    expect(out[0]).toBeCloseTo(out[32] ?? 0, 6);
+    renderStepped(ph, table, out, 64);
+    expect(Array.from(out)).toEqual([...table, ...table]);
   });
 });
 
@@ -142,6 +154,7 @@ describe("every source plays 440 Hz at the contract tolerance", () => {
 
 describe("NES period quantization", () => {
   it("rounds to the 11-bit timer: A-4 is 1.6 cents sharp, A-7 is 12 cents flat", () => {
+    // period = round(1789773 / (16 * hz)) - 1: 440 Hz -> round(254.18) - 1 = 253, 3520 Hz -> round(31.78) - 1 = 31
     const cents = (hz: number, target: number) => 1200 * Math.log2(hz / target);
     expect(cents(nes.quantizePulseHz(440), 440)).toBeCloseTo(1.6, 1);
     expect(cents(nes.quantizePulseHz(3520), 3520)).toBeCloseTo(-12, 0);
@@ -149,17 +162,20 @@ describe("NES period quantization", () => {
     expect(nes.periodToHz(253)).toBeCloseTo(440.4, 1);
   });
 
-  it("triangle runs an octave lower per period (32 steps instead of 16)", () => {
-    expect(nes.quantizeTriangleHz(440)).toBeCloseTo(
-      nes.quantizePulseHz(440),
-      1
-    );
+  it("the triangle timer counts 32 steps per cycle, so it plays an octave below a pulse of the same period", () => {
+    // period = round(1789773 / (32 * hz)) - 1: 110 Hz -> round(508.46) - 1 = 507, played at 1789773 / (32 * 508) Hz
+    expect(nes.hzToPeriod(110, "triangle")).toBe(507);
+    expect(nes.quantizeTriangleHz(110)).toBeCloseTo(110.1, 1);
     expect(nes.hzToPeriod(220, "triangle")).toBe(nes.hzToPeriod(440, "pulse"));
   });
 
-  it("clamps to the 11-bit register", () => {
+  it("stays inside the register: very low and zero pitches clamp to 2047, very high pulses stop at 8", () => {
     expect(nes.hzToPeriod(5)).toBe(2047);
-    expect(nes.hzToPeriod(0.1)).toBe(2047);
+    // a zero frequency must not divide by zero
+    expect(nes.hzToPeriod(0)).toBe(2047);
+    // the 2A03 mutes a pulse whose timer is below 8, so the highest note is register 8 (about 12.4 kHz)
+    expect(nes.hzToPeriod(20_000)).toBe(8);
+    expect(nes.quantizePulseHz(20_000)).toBeCloseTo(12_429, 0);
   });
 });
 
@@ -206,7 +222,7 @@ describe("OPL waveform select", () => {
     expect(at(6, 0.9)).toBe(-1);
   });
 
-  it("7 is a fat, camel shaped wave, positive in the first half and negative in the second", () => {
+  it("7 is a fat sine: positive and peaking at 1 in the first half, its mirror image in the second", () => {
     expect(at(7, 0.25)).toBeCloseTo(1, 3);
     expect(at(7, 0.75)).toBeCloseTo(-1, 3);
     expect(at(7, 0.01)).toBeGreaterThan(0);
@@ -219,8 +235,23 @@ describe("OPL waveform select", () => {
 });
 
 describe("envelope", () => {
-  it("attack reaches 0.99 within the attack time plus 1 ms", () => {
-    for (const attack of [0.001, 0.01, 0.1]) {
+  /** An envelope that has been triggered and run long enough to sit at its sustain level. */
+  function sustained(
+    attack: number,
+    decay: number,
+    sustain: number,
+    release: number
+  ) {
+    const e = newEnvelope();
+    setEnvelopeParams(e, attack, decay, sustain, release, SR);
+    envelopeTrigger(e);
+    runEnvelope(e, new Float32Array(SR), SR);
+    return e;
+  }
+
+  it.each([0.001, 0.01, 0.1])(
+    "a %f s attack reaches 0.99 within the attack time plus 1 ms",
+    (attack) => {
       const e = newEnvelope();
       setEnvelopeParams(e, attack, 1, 1, 0.1, SR);
       envelopeTrigger(e);
@@ -228,36 +259,80 @@ describe("envelope", () => {
       runEnvelope(e, out, out.length);
       expect(out.at(-1)).toBeGreaterThanOrEqual(0.99);
     }
-  });
+  );
 
-  it("release falls below -60 dB within 1.2 times the release time", () => {
-    for (const release of [0.02, 0.2, 1]) {
+  it.each([0.01, 0.1])(
+    "a %f s attack is linear: half way through it the level is 0.5",
+    (attack) => {
       const e = newEnvelope();
-      setEnvelopeParams(e, 0, 0.1, 1, release, SR);
+      setEnvelopeParams(e, attack, 1, 1, 0.1, SR);
       envelopeTrigger(e);
-      runEnvelope(e, new Float32Array(2000), 2000);
+      const half = Math.round((attack / 2) * SR);
+      const out = new Float32Array(half);
+      runEnvelope(e, out, half);
+      expect(out[half - 1]).toBeCloseTo(0.5, 1);
+    }
+  );
+
+  it.each([0.02, 0.2, 1])(
+    "a %f s release is exponential: -30 dB half way and below -60 dB within 1.2 times the release time",
+    (release) => {
+      const e = sustained(0, 0.1, 1, release);
       envelopeRelease(e);
       const n = Math.round(release * 1.2 * SR);
       const out = new Float32Array(n);
       runEnvelope(e, out, n);
+      const half = toDb(out[Math.round((release / 2) * SR) - 1] ?? 0);
+      expect(half).toBeGreaterThan(-33);
+      expect(half).toBeLessThan(-27);
       expect(out[n - 1]).toBeLessThan(0.001);
+    }
+  );
+
+  it("the decay settles on the sustain level within the decay time and holds it", () => {
+    const e = newEnvelope();
+    setEnvelopeParams(e, 0, 0.1, 0.4, 0.1, SR);
+    envelopeTrigger(e);
+    const out = new Float32Array(SR);
+    runEnvelope(e, out, SR);
+    // 60 dB of the 0.6 drop is gone at the decay time: within 0.001 of the way to the sustain
+    expect(out[Math.round(0.1 * SR)]).toBeLessThan(0.4 + 0.6 * 0.002);
+    expect(out[Math.round(0.1 * SR)]).toBeGreaterThanOrEqual(0.4);
+    for (let i = Math.round(0.3 * SR); i < SR; i += 1) {
+      expect(out[i]).toBe(Math.fround(0.4));
     }
   });
 
-  it("never steps by more than a declick ramp, and reaches idle", () => {
+  it("a zero attack and a zero release still ramp, so a note start and stop do not click", () => {
     const e = newEnvelope();
     setEnvelopeParams(e, 0, 0.05, 0.5, 0, SR);
     envelopeTrigger(e);
-    const out = new Float32Array(4000);
-    runEnvelope(e, out, 4000);
-    let maxStep = 0;
-    for (let i = 1; i < out.length; i += 1) {
-      maxStep = Math.max(maxStep, Math.abs((out[i] ?? 0) - (out[i - 1] ?? 0)));
+    const start = new Float32Array(4000);
+    runEnvelope(e, start, 4000);
+    // the first step counts too: it leaves the idle level 0
+    let worstUp = start[0] ?? 0;
+    for (let i = 1; i < start.length; i += 1) {
+      worstUp = Math.max(
+        worstUp,
+        Math.abs((start[i] ?? 0) - (start[i - 1] ?? 0))
+      );
     }
-    expect(maxStep).toBeLessThan(0.05);
+    expect(worstUp).toBeLessThan(0.05);
+    expect(start.at(-1)).toBeCloseTo(0.5, 3);
     envelopeRelease(e);
-    runEnvelope(e, new Float32Array(SR), SR);
+    const stop = new Float32Array(SR);
+    runEnvelope(e, stop, SR);
+    let worstDown = 0.5 - (stop[0] ?? 0);
+    for (let i = 1; i < stop.length; i += 1) {
+      worstDown = Math.max(
+        worstDown,
+        Math.abs((stop[i] ?? 0) - (stop[i - 1] ?? 0))
+      );
+    }
+    // a hard cut would drop the whole 0.5 at once
+    expect(worstDown).toBeLessThan(0.1);
     expect(e.stage).toBe(ENV_IDLE);
+    expect(stop.at(-1)).toBe(0);
   });
 });
 
@@ -333,6 +408,36 @@ describe("LFSR noise", () => {
     expect(period(NOISE_PSG_PERIODIC, 1, 400)).toBe(15);
   });
 
+  it.each([0, 32_767, 65_534, -5])(
+    "seed %i never leaves the register empty, which would lock the noise at one level",
+    (seed) => {
+      const s = newNoise();
+      seedNoise(s, NOISE_NES_LONG, seed);
+      expect(s.lfsr).not.toBe(0);
+      const bits = new Set<number>();
+      for (let i = 0; i < 64; i += 1) {
+        bits.add(stepNoise(s));
+      }
+      expect(bits).toEqual(new Set([-1, 1]));
+    }
+  );
+
+  it("a generator clocked slower than the host rate holds each bit for the steps' worth of samples", () => {
+    const s = newNoise();
+    seedNoise(s, NOISE_NES_LONG, 1);
+    s.stepsPerSample = 0.25;
+    const out = new Float32Array(400);
+    renderNoise(s, out, out.length);
+    // one LFSR step every 4 host samples: the output can only change on every fourth sample and is a full-scale bit
+    for (let i = 1; i < out.length; i += 1) {
+      if (i % 4 !== 3) {
+        expect(out[i]).toBe(out[i - 1]);
+      }
+      expect(Math.abs(out[i] ?? 0)).toBe(1);
+    }
+    expect(new Set(out).size).toBe(2);
+  });
+
   it("averaging lifts the level by sqrt(steps) capped at 2, so a fast hiss is quieter than a slow boom", () => {
     const level = (stepsPerSample: number) => {
       const s = newNoise();
@@ -342,64 +447,256 @@ describe("LFSR noise", () => {
       renderNoise(s, out, out.length);
       return rms(out);
     };
-    // sixteen steps are quieter than four by the averaging (1/4 against 1/2) times the lift ratio: with the lift capped
-    // at 2 the two are about 0.6 apart (LFSR bits are not independent), the old cap of 3 made it about 0.9
+    // Averaging N independent +-1 bits leaves 1 / sqrt(N) of the level and the lift gives back min(sqrt(N), 2), so
+    // sixteen steps sit at 1/4 * 2 = 0.5 and four steps at 1/2 * 2 = 1: a ratio of 0.5. The LFSR bits are not
+    // independent, which moves it to about 0.6; the old lift cap of 3 gave about 0.9.
     expect(level(1)).toBeCloseTo(1, 1);
     expect(level(16) / level(4)).toBeGreaterThan(0.4);
     expect(level(16) / level(4)).toBeLessThan(0.7);
   });
 });
 
-describe("SID filter", () => {
-  it("lowpass removes at least 12 dB per octave above the cutoff", () => {
-    const rng = mulberry32(5);
-    const n = 1 << 16;
-    const x = new Float32Array(n);
-    for (let i = 0; i < n; i += 1) {
-      x[i] = rng() * 2 - 1;
+describe("SID oscillators", () => {
+  const CLOCK = 985_248;
+  // waveform mask bits of the contract (architecture 3.4): 1 tri, 2 saw, 4 pulse, 8 noise
+  const TRI = 1;
+  const SAW = 2;
+  /** Two samples short of a whole number of samples per cycle, so no phase boundary lands exactly on a sample. */
+  const MASTER_PERIOD = 191;
+
+  function voice(mask: number, hz: number, opts: Partial<SidOsc> = {}): SidOsc {
+    const o = newSidOsc();
+    o.active = true;
+    o.mask = mask;
+    // the frequency register F runs the accumulator at F * clock / 2^24 Hz
+    sidSetRate(o, (hz * 2 ** 24) / CLOCK, CLOCK, SR);
+    return Object.assign(o, opts);
+  }
+
+  /** Render voices 0 (the one under test), 1 (idle) and 2 (its modulator: voice i is modulated by voice i - 1, cyclic). */
+  function render(
+    mask: number,
+    hz: number,
+    opts: Partial<SidOsc>,
+    n: number
+  ): { slave: Float32Array; master: Float32Array } {
+    const outs = [0, 1, 2].map(() => new Float32Array(n));
+    const idle = newSidOsc();
+    renderSidGroup(
+      [
+        voice(mask, hz, opts),
+        idle,
+        voice(SAW, SR / MASTER_PERIOD, { active: true }),
+      ],
+      outs,
+      n
+    );
+    return { master: outs[2] as Float32Array, slave: outs[0] as Float32Array };
+  }
+
+  it("hard sync restarts the slave with the master, so it repeats at the master's period", () => {
+    const n = 2000;
+    const synced = render(SAW, 700, { sync: true }, n).slave;
+    for (let i = MASTER_PERIOD * 2; i < n; i += 1) {
+      expect(synced[i]).toBeCloseTo(synced[i - MASTER_PERIOD] ?? 0, 6);
     }
+    // without sync the 700 Hz slave does not fit the master's cycle, so the same comparison fails
+    const free = render(SAW, 700, { sync: false }, n).slave;
+    let worst = 0;
+    for (let i = MASTER_PERIOD * 2; i < n; i += 1) {
+      worst = Math.max(
+        worst,
+        Math.abs((free[i] ?? 0) - (free[i - MASTER_PERIOD] ?? 0))
+      );
+    }
+    expect(worst).toBeGreaterThan(0.5);
+  });
+
+  it("ring modulation turns the triangle upside down while the master's top bit is set", () => {
+    const n = 2000;
+    const plain = render(TRI, 300, { ring: false }, n);
+    const ring = render(TRI, 300, { ring: true }, n);
+    let inverted = 0;
+    for (let i = 0; i < n; i += 1) {
+      // a rising saw is positive exactly while the top bit of its accumulator is set
+      const topBit = (plain.master[i] ?? 0) > 0;
+      if (topBit) {
+        inverted += 1;
+      }
+      expect(ring.slave[i]).toBeCloseTo(
+        (topBit ? -1 : 1) * (plain.slave[i] ?? 0),
+        5
+      );
+    }
+    // the master's top bit is set for half of its cycle
+    expect(inverted / n).toBeCloseTo(0.5, 1);
+  });
+
+  it("combined waveforms are the bitwise AND of the 12-bit waves", () => {
+    const n = 1000;
+    const to12 = (x: number) => Math.round((x + 1) * 2047.5);
+    const tri = render(TRI, 300, {}, n).slave;
+    const saw = render(SAW, 300, {}, n).slave;
+    const both = render(TRI | SAW, 300, {}, n).slave;
+    for (let i = 0; i < n; i += 1) {
+      const want = to12(tri[i] ?? 0) & to12(saw[i] ?? 0);
+      expect(to12(both[i] ?? 0)).toBe(want);
+    }
+  });
+});
+
+describe("SID filter", () => {
+  /** Gain in dB of the SID filter at hz, measured on the second half of a steady sine. */
+  function gainDb(
+    cutoff: number,
+    resonance: number,
+    mode: number,
+    hz: number
+  ): number {
     const f = newSvf();
-    // cutoff 0.5 maps to about 600 Hz
-    setSidFilter(f, 0.5, 0, 1, SR);
-    const fc = 30 * (12_000 / 30) ** 0.5;
-    svfProcess(f, x, n);
-    const below = bandEnergy(x, SR, fc / 2, fc, 2048, 1 << 15);
-    const octave1 = bandEnergy(x, SR, fc * 2, fc * 4, 2048, 1 << 15);
-    const octave2 = bandEnergy(x, SR, fc * 4, fc * 8, 2048, 1 << 15);
-    // energy per Hz drops by at least 12 dB per octave
-    const perHz = (e: number, lo: number, hi: number) => e / (hi - lo);
+    setSidFilter(f, cutoff, resonance, mode, SR);
+    const x = new Float32Array(SR);
+    for (let i = 0; i < SR; i += 1) {
+      x[i] = 0.1 * Math.sin((2 * Math.PI * hz * i) / SR);
+    }
+    svfProcess(f, x, SR);
+    return toDb(rms(x, SR / 2) / (0.1 * Math.SQRT1_2));
+  }
+
+  /** The analog second order response at r = f / fc: low, band (0 dB at the peak) or high pass of quality q. */
+  function secondOrderDb(mode: number, r: number, q: number): number {
+    const numerator = { [SVF_LP]: 1, [SVF_BP]: r / q, [SVF_HP]: r * r }[mode];
+    return toDb((numerator ?? 0) / Math.sqrt((1 - r * r) ** 2 + (r / q) ** 2));
+  }
+
+  // cutoff 0 to 1 maps to 30 Hz to 12 kHz on a log scale, so 0.5 is 30 * 400 ^ 0.5 = 600 Hz
+  it.each([
+    [0, 30],
+    [0.5, 600],
+    [1, 12_000],
+  ])(
+    "cutoff %f puts the corner at %i Hz (a critically damped lowpass is 6 dB down there)",
+    (cutoff, hz) => {
+      expect(Math.abs(gainDb(cutoff, 0, SVF_LP, hz) + 6.02)).toBeLessThan(1);
+    }
+  );
+
+  // resonance 0 to 1 maps to Q 0.5 to 8, and a lowpass peaks at Q times its passband at the corner
+  it.each([
+    [0, 0.5],
+    [0.5, 4.25],
+    [1, 8],
+  ])(
+    "resonance %f is Q %f: the corner of the lowpass sits at 20 log10(Q) dB",
+    (resonance, q) => {
+      expect(
+        Math.abs(gainDb(0.5, resonance, SVF_LP, 600) - toDb(q))
+      ).toBeLessThan(1);
+    }
+  );
+
+  it.each([
+    ["lowpass", SVF_LP],
+    ["bandpass", SVF_BP],
+    ["highpass", SVF_HP],
+  ])("the %s follows a 12 dB per octave second order response", (_, mode) => {
+    for (const r of [1 / 8, 1 / 2, 1, 2, 8]) {
+      const want = secondOrderDb(mode, r, 4.25);
+      expect(
+        Math.abs(gainDb(0.5, 0.5, mode, 600 * r) - want),
+        `${r} x the corner`
+      ).toBeLessThan(1);
+    }
+  });
+});
+
+describe("SID filter routing", () => {
+  /** Energy below 300 Hz and above 3 kHz of a 220 Hz saw on the c64 with the patch's filter set as given. */
+  function bands(mode: "off" | "lp" | "bp" | "hp", cutoff: number) {
+    const inst = defaultInstrument("sid");
+    inst.envelope = { attack: 0.002, decay: 0.05, release: 0.05, sustain: 1 };
+    inst.volume = 1;
+    if (inst.sid) {
+      inst.sid.waveforms = ["saw"];
+      inst.sid.filter = { cutoff, mode, resonance: 0, sweep: 0 };
+    }
+    const r = renderInstrumentNote(inst, 57, {
+      chip: "c64",
+      duration: 0.6,
+      release: 0.1,
+      sampleRate: SR,
+    });
+    const out = r.channels[0] ?? new Float32Array();
+    return {
+      high: bandEnergy(out, SR, 3000, 20_000, 9600, 16_384),
+      low: bandEnergy(out, SR, 20, 300, 9600, 16_384),
+    };
+  }
+
+  const dbBelow = (filtered: number, open: number) =>
+    toDb(Math.sqrt(open / filtered));
+
+  it("lp cuts the treble of the voice", () => {
+    // cutoff 0.3 is about 180 Hz
     expect(
-      toDb(Math.sqrt(perHz(below, fc / 2, fc))) -
-        toDb(Math.sqrt(perHz(octave1, fc * 2, fc * 4)))
-    ).toBeGreaterThan(12);
+      dbBelow(bands("lp", 0.3).high, bands("off", 0.3).high)
+    ).toBeGreaterThan(30);
+  });
+
+  it("hp cuts the bass of the voice", () => {
+    // cutoff 0.8 is about 3.6 kHz
     expect(
-      toDb(Math.sqrt(perHz(octave1, fc * 2, fc * 4))) -
-        toDb(Math.sqrt(perHz(octave2, fc * 4, fc * 8)))
-    ).toBeGreaterThan(11);
+      dbBelow(bands("hp", 0.8).low, bands("off", 0.8).low)
+    ).toBeGreaterThan(30);
+  });
+
+  it("bp keeps the band around the cutoff and cuts the treble well above it", () => {
+    // cutoff 0.2 is 100 Hz: the 220 Hz fundamental stays, the harmonics above 3 kHz go
+    const open = bands("off", 0.2);
+    const band = bands("bp", 0.2);
+    expect(dbBelow(band.high, open.high)).toBeGreaterThan(20);
+    expect(dbBelow(band.low, open.low)).toBeLessThan(10);
   });
 });
 
 describe("limiter", () => {
-  it("never exceeds -0.3 dBFS on a +12 dB input", () => {
+  /** A sine of the given amplitude through the limiter in 128 frame blocks, scaled per channel. */
+  function limit(
+    amp: (i: number) => number,
+    n: number,
+    [leftScale, rightScale] = [1, 0.7]
+  ) {
     const lim = new Limiter(SR);
-    const n = SR;
     const l = new Float32Array(n);
     const r = new Float32Array(n);
     for (let i = 0; i < n; i += 1) {
-      const v = 4 * Math.sin((2 * Math.PI * 220 * i) / SR);
-      l[i] = v;
-      r[i] = v * 0.7;
+      const v = amp(i) * Math.sin((2 * Math.PI * 220 * i) / SR);
+      l[i] = v * leftScale;
+      r[i] = v * rightScale;
     }
     for (let o = 0; o < n; o += 128) {
       lim.process(l.subarray(o, o + 128), r.subarray(o, o + 128), 128);
     }
-    let peak = 0;
-    for (let i = 0; i < n; i += 1) {
-      peak = Math.max(peak, Math.abs(l[i] ?? 0), Math.abs(r[i] ?? 0));
+    return { l, latency: lim.latency, r };
+  }
+
+  const peakOf = (a: Float32Array) =>
+    a.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+
+  it.each([
+    ["left", [1, 0.7]],
+    ["right", [0.7, 1]],
+  ] as const)(
+    "holds a +12 dB input at the -0.3 dBFS ceiling when the %s channel is the louder: never above it, and not far below it",
+    (_, scales) => {
+      const { l, r } = limit(() => 4, SR, [...scales]);
+      const [loud, quiet] = scales[0] === 1 ? [l, r] : [r, l];
+      expect(peakOf(loud)).toBeLessThanOrEqual(CEILING + 1e-6);
+      expect(toDb(peakOf(loud))).toBeGreaterThan(-0.5);
+      // the gain is shared by both channels, so the stereo image survives
+      expect(peakOf(quiet) / peakOf(loud)).toBeCloseTo(0.7, 3);
     }
-    expect(peak).toBeLessThanOrEqual(LIMITER_CEILING + 1e-6);
-    expect(toDb(peak)).toBeLessThanOrEqual(-0.29);
-  });
+  );
 
   it("passes quiet audio unchanged apart from the lookahead delay", () => {
     const lim = new Limiter(SR);
@@ -418,30 +715,31 @@ describe("limiter", () => {
     }
   });
 
-  it("recovers its gain after a loud burst", () => {
-    const lim = new Limiter(SR);
-    const n = SR;
-    const l = new Float32Array(n);
-    const r = new Float32Array(n);
-    for (let i = 0; i < n; i += 1) {
-      const amp = i < 2000 ? 3 : 0.25;
-      l[i] = amp * Math.sin((2 * Math.PI * 440 * i) / SR);
-      r[i] = l[i] ?? 0;
-    }
-    lim.process(l, r, n);
-    let peak = 0;
-    for (let i = n - 4800; i < n; i += 1) {
-      peak = Math.max(peak, Math.abs(l[i] ?? 0));
-    }
-    expect(peak).toBeGreaterThan(0.24);
+  it("lets go of the gain over about 50 ms after a loud burst, neither snapping back nor lingering", () => {
+    // 2000 frames at +9.5 dB over the ceiling, then a quiet 0.25 sine
+    const { l, latency } = limit((i) => (i < 2000 ? 3 : 0.25), SR);
+    const gainAt = (ms: number) => {
+      const from = 2000 + latency + Math.round(ms * 48);
+      let peak = 0;
+      for (let i = from; i < from + 220; i += 1) {
+        peak = Math.max(peak, Math.abs(l[i] ?? 0));
+      }
+      return peak / 0.25;
+    };
+    // an exponential release with a 50 ms time constant: about 0.76 of the way back after 50 ms
+    expect(gainAt(10)).toBeLessThan(0.6);
+    expect(gainAt(50)).toBeGreaterThan(0.65);
+    expect(gainAt(50)).toBeLessThan(0.85);
+    expect(gainAt(300)).toBeGreaterThan(0.98);
   });
 });
 
 describe("echo", () => {
-  it("repeats at the delay time (cross correlation peak)", () => {
+  /** Send 2000 samples of noise through the echo and report the repeat found around each multiple of the delay. */
+  function repeats(delay: number, feedback: number, level: number) {
     const echo = new Echo(SR);
-    echo.configure(0.1, 0.5, 1, 20_000);
-    const n = SR / 2;
+    echo.configure(delay, feedback, level, 20_000);
+    const n = SR;
     const rng = mulberry32(3);
     const input = new Float32Array(n);
     for (let i = 0; i < 2000; i += 1) {
@@ -458,53 +756,107 @@ describe("echo", () => {
         128
       );
     }
-    let best = 0;
-    let bestLag = 0;
-    for (let lag = 100; lag < 12_000; lag += 1) {
+    const energy = input.subarray(0, 2000).reduce((s, v) => s + v * v, 0);
+    // least squares gain of the input inside the output at a lag
+    const gainAt = (lag: number) => {
       let c = 0;
       for (let i = 0; i < 2000; i += 1) {
         c += (input[i] ?? 0) * (out[i + lag] ?? 0);
       }
-      if (c > best) {
-        best = c;
-        bestLag = lag;
+      return c / energy;
+    };
+    const repeat = (k: number) => {
+      const centre = Math.round(k * delay * SR);
+      let best = { gain: -1, lag: 0 };
+      for (let lag = centre - 10; lag <= centre + 10; lag += 1) {
+        const gain = gainAt(lag);
+        if (gain > best.gain) {
+          best = { gain, lag };
+        }
       }
+      return best;
+    };
+    return { out, repeat };
+  }
+
+  it("repeats at the delay time (cross correlation peak), with nothing before it", () => {
+    const { out, repeat } = repeats(0.1, 0.5, 1);
+    const first = repeat(1);
+    expect(Math.abs(first.lag - 0.1 * SR)).toBeLessThanOrEqual(2);
+    // level 1 gives the input back, less a little for the one pole lowpass at 20 kHz
+    expect(first.gain).toBeGreaterThan(0.85);
+    expect(first.gain).toBeLessThan(1.05);
+    for (let i = 0; i < 0.1 * SR - 10; i += 1) {
+      expect(out[i]).toBe(0);
     }
-    expect(Math.abs(bestLag - 0.1 * SR)).toBeLessThanOrEqual(2);
+  });
+
+  it("feeds back: the second repeat is about the feedback times the first", () => {
+    const { repeat } = repeats(0.1, 0.5, 1);
+    const [first, second] = [repeat(1), repeat(2)];
+    expect(Math.abs(second.lag - 0.2 * SR)).toBeLessThanOrEqual(2);
+    expect(second.gain / first.gain).toBeGreaterThan(0.4);
+    expect(second.gain / first.gain).toBeLessThan(0.55);
+  });
+
+  it("without feedback there is one repeat, and the level scales it", () => {
+    const { repeat } = repeats(0.1, 0, 0.4);
+    expect(repeat(1).gain).toBeGreaterThan(0.33);
+    expect(repeat(1).gain).toBeLessThan(0.42);
+    expect(Math.abs(repeat(2).gain)).toBeLessThan(0.02);
   });
 });
 
-describe("fm constants", () => {
-  it("pins the modulation index and the rate table", () => {
-    expect(MOD_INDEX).toBe(8);
-    expect(rateSeconds(0)).toBe(10);
-    expect(rateSeconds(25)).toBeCloseTo(10 * 2 ** -10, 9);
-    expect(rateSeconds(31)).toBeLessThan(0.02);
-  });
+describe("FM operators", () => {
+  type Ops = NonNullable<Instrument["fm"]>["ops"];
 
-  /** One carrier (operator 1 on the all-carrier algorithm) at A-4, the others at their quietest. */
-  function carrier(level: number, sustainLevel: number): Float32Array {
+  /**
+   * Renders a custom chip FM note in which every operator sits parked at level 0 (far from the notes under test) with
+   * a flat full envelope, then lets the test set up the ones it wants.
+   */
+  function renderFm(
+    algorithm: number,
+    setup: (ops: Ops) => void,
+    note = 69,
+    duration = 0.6
+  ): Float32Array {
     const inst = defaultInstrument("fm");
+    inst.envelope = { attack: 0, decay: 0.1, release: 0.05, sustain: 1 };
     if (inst.fm) {
-      inst.fm.algorithm = 7;
+      inst.fm.algorithm = algorithm;
       inst.fm.feedback = 0;
-      inst.fm.ops.forEach((op, i) => {
+      inst.fm.lfo = null;
+      for (const op of inst.fm.ops) {
         op.attack = 31;
         op.decay = 31;
         op.sustainRate = 0;
-        op.mult = i === 0 ? 1 : 15;
-        op.level = i === 0 ? level : 0;
-        op.sustainLevel = i === 0 ? sustainLevel : 0;
-      });
+        op.sustainLevel = 1;
+        op.waveform = 0;
+        op.level = 0;
+        op.mult = 15;
+        op.fixedHz = null;
+      }
+      setup(inst.fm.ops);
     }
-    inst.envelope = { attack: 0, decay: 0.1, release: 0.05, sustain: 1 };
-    const r = renderInstrumentNote(inst, 69, {
+    const r = renderInstrumentNote(inst, note, {
       chip: "custom",
-      duration: 0.6,
+      duration,
       release: 0.05,
       sampleRate: SR,
     });
     return r.channels[0] ?? new Float32Array();
+  }
+
+  /** One carrier (operator 1 on the all-carrier algorithm) at A-4. */
+  function carrier(level: number, sustainLevel: number): Float32Array {
+    return renderFm(7, (ops) => {
+      const [first] = ops;
+      if (first) {
+        first.mult = 1;
+        first.level = level;
+        first.sustainLevel = sustainLevel;
+      }
+    });
   }
 
   it("operator level is a linear amplitude: 0.5 is 6 dB down, 0.25 is 12 dB down", () => {
@@ -525,52 +877,79 @@ describe("fm constants", () => {
     expect(toDb(settled / flat)).toBeCloseTo(-12.04, 0);
   });
 
-  it("a higher modulation level adds spectral energy at the sidebands", () => {
-    const render = (modLevel: number) => {
-      const inst = defaultInstrument("fm");
-      if (inst.fm) {
-        inst.fm.algorithm = 0;
-        inst.fm.feedback = 0;
-        const { ops } = inst.fm;
-        // operator 1 is the modulator, operator 4 the carrier, 2 and 3 stay silent
-        const levels = [modLevel, 0, 0, 1];
-        ops.forEach((op, i) => {
-          op.attack = 31;
-          op.decay = 0;
-          op.sustainLevel = 1;
-          op.level = levels[i] ?? 0;
-          op.mult = 1;
-        });
-        // 1 > 2 > 3 > 4 with operators 2 and 3 silent in level: use only 1 and 4 via algorithm 7 variant
-        inst.fm.algorithm = 4;
-        const [, second, third] = ops;
-        if (second) {
-          second.level = 1;
+  // Operator 1 modulates operator 2 (algorithm 4) at three times its frequency. With a modulation index b the
+  // spectrum has lines at 440 * (1 + 3 n) Hz of amplitude |J_n(b)|: 440 Hz holds J0 and 1760 Hz holds J1 and no other
+  // term. An operator at level 1 modulates by 8 radians, at level 0.5 by 4 and at level 0.25 by 2 (architecture 3.5).
+  it.each([
+    [1, 8, 0.171_651, 0.234_636],
+    [0.5, 4, -0.397_15, -0.066_043],
+    [0.25, 2, 0.223_891, 0.576_725],
+  ])(
+    "an operator at level %f modulates by %i radians: the 1760 Hz line over the 440 Hz line is J1/J0",
+    (level, _index, j0, j1) => {
+      const out = renderFm(4, (ops) => {
+        const [mod, car] = ops;
+        if (mod && car) {
+          mod.mult = 3;
+          mod.level = level;
+          car.mult = 1;
+          car.level = 1;
         }
-        if (third) {
-          third.level = 0;
-        }
-      }
-      inst.envelope = { attack: 0, decay: 0.1, release: 0.05, sustain: 1 };
-      const r = renderInstrumentNote(inst, 69, {
-        chip: "custom",
-        duration: 0.5,
-        release: 0.05,
-        sampleRate: SR,
       });
-      return r.channels[0] ?? new Float32Array();
-    };
-    const lowMod = render(0.05);
-    const highMod = render(1);
-    const sideEnergy = (b: Float32Array) =>
-      bandEnergy(b, SR, 600, 3000, 4800, 16_384);
-    expect(sideEnergy(highMod)).toBeGreaterThan(sideEnergy(lowMod) * 10);
+      const line = (hz: number) =>
+        Math.sqrt(bandEnergy(out, SR, hz - 40, hz + 40, 4800, 16_384));
+      const ratio = line(1760) / line(440);
+      expect(Math.abs(ratio / Math.abs(j1 / j0) - 1)).toBeLessThan(0.03);
+    }
+  );
+
+  describe("envelope rates", () => {
+    /** A carrier at a fixed 440 Hz on key 12 (key scaling adds nothing there), decaying toward the floor at `rate`. */
+    function decaying(rate: number): Float32Array {
+      return renderFm(
+        7,
+        (ops) => {
+          const [first] = ops;
+          if (first) {
+            first.fixedHz = 440;
+            first.level = 1;
+            first.decay = rate;
+            first.sustainLevel = 0;
+          }
+        },
+        12,
+        0.8
+      );
+    }
+
+    /** The dB between two 50 ms windows of the render (negative when the second is quieter). */
+    function dropDb(out: Float32Array, from: number, to: number): number {
+      const win = (t: number) =>
+        rms(out, Math.round(t * SR), Math.round((t + 0.05) * SR));
+      return toDb(win(to) / win(from));
+    }
+
+    it("every 2.5 steps of rate halve the time a decay takes, so 5 steps more is four times as steep", () => {
+      // the envelope falls linearly in dB, so a slope is the drop over the time between two windows
+      const slow = dropDb(decaying(5), 0.1, 0.5) / 0.4;
+      const fast = dropDb(decaying(10), 0.02, 0.22) / 0.2;
+      expect(slow).toBeLessThan(-30);
+      expect(fast / slow).toBeCloseTo(4, 1);
+    });
+
+    it("rate 0 never moves", () => {
+      expect(Math.abs(dropDb(decaying(0), 0.1, 0.5))).toBeLessThan(0.1);
+    });
   });
 });
 
 describe("note frequencies", () => {
-  it("noteToHz matches A-4 and the octave rule", () => {
+  it("noteToHz follows the MIDI table: A-4 is 440 Hz and every octave doubles it", () => {
     expect(noteToHz(69)).toBe(440);
     expect(noteToHz(81)).toBeCloseTo(880, 9);
+    expect(noteToHz(57)).toBeCloseTo(220, 9);
+    // middle C and the lowest piano key, from the standard table
+    expect(noteToHz(60)).toBeCloseTo(261.6256, 3);
+    expect(noteToHz(21)).toBeCloseTo(27.5, 9);
   });
 });

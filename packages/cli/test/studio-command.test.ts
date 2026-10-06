@@ -61,8 +61,8 @@ describe("studio command in process", () => {
     expect(out).toContain("Studio stopped.");
   });
 
-  it("with --json streams the listening line, one line per event and the stop line", async () => {
-    const { repo } = await makeProject();
+  it("with --json streams the listening line, one JSON line per event and the stop line", async () => {
+    const { project, repo } = await makeProject();
     const lines: string[] = [];
     const done = main(["studio", "--port", "0", "--api-only", "--json"], {
       cwd: repo,
@@ -72,29 +72,47 @@ describe("studio command in process", () => {
         lines.push(...t.split("\n").filter((l) => l !== ""));
       },
     });
+    const events = () =>
+      lines.map((l) => JSON.parse(l) as Record<string, unknown>);
     try {
       await until("the listening line", () => lines.length > 0);
-      const first = JSON.parse(lines[0] ?? "{}") as {
+      const first = events()[0] as {
         apiOnly: boolean;
+        root: string;
         type: string;
         url: string;
       };
       expect(first).toMatchObject({ apiOnly: true, type: "listening" });
+      expect(first.root).toBe(fs.realpathSync(project));
+      fs.copyFileSync(
+        path.join(project, "sfx", "coin.json"),
+        path.join(project, "sfx", "fresh.json")
+      );
+      await until("the file message", () =>
+        events().some((e) => e.type === "file")
+      );
       await fetch(`${first.url}/api/play`, {
         body: JSON.stringify({ ref: "sfx/coin" }),
         headers: { "content-type": "application/json" },
         method: "POST",
       });
       await until("the play message", () =>
-        lines.some((l) => l.includes('"type":"play"'))
+        events().some((e) => e.type === "play")
       );
     } finally {
       stop();
     }
     expect(await done).toBe(0);
-    expect(JSON.parse(lines.at(-1) ?? "{}")).toMatchObject({
-      ok: true,
-      type: "stopped",
+    const all = events();
+    expect(all.find((e) => e.type === "file")).toMatchObject({
+      path: "sfx/fresh.json",
     });
+    expect(all.find((e) => e.type === "play")).toMatchObject({
+      ref: "sfx/coin",
+      visual: false,
+    });
+    // every line of stdout is one JSON object that says what it is, and the last one is the stop line
+    expect(all.every((e) => typeof e.type === "string")).toBe(true);
+    expect(all.at(-1)).toMatchObject({ ok: true, type: "stopped" });
   });
 });

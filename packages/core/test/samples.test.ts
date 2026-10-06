@@ -9,15 +9,35 @@ import {
 } from "../src/index.ts";
 import { hashChannels, peak, rms } from "./helpers.ts";
 
-const TONAL: readonly SampleGeneratorId[] = [
+/* Section 3.7: six drums, then the tonal generators; the ones with loop points are the sustained instruments. */
+const DRUMS: readonly SampleGeneratorId[] = [
+  "kick",
+  "snare",
+  "hat",
+  "tom",
+  "clap",
+  "crash",
+];
+/* Pitched generators with a definite fundamental at C-4. Bell is an inharmonic FM tone (ratio 3.5), so it has no
+   fundamental to measure and is left out. */
+const PITCHED: readonly SampleGeneratorId[] = [
   "pluck",
   "bass",
   "pad",
   "organ",
-  "bell",
   "strings",
   "choir",
   "lead",
+];
+/* Generators whose output depends on the seed because they draw noise (the studio's "Regenerate with a new seed"). */
+const NOISY: readonly SampleGeneratorId[] = [
+  "kick",
+  "snare",
+  "hat",
+  "clap",
+  "crash",
+  "pluck",
+  "choir",
 ];
 const LOOPING: readonly SampleGeneratorId[] = [
   "bass",
@@ -44,6 +64,28 @@ function make(
 ): GeneratedSample {
   return generateSample(id, params ?? defaults(id), seed, sr);
 }
+
+/** Parameters of a generator whose spec minimum and maximum render the same samples: they are not wired up. */
+function deadParams(id: SampleGeneratorId): string[] {
+  const spec = SAMPLE_GENERATORS[id].params;
+  return Object.keys(spec).filter((key) => {
+    const at = (v: number) =>
+      hashChannels([
+        generateSample(id, { ...defaults(id), [key]: v }, 1, 48_000).data,
+      ]);
+    return at(spec[key]?.min ?? 0) === at(spec[key]?.max ?? 1);
+  });
+}
+
+/* SUSPECTED PRODUCTION BUG, documented rather than hidden: these parameters are in the specs (and so in the studio's
+   sample panel and in normalize's clamping) but the generator never reads them. `lead` ignores its params argument
+   altogether (src/samples/generators.ts, `function lead(_p, _seed, sr)`), and `choir` reads vowel and breath only.
+   The `it.fails` test at the bottom asserts the intended behavior and starts failing the day this is fixed: then
+   delete this table and that test. */
+const KNOWN_DEAD_PARAMS: Partial<Record<SampleGeneratorId, string[]>> = {
+  choir: ["vibrato"],
+  lead: ["bright", "duty", "vibrato"],
+};
 
 function finite(a: Float32Array): boolean {
   for (let i = 0; i < a.length; i += 1) {
@@ -109,6 +151,24 @@ function acfHz(
 }
 
 describe("sample generators", () => {
+  it("the generators are the six drums and eight tonal instruments of the contract", () => {
+    const documented = [
+      ...DRUMS,
+      "pluck",
+      "bass",
+      "pad",
+      "organ",
+      "bell",
+      "strings",
+      "choir",
+      "lead",
+    ];
+    expect([...SAMPLE_GENERATOR_IDS].sort()).toEqual([...documented].sort());
+    expect(Object.keys(SAMPLE_GENERATORS).sort()).toEqual(
+      [...documented].sort()
+    );
+  });
+
   it("there is a spec for every generator id", () => {
     for (const id of SAMPLE_GENERATOR_IDS) {
       expect(SAMPLE_GENERATORS[id].id).toBe(id);
@@ -136,11 +196,11 @@ describe("sample generators", () => {
         expect(Math.abs(mean(s.data))).toBeLessThan(0.02);
       });
 
-      it("is deterministic and the seed matters only where noise is used", () => {
+      it("is deterministic: the same patch and seed give the same samples", () => {
         const a = make(id, 5);
         const b = make(id, 5);
-        expect(hashChannels([a.data])).toBe(hashChannels([b.data]));
         expect(a.data.length).toBe(b.data.length);
+        expect(hashChannels([a.data])).toBe(hashChannels([b.data]));
       });
 
       it("a one shot fades out to silence at its end", () => {
@@ -160,19 +220,39 @@ describe("sample generators", () => {
         expect(ratio).toBeLessThan(1.15);
       });
 
-      it("clamps absurd parameters instead of failing", () => {
-        const params: Record<string, number> = {};
-        for (const k of Object.keys(SAMPLE_GENERATORS[id].params)) {
-          params[k] = 1e6;
+      it("clamps parameters to the spec: absurd values sound like the nearest end", () => {
+        const ends = (pick: (spec: { min: number; max: number }) => number) => {
+          const out: Record<string, number> = {};
+          for (const [k, spec] of Object.entries(
+            SAMPLE_GENERATORS[id].params
+          )) {
+            out[k] = pick(spec);
+          }
+          return out;
+        };
+        const sample = (params: Record<string, number>) =>
+          hashChannels([generateSample(id, params, 1, 48_000).data]);
+        expect(sample(ends(() => 1e6))).toBe(sample(ends((p) => p.max)));
+        expect(sample(ends(() => -1e6))).toBe(sample(ends((p) => p.min)));
+      });
+
+      it("never makes a sample longer than 4 seconds, whatever the parameters", () => {
+        const longest: Record<string, number> = {};
+        for (const [k, spec] of Object.entries(SAMPLE_GENERATORS[id].params)) {
+          longest[k] = spec.max;
         }
-        const s = generateSample(id, params, 1, 48_000);
-        expect(finite(s.data)).toBe(true);
-        expect(s.data.length).toBeLessThan(48_000 * 12);
-        const z: Record<string, number> = {};
-        for (const k of Object.keys(SAMPLE_GENERATORS[id].params)) {
-          z[k] = -1e6;
+        for (const sr of [32_000, 48_000, 96_000]) {
+          const s = generateSample(id, longest, 1, sr);
+          expect(s.data.length).toBeLessThanOrEqual(4 * sr);
         }
-        expect(finite(generateSample(id, z, 1, 48_000).data)).toBe(true);
+      });
+
+      it("every declared parameter changes the sound (known exceptions: see KNOWN_DEAD_PARAMS)", () => {
+        expect(
+          deadParams(id).filter(
+            (k) => !(KNOWN_DEAD_PARAMS[id] ?? []).includes(k)
+          )
+        ).toEqual([]);
       });
     });
   }
@@ -202,39 +282,36 @@ describe("sample generators", () => {
   for (const id of SAMPLE_GENERATOR_IDS.filter((g) => !LOOPING.includes(g))) {
     it(`${id} is a one shot`, () => {
       const s = make(id);
+      expect(SAMPLE_GENERATORS[id].loops).toBe(false);
       expect(s.loopStart).toBeNull();
       expect(s.loopEnd).toBeNull();
     });
   }
 
-  it("tonal generators sit on their base note (C-4) within 5 cents", () => {
-    const targets: Partial<Record<SampleGeneratorId, number>> = {
-      choir: 261.6256,
-      lead: 261.6256,
-      organ: 261.6256,
-      pad: 261.6256,
-      strings: 261.6256,
-    };
-    for (const id of TONAL) {
-      const want = targets[id];
-      if (want === undefined) {
-        continue;
+  it("pitched generators sit on their base note C-4 within 5 cents, at the snes rate and the host rates", () => {
+    const c4 = 261.6256;
+    for (const sr of [32_000, 48_000]) {
+      for (const id of PITCHED) {
+        const s = make(id, 1, sr);
+        expect(s.baseNote, id).toBe(60);
+        // a plucked string has to ring: measure it after the first 50 ms, the others from the middle of the body
+        const from =
+          id === "pluck"
+            ? Math.floor(0.05 * sr)
+            : Math.floor(s.data.length / 2 - 4096);
+        const hz = acfHz(s.data, sr, from, 8192, 200, 340);
+        const cents = 1200 * Math.log2(hz / c4);
+        expect(
+          Math.abs(cents),
+          `${id} at ${sr} measured ${hz.toFixed(2)} Hz`
+        ).toBeLessThan(5);
       }
-      const s = make(id);
-      const len = Math.min(s.data.length - 2000, 16_384);
-      const hz = acfHz(
-        s.data,
-        s.sampleRate,
-        Math.floor(s.data.length / 2 - len / 2),
-        len,
-        200,
-        340
-      );
-      const cents = 1200 * Math.log2(hz / want);
-      expect(
-        Math.abs(cents),
-        `${id} measured ${hz.toFixed(2)} Hz`
-      ).toBeLessThan(5);
+    }
+  });
+
+  it("drums are normalized to a 0.95 peak", () => {
+    for (const id of DRUMS) {
+      expect(peak([make(id).data]), id).toBeCloseTo(0.95, 3);
     }
   });
 
@@ -256,24 +333,43 @@ describe("sample generators", () => {
     expect(zc(hat.data)).toBeGreaterThan(zc(kick.data) * 5);
   });
 
-  it("decay parameters shorten and lengthen one shots", () => {
-    const short = make("snare", 1, 48_000, {
-      ...defaults("snare"),
-      decay: 0.06,
-    });
-    const long = make("snare", 1, 48_000, { ...defaults("snare"), decay: 0.6 });
-    expect(long.data.length).toBeGreaterThan(short.data.length);
-    expect(rms(long.data, Math.floor(long.data.length / 2))).toBeGreaterThan(
-      rms(short.data, Math.floor(short.data.length / 2)) * 0.5
-    );
+  it("the decay parameter sets how long a one shot rings", () => {
+    const withDecay = (
+      Object.keys(SAMPLE_GENERATORS) as SampleGeneratorId[]
+    ).filter((id) => "decay" in SAMPLE_GENERATORS[id].params);
+    // the drums, the crash and the bell
+    expect(withDecay.sort()).toEqual([
+      "bell",
+      "clap",
+      "crash",
+      "hat",
+      "kick",
+      "snare",
+      "tom",
+    ]);
+    for (const id of withDecay) {
+      const spec = SAMPLE_GENERATORS[id].params.decay;
+      const at = (decay: number) =>
+        make(id, 1, 48_000, { ...defaults(id), decay });
+      const short = at(spec?.min ?? 0);
+      const long = at(spec?.max ?? 1);
+      expect(long.data.length, id).toBeGreaterThan(short.data.length);
+      // between 0.2 and 0.3 s the shortest decay has died away and the longest still rings
+      const window = (x: GeneratedSample) => rms(x.data, 9600, 14_400);
+      expect(window(long), id).toBeGreaterThan(window(short) * 10 + 0.01);
+    }
   });
 
-  it("different seeds change the noise based drums", () => {
-    const a = make("snare", 1);
-    const b = make("snare", 2);
-    expect(hashChannels([a.data])).not.toBe(hashChannels([b.data]));
-    const c = make("hat", 1);
-    const d = make("hat", 2);
-    expect(hashChannels([c.data])).not.toBe(hashChannels([d.data]));
+  it("a different seed gives different samples for every generator that draws noise", () => {
+    for (const id of NOISY) {
+      expect(hashChannels([make(id, 1).data]), id).not.toBe(
+        hashChannels([make(id, 2).data])
+      );
+    }
+  });
+
+  it.fails("BUG: every declared parameter of lead and choir changes the sound", () => {
+    expect(deadParams("lead")).toEqual([]);
+    expect(deadParams("choir")).toEqual([]);
   });
 });

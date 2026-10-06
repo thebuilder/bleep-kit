@@ -11,8 +11,13 @@ function pitched(track: ReturnType<typeof trackPitch>): number[] {
   return track.flatMap((p) => (p.hz === null ? [] : [p.hz]));
 }
 
+/** A sine whose RMS (not peak) level is this many dBFS. */
+const sineAtRms = (db: number) =>
+  sine(48_000, 0.3, 440, dbToAmp(db) * Math.SQRT2);
+
 describe("trackPitch", () => {
-  it.each([110, 220, 440, 880, 1760, 3520])(
+  // 55 Hz is the NES triangle's A1: the lowest notes a game bass line plays
+  it.each([55, 110, 220, 440, 880, 1760, 3520])(
     "finds a %i Hz sine within 1 Hz",
     (hz) => {
       const track = trackPitch(sine(48_000, 0.5, hz, 0.5), 48_000);
@@ -27,14 +32,15 @@ describe("trackPitch", () => {
     expect(Math.abs(median(found) - 440)).toBeLessThan(1);
   });
 
-  it("tracks a pulse wave at any duty", () => {
-    for (const duty of [0.125, 0.25, 0.5, 0.75]) {
+  it.each([0.125, 0.25, 0.5, 0.75])(
+    "tracks a pulse wave at duty %f",
+    (duty) => {
       const found = pitched(
         trackPitch(pulse(48_000, 0.4, 330, 0.4, duty), 48_000)
       );
       expect(Math.abs(median(found) - 330)).toBeLessThan(2);
     }
-  });
+  );
 
   it("follows a pitch change", () => {
     const a = sine(48_000, 0.3, 300, 0.5);
@@ -62,9 +68,12 @@ describe("trackPitch", () => {
     );
   });
 
-  it("treats a very quiet tone as silence below -60 dB", () => {
-    const track = trackPitch(sine(48_000, 0.2, 440, dbToAmp(-70)), 48_000);
-    expect(track.every((p) => p.hz === null)).toBe(true);
+  it("treats frames under -60 dBFS RMS as silence and anything above as a tone", () => {
+    const quiet = trackPitch(sineAtRms(-61), 48_000);
+    expect(quiet.every((p) => p.hz === null && p.confidence === 0)).toBe(true);
+    const faint = pitched(trackPitch(sineAtRms(-59), 48_000));
+    expect(faint.length).toBeGreaterThan(0);
+    expect(Math.abs(median(faint) - 440)).toBeLessThan(1);
   });
 
   it("has high confidence on a clean tone", () => {
@@ -84,12 +93,19 @@ describe("trackPitch", () => {
     );
   });
 
-  it("limits the search to minHz and maxHz", () => {
-    const found = pitched(
-      trackPitch(sine(48_000, 0.4, 440, 0.5), 48_000, { maxHz: 300 })
+  it("only reports pitches between minHz and maxHz", () => {
+    const tone = sine(48_000, 0.4, 440, 0.5);
+    // the control: with a range that holds 440 Hz it is found
+    const inside = pitched(
+      trackPitch(tone, 48_000, { maxHz: 1000, minHz: 100 })
     );
-    // a 440 Hz tone is above the ceiling, so the best lag is an octave or more down or nothing is reported
-    expect(found.every((hz) => hz <= 300)).toBe(true);
+    expect(Math.abs(median(inside) - 440)).toBeLessThan(1);
+    // a ceiling below 440 Hz cannot report it: nothing above the ceiling comes out
+    const below = pitched(trackPitch(tone, 48_000, { maxHz: 300 }));
+    expect(below.every((hz) => hz <= 300)).toBe(true);
+    // a floor above 440 Hz cannot report it either
+    const above = pitched(trackPitch(tone, 48_000, { minHz: 600 }));
+    expect(above.every((hz) => hz >= 600)).toBe(true);
   });
 
   it("still gives one frame for a signal shorter than the window", () => {
