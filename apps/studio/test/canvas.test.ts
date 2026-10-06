@@ -1,3 +1,4 @@
+// @vitest-environment node
 /* The scope's two pure steps, worked by hand: where a trace starts (so a steady note stands still on screen) and where
    each sample lands on the canvas. The expected rows are worked out from the rule (full scale sits 2 px from the
    edge, silence on the middle line), not by running the function. */

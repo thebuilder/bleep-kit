@@ -1647,7 +1647,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       )
     );
     inner.append(
-      h("div", { style: "margin-top: 12px" }, deleteButton(doc, "Delete song"))
+      h("div", { class: "insp-danger" }, deleteButton(doc, "Delete song"))
     );
   }
 
@@ -1921,67 +1921,97 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     }
   }
 
+  /** The thin line a scope shows when there is nothing to trace: dim when silent, dimmer when muted. */
+  function drawFlatline(
+    e: (typeof scopeSurfs)[number],
+    color: string,
+    alpha: string
+  ): void {
+    const { ctx: g, w, h: hh } = e.s;
+    g.fillStyle = `${color}${alpha}`;
+    g.fillRect(0, Math.floor(hh / 2), w, 2);
+  }
+
+  /** The scope's backdrop: cleared, filled, with the center line. */
+  function drawScopeBackdrop(e: (typeof scopeSurfs)[number]): void {
+    const { ctx: g, w, h: hh } = e.s;
+    g.clearRect(0, 0, w, hh);
+    g.fillStyle = "#0e0d14";
+    g.fillRect(0, 0, w, hh);
+    g.fillStyle = "rgba(255,255,255,0.06)";
+    g.fillRect(0, Math.floor(hh / 2), w, 1);
+  }
+
+  /** The locked trace of a pitched channel, one column of its spans at a time. */
+  function drawTrace(
+    e: (typeof scopeSurfs)[number],
+    data: Float32Array,
+    t: ReturnType<typeof locate>,
+    color: string
+  ): void {
+    const { ctx: g, w, h: hh } = e.s;
+    const { peak, spans } = scopeTraceAt(data, t.start, t.span, w, hh);
+    for (let x = 0; x < w; x += 1) {
+      const y0 = spans[x * 2] ?? 0;
+      const y1 = spans[x * 2 + 1] ?? 0;
+      g.fillStyle = `${color}40`;
+      g.fillRect(x, y0 - 1, 1, y1 - y0 + 3);
+      g.fillStyle = color;
+      g.fillRect(x, y0, 1, Math.max(1, y1 - y0 + 1));
+    }
+    if (peak < 0.002) {
+      drawFlatline(e, color, "88");
+    }
+  }
+
+  /** The loudest of every eighth sample of `data` (0..1). */
+  function sparsePeak(data: Float32Array): number {
+    let peak = 0;
+    for (let i = 0; i < data.length; i += 8) {
+      peak = Math.max(peak, Math.abs(data[i] ?? 0));
+    }
+    return peak;
+  }
+
+  function drawScope(
+    e: (typeof scopeSurfs)[number],
+    f: Parameters<Parameters<typeof addVisual>[0]>[0]
+  ): void {
+    const color = KIND_HEX[e.ch.kind];
+    drawScopeBackdrop(e);
+    const muted = e.ch.muted || (solo.size > 0 && !solo.has(e.ch.id));
+    const noise = e.ch.kind === "noise";
+    // noise has no period to lock to: it never reads the long window or searches for one
+    const frames = noise ? LEVEL_FRAMES : pitchedWindow(e, f);
+    const data = scopeWindow(e, f, frames);
+    if (!data || muted) {
+      drawFlatline(e, color, muted ? "33" : "88");
+      return;
+    }
+    let period = 0;
+    let t: ReturnType<typeof locate> | null = null;
+    if (!noise) {
+      t = locate(e.trig, data, f.frame - frames, {
+        sampleRate: f.sampleRate,
+        targetSpan: SCOPE_SPAN,
+        ...(hzOf.has(e.idx) ? { hintHz: hzOf.get(e.idx) as number } : {}),
+      });
+      ({ period } = t);
+    }
+    const peak = sparsePeak(data);
+    if (levelMode(e.mode, noise, period, peak < 0.002) || !t) {
+      drawLevel(e, f, data, peak, color);
+      if (peak < 0.002) {
+        drawFlatline(e, color, "88");
+      }
+      return;
+    }
+    drawTrace(e, data, t, color);
+  }
+
   function drawScopes(f: Parameters<Parameters<typeof addVisual>[0]>[0]): void {
     for (const e of scopeSurfs) {
-      const { ctx: g, w, h: hh } = e.s;
-      const color = KIND_HEX[e.ch.kind];
-      g.clearRect(0, 0, w, hh);
-      g.fillStyle = "#0e0d14";
-      g.fillRect(0, 0, w, hh);
-      g.fillStyle = "rgba(255,255,255,0.06)";
-      g.fillRect(0, Math.floor(hh / 2), w, 1);
-      const muted = e.ch.muted || (solo.size > 0 && !solo.has(e.ch.id));
-      const noise = e.ch.kind === "noise";
-      // noise has no period to lock to: it never reads the long window or searches for one
-      const frames = noise ? LEVEL_FRAMES : pitchedWindow(e, f);
-      const data = scopeWindow(e, f, frames);
-      const mid = hh / 2;
-      if (!data || muted) {
-        g.fillStyle = `${color}${muted ? "33" : "88"}`;
-        g.fillRect(0, Math.floor(mid), w, 2);
-        continue;
-      }
-      let period = 0;
-      let t: ReturnType<typeof locate> | null = null;
-      if (!noise) {
-        t = locate(e.trig, data, f.frame - frames, {
-          sampleRate: f.sampleRate,
-          targetSpan: SCOPE_SPAN,
-          ...(hzOf.has(e.idx) ? { hintHz: hzOf.get(e.idx) as number } : {}),
-        });
-        ({ period } = t);
-      }
-      let peak = 0;
-      for (let i = 0; i < data.length; i += 8) {
-        peak = Math.max(peak, Math.abs(data[i] ?? 0));
-      }
-      if (levelMode(e.mode, noise, period, peak < 0.002) || !t) {
-        drawLevel(e, f, data, peak, color);
-        if (peak < 0.002) {
-          g.fillStyle = `${color}88`;
-          g.fillRect(0, Math.floor(mid), w, 2);
-        }
-        continue;
-      }
-      const { peak: tracePeak, spans } = scopeTraceAt(
-        data,
-        t.start,
-        t.span,
-        w,
-        hh
-      );
-      for (let x = 0; x < w; x += 1) {
-        const y0 = spans[x * 2] ?? 0;
-        const y1 = spans[x * 2 + 1] ?? 0;
-        g.fillStyle = `${color}40`;
-        g.fillRect(x, y0 - 1, 1, y1 - y0 + 3);
-        g.fillStyle = color;
-        g.fillRect(x, y0, 1, Math.max(1, y1 - y0 + 1));
-      }
-      if (tracePeak < 0.002) {
-        g.fillStyle = `${color}88`;
-        g.fillRect(0, Math.floor(mid), w, 2);
-      }
+      drawScope(e, f);
     }
   }
 

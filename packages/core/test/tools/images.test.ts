@@ -32,8 +32,15 @@ interface Box {
   minY: number;
 }
 
-const isColor = (img: Img, x: number, y: number, rgb: Rgb) =>
-  pixelAt(img, x, y).join() === rgb.join();
+// compared in place: this runs for every pixel of the images the layout tests scan
+const isColor = (img: Img, x: number, y: number, rgb: Rgb) => {
+  const i = (y * img.width + x) * 4;
+  return (
+    img.data[i] === rgb[0] &&
+    img.data[i + 1] === rgb[1] &&
+    img.data[i + 2] === rgb[2]
+  );
+};
 
 /** Bounding box of the pixels of exactly this color inside a region (x1 and y1 are exclusive), or null. */
 function bounds(

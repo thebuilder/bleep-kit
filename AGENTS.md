@@ -47,14 +47,17 @@ When a person is running the studio on the same folder, files you write appear i
 pnpm install
 pnpm dev                                           # studio on :5173 (proxies /api and /ws to :5174)
 pnpm bleepkit studio examples/demo --api-only      # the CLI server for pnpm dev
-pnpm verify          # typecheck, check, test:coverage, fallow:check, build, check:packages (what CI runs)
+pnpm ci:check        # typecheck, check, fallow, build (what CI runs: no tests)
+pnpm verify          # typecheck, check, test, fallow, build, check:packages (run locally before a release)
+pnpm test            # every package through Turbo
 pnpm --filter @bleepkit/core test                  # one package
 ```
 
 Gotchas learned while building it:
 
 - Lint: Ultracite (Biome). Rules that do not fit DSP or binary code are turned off by path in the root `biome.jsonc` overrides, each with a reason; the studio has a nested `apps/studio/biome.jsonc`. Prefer fixing code over adding ignores. Run `npx ultracite fix <paths>` scoped to what you changed.
-- Fallow runs on the coverage file, so `pnpm test:coverage` must pass before `pnpm fallow:check`. Per-sample loops get scoped `thresholdOverrides` with reasons, not blanket ignores.
+- CI runs no tests (they cost GitHub Actions minutes), so there is no coverage: Fallow runs without a coverage file and `health.maxCrap` is 0 (CRAP needs real coverage). Run `pnpm verify` yourself before a release. Per-sample loops get scoped `thresholdOverrides` with reasons, not blanket ignores.
+- Keep tests fast: the whole suite should stay under a minute and no single test over 2 s. Use fake timers and small fixtures (short sounds, 2-row patterns, a low sample rate unless the rate is the point) and stub heavy rendering when a test is about the UI; one case per chip beats a sweep.
 - Golden tests pin the engine's output by hash. If you change how anything sounds on purpose, bump `ENGINE_VERSION` in `packages/core/src/version.ts`, then run `UPDATE_GOLDEN=1 pnpm --filter @bleepkit/core test`. The version is also part of the CLI's render cache hash, so stale renders are redone.
 - The player's worklet is a generated bundle (`packages/player/worklet/bleepkit-worklet.js`, gitignored). Turbo builds it before the studio's dev, build, test and typecheck; run `pnpm --filter @bleepkit/player build:worklet` if you work outside Turbo.
 - The studio needs cross-origin isolation (COOP/COEP headers) for shared-memory scopes; the Vite config and the CLI server both send them.

@@ -169,11 +169,11 @@ Workspace commands, run from the repo root:
 | `pnpm check` | lint and formatting (Ultracite) |
 | `pnpm fix` | fix lint and formatting |
 | `pnpm test` | run the tests (Turbo) |
-| `pnpm test:coverage` | run the tests with coverage |
 | `pnpm test:watch` | run the tests in watch mode |
-| `pnpm fallow` | test with coverage, then run Fallow |
+| `pnpm fallow` | unused code, duplication and complexity (Fallow) |
+| `pnpm ci:check` | what CI runs: typecheck, lint, Fallow, build (no tests) |
 | `pnpm check:packages` | pack the packages and use the tarballs in a scratch project |
-| `pnpm verify` | everything CI runs |
+| `pnpm verify` | everything: `ci:check` plus the tests and `check:packages`; run it before a release |
 
 CLI commands, `pnpm bleepkit <command>`:
 

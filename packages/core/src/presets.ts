@@ -1,5 +1,6 @@
 import { defaultInstrument } from "./normalize/defaults.ts";
-import { BASS_KIND, shapeBass } from "./presets-bass.ts";
+import type { OpRow } from "./presets-bass.ts";
+import { BASS_KIND, fmOps, shapeBass } from "./presets-bass.ts";
 import type {
   ChannelKind,
   ChipId,
@@ -44,32 +45,6 @@ const VOLUMES: Record<InstrumentPreset, number> = {
   lead: 0.8,
   pad: 0.6,
 };
-
-/** Operator values in the order of the table below: mult, level, decay, sustainLevel, sustainRate, detune, keyScale. */
-type OpRow = readonly [
-  mult: number,
-  level: number,
-  decay: number,
-  sustainLevel: number,
-  sustainRate?: number,
-  detune?: number,
-  keyScale?: number,
-];
-
-function ops(base: FmOperator, rows: readonly OpRow[]): FmOperator[] {
-  return rows.map(
-    ([mult, level, decay, sustainLevel, sustainRate, detune, keyScale]) => ({
-      ...base,
-      decay,
-      detune: detune ?? 0,
-      keyScale: keyScale ?? 0,
-      level,
-      mult,
-      sustainLevel,
-      sustainRate: sustainRate ?? 0,
-    })
-  );
-}
 
 /*
  * Starter FM patches (levels are linear amplitudes, 1 = loudest; a modulator's level is its modulation depth). Each one
@@ -192,7 +167,7 @@ function fmPreset(base: FmPatch, preset: VoicePreset): FmPatch {
     algorithm,
     feedback,
     lfo: lfo === null ? null : { ...lfo },
-    ops: ops(template, rows),
+    ops: fmOps(template, rows),
   };
 }
 

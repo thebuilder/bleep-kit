@@ -82,7 +82,7 @@ function noticeOf(name: string, converted: string[], lost: string[]): string {
 }
 
 /** Converts, creates the instruments the project lacks, creates the song and opens it. False when it cannot be imported. */
-export async function importMidi(
+async function importMidi(
   src: Source,
   chip: ChipId,
   chords: ChordMode = "auto"
@@ -123,7 +123,7 @@ export async function importMidi(
 }
 
 /** Asks for the chip, then imports. A file that is not a MIDI file gets a notice instead of a dialog. */
-export function openImportDialog(src: Source): void {
+function openImportDialog(src: Source): void {
   const check = midiToSong(src.bytes, { chip: defaultChip() }).issues.find(
     (i) => i.severity === "error"
   );

@@ -1,3 +1,4 @@
+// @vitest-environment node
 /* The studio's engine wrapper (src/engine/engine.ts) against a recording stand-in for the player's engine node.
 
    The first group is the regression test for the studio that shipped silent: createEngineNode leaves routing to its

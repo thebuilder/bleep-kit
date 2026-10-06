@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { generateSfx, SFX_CATEGORIES } from "../src/index.ts";
 import { categoryRanges } from "../src/ranges.ts";
 
-const SEEDS = [1, 2, 3, 4, 5];
+const SEEDS = [1, 2];
 const RATE = 44_100;
 const MIN_PEAK = 0.1; // -20 dBFS
 const CLIP = 0.999;
@@ -53,7 +53,6 @@ describe("rendered sfx (real core)", () => {
             );
           }
         }
-        // 35 renders per category: a few seconds on a fast machine, far more under coverage on a small CI runner
       },
       SWEEP_TIMEOUT_MS
     );

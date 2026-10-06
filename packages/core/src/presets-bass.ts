@@ -36,7 +36,7 @@ export const GAMEBOY_BASS_TABLE: readonly number[] = [
 ];
 
 /** Operator values in the order of the table: mult, level, decay, sustainLevel, sustainRate, detune, keyScale. */
-type OpRow = readonly [
+export type OpRow = readonly [
   mult: number,
   level: number,
   decay: number,
@@ -46,7 +46,7 @@ type OpRow = readonly [
   keyScale?: number,
 ];
 
-function fmOps(base: FmOperator, rows: readonly OpRow[]): FmOperator[] {
+export function fmOps(base: FmOperator, rows: readonly OpRow[]): FmOperator[] {
   return rows.map(
     ([mult, level, decay, sustainLevel, sustainRate, detune, keyScale]) => ({
       ...base,

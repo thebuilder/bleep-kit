@@ -33,6 +33,11 @@ vi.mock("../src/pixelkit/core/index.ts", async (original) => {
 
 installCanvasStub();
 
+// the scene is painted in software, a pixel at a time, at the size of the window: these tests are about what is drawn
+// and when, not how big, so the window is a small one
+window.innerWidth = 320;
+window.innerHeight = 200;
+
 const event = (over: Partial<EngineEvent>): EngineEvent => ({
   channel: -1,
   channelId: "",

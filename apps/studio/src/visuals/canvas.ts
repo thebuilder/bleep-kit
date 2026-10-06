@@ -81,15 +81,28 @@ export function scopeTrace(
   w: number,
   h: number
 ): { peak: number; spans: Int32Array } {
+  return traceColumns(
+    w,
+    h,
+    (x) => data[start + Math.floor((x / w) * win)] ?? 0
+  );
+}
+
+/**
+ * The columns of a trace for a wave read through `sampleAtColumn(x)`, clamped to full scale: the rows the trace
+ * covers in each of `w` columns on a canvas `h` tall (see scopeTrace), and the loudest sample shown.
+ */
+export function traceColumns(
+  w: number,
+  h: number,
+  sampleAtColumn: (x: number) => number
+): { peak: number; spans: Int32Array } {
   const mid = h / 2;
   const spans = new Int32Array(w * 2);
   let prevY = mid;
   let peak = 0;
   for (let x = 0; x < w; x += 1) {
-    const v = Math.min(
-      1,
-      Math.max(-1, data[start + Math.floor((x / w) * win)] ?? 0)
-    );
+    const v = Math.min(1, Math.max(-1, sampleAtColumn(x)));
     peak = Math.max(peak, Math.abs(v));
     const y = Math.round(mid - v * (mid - 2));
     spans[x * 2] = Math.min(y, prevY);

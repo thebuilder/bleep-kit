@@ -2,21 +2,18 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ENTRY, runProcess, tempDir } from "./helpers.ts";
+import { ENTRY, makeProject, run, runProcess, tempDir } from "./helpers.ts";
 
 const pkg = JSON.parse(
   fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")
 ) as { version: string };
 
 // These run the real `node src/index.ts` entry point (the shebang file) in a child process: exit codes, the
-// "one JSON object on stdout" rule and stderr separation are properties of the process, not of `main`.
+// "one JSON object on stdout" rule and stderr separation are properties of the process, not of `main`. A process
+// costs most of a second to start, so each property gets one, and the rest goes through `main` in this process.
 describe("entry point", () => {
-  it("prints exactly one JSON object on stdout with --json and progress on stderr", () => {
-    const repo = tempDir();
-    const init = runProcess(repo, ["init", "--json"]);
-    expect(init.code).toBe(0);
-    expect(init.stdout.trim().split("\n")).toHaveLength(1);
-    expect(init.json.ok).toBe(true);
+  it("prints exactly one JSON object on stdout with --json and progress on stderr", async () => {
+    const { repo } = await makeProject();
     const render = runProcess(repo, ["render", "sfx/coin", "--json"]);
     expect(render.code).toBe(0);
     expect(render.stdout.trim().split("\n")).toHaveLength(1);
@@ -24,31 +21,33 @@ describe("entry point", () => {
       "sfx/coin",
     ]);
     expect(render.stderr).toContain("rendering sfx/coin");
-    const quiet = runProcess(repo, [
+    // --quiet is the writer `main` is handed, so it needs no process of its own
+    const quiet = await run(repo, [
       "render",
       "sfx/coin",
       "--force",
       "--json",
       "--quiet",
     ]);
+    expect(quiet.code).toBe(0);
     expect(quiet.stderr).toBe("");
   });
 
-  it("maps errors to exit codes and JSON error objects", () => {
+  it("maps errors to exit codes and JSON error objects", async () => {
     const dir = tempDir();
     const unknown = runProcess(dir, ["nope", "--json"]);
     expect(unknown.code).toBe(2);
     expect(unknown.stdout.trim().split("\n")).toHaveLength(1);
     expect(unknown.json).toMatchObject({ error: { code: "usage" }, ok: false });
     expect(unknown.stderr).toContain("error: unknown command");
-    const noProject = runProcess(dir, ["validate", "--json"]);
+    const noProject = await run(dir, ["validate", "--json"]);
     expect(noProject.code).toBe(3);
     expect(noProject.json).toMatchObject({
       error: { code: "no-project" },
       ok: false,
     });
-    runProcess(dir, ["init"]);
-    const missing = runProcess(dir, ["describe", "sfx/missing", "--json"]);
+    await run(dir, ["init"]);
+    const missing = await run(dir, ["describe", "sfx/missing", "--json"]);
     expect(missing.code).toBe(4);
     expect(missing.json).toMatchObject({
       error: { code: "not-found" },
@@ -59,8 +58,7 @@ describe("entry point", () => {
 
 describe("studio command", () => {
   it("starts, streams JSON lines, answers the API, and stops cleanly on SIGINT", async () => {
-    const repo = tempDir();
-    expect(runProcess(repo, ["init"]).code).toBe(0);
+    const { repo } = await makeProject();
     const child = spawn(
       process.execPath,
       [ENTRY, "studio", "--port", "0", "--api-only", "--json"],
@@ -128,15 +126,14 @@ describe("studio command", () => {
   });
 
   it("exits 6 when the port is taken, with a fix", async () => {
-    const repo = tempDir();
-    runProcess(repo, ["init"]);
+    const { repo } = await makeProject();
     const net = await import("node:net");
     const blocker = net.createServer();
     await new Promise<void>((resolve) =>
       blocker.listen(0, "127.0.0.1", resolve)
     );
     const { port } = blocker.address() as { port: number };
-    const r = runProcess(repo, [
+    const r = await run(repo, [
       "studio",
       "--port",
       String(port),

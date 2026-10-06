@@ -289,12 +289,14 @@ describe("analyze", () => {
     });
 
     it("widens the envelope step to keep at most 1000 points, still covering the whole file", () => {
-      const noiseRun = noise(SR, 10.5, 0.3);
+      // not about the rate: 10.5 s of noise at a low one
+      const rate = 8000;
+      const noiseRun = noise(rate, 10.5, 0.3);
       const a = analyze({
         channels: [noiseRun],
         events: [],
         frames: noiseRun.length,
-        sampleRate: SR,
+        sampleRate: rate,
       });
       expect(a.envelope.length).toBeLessThanOrEqual(1000);
       expect(a.envelope.length).toBeGreaterThan(900);

@@ -1088,11 +1088,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     );
     inner.append(g4.el);
     inner.append(
-      h(
-        "div",
-        { style: "margin-top: 12px" },
-        deleteButton(doc, "Delete instrument")
-      )
+      h("div", { class: "insp-danger" }, deleteButton(doc, "Delete instrument"))
     );
   }
 

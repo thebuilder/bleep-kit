@@ -1,11 +1,6 @@
 {
   "engineVersion": "4",
   "renders": {
-    "44100": {
-      "events": 287,
-      "frames": 626850,
-      "hash": "7a1f9bad"
-    },
     "48000": {
       "events": 287,
       "frames": 682286,

@@ -1,7 +1,12 @@
 import { defineProject } from "vitest/config";
 
 export default defineProject({
-  // Offline song renders are real DSP work: a full genesis song takes seconds, and `test:coverage` runs the whole
-  // workspace in parallel with instrumented code on a small CI runner. The default 5 s is a flaky ceiling there.
-  test: { environment: "node", name: "@bleepkit/core", testTimeout: 60_000 },
+  // Pure functions over buffers, no module state to leak between files: files share their workers (`isolate: false`),
+  // which saves a worker start per file and keeps the JIT warm for the DSP loops.
+  test: {
+    environment: "node",
+    isolate: false,
+    name: "@bleepkit/core",
+    testTimeout: 10_000,
+  },
 });

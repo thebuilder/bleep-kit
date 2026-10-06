@@ -1,10 +1,10 @@
 /* The master spectrum's maths, apart from the drawing: log-spaced bands over the FFT's magnitudes, a fixed dB scale,
    and the bar ballistics (fast attack, a smooth release, a peak hold that falls slowly). */
 
-export const SPEC_MIN_HZ = 40;
-export const SPEC_MAX_HZ = 16_000;
+const SPEC_MIN_HZ = 40;
+const SPEC_MAX_HZ = 16_000;
 /** The fixed scale: 0 dBFS is a full-scale sine, the floor is where a bar is empty. No automatic gain. */
-export const DB_TOP = 0;
+const DB_TOP = 0;
 export const DB_FLOOR = -72;
 /*
  * The ballistics of every bar and meter in the studio, one set of numbers (strip.ts and level.ts read these):
@@ -81,7 +81,7 @@ export function bandLevels(
   }
 }
 
-export function clampDb(db: number): number {
+function clampDb(db: number): number {
   return Math.max(DB_FLOOR, Math.min(DB_TOP, db));
 }
 

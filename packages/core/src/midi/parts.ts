@@ -103,10 +103,10 @@ const CHANNEL_SELECTOR = /^(?:ch)?(\d+)$/i;
 const TRACK_SELECTOR = /^t(\d+)(?:(?::|\.|ch)(\d+))?$/i;
 const SKIP_TARGETS = new Set(["-", "none", "off", "skip"]);
 
-export type Matcher = (part: Part) => boolean;
+type Matcher = (part: Part) => boolean;
 
 /** `3` or `ch3`: MIDI channel 3 (1..16). `t2`: track 2. `t2:3`, `t2.3` or `t2ch3`: track 2, channel 3. Null when malformed. */
-export function parseSelector(text: string): Matcher | null {
+function parseSelector(text: string): Matcher | null {
   const key = text.trim();
   const channel = CHANNEL_SELECTOR.exec(key);
   if (channel) {
@@ -125,7 +125,7 @@ export function parseSelector(text: string): Matcher | null {
   return (p) => p.track === t - 1 && (c === null || p.channel === c - 1);
 }
 
-export function isSkipTarget(target: string): boolean {
+function isSkipTarget(target: string): boolean {
   return SKIP_TARGETS.has(target.trim().toLowerCase());
 }
 

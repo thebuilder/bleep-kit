@@ -47,6 +47,10 @@ function recordingContext(log: string[]): CanvasRenderingContext2D {
       }
       return (...args: unknown[]) => {
         log.push(`${String(key)}(${args.length})`);
+        if (log.length > 20_000) {
+          // the animation loops draw all the time; keep only the recent past
+          log.splice(0, 10_000);
+        }
       };
     },
     set(t, key, value) {
@@ -63,8 +67,13 @@ export const filledRects: FilledRect[] = [];
 /** Call once at the top level of a test file that draws. */
 export function installCanvasStub(): void {
   beforeAll(() => {
-    HTMLCanvasElement.prototype.getContext = function getContext() {
-      return recordingContext(drawLog);
+    // The shell's `#backdrop` canvas gets no context, so the backdrop stays off: it paints the whole scene in software
+    // on every frame the animation loop runs, which starved every test of the event loop (minutes per file). The
+    // backdrop has its own test file, which hands it a canvas of its own.
+    HTMLCanvasElement.prototype.getContext = function getContext(
+      this: HTMLCanvasElement
+    ) {
+      return this.id === "backdrop" ? null : recordingContext(drawLog);
     } as unknown as HTMLCanvasElement["getContext"];
     if (typeof globalThis.OffscreenCanvas === "undefined") {
       class FakeOffscreen {
@@ -84,15 +93,19 @@ export function installCanvasStub(): void {
   });
 }
 
+// the clock as it is when this file loads: a test that fakes the timers (to step over autosave's 800 ms) still waits on
+// the real one
+const realSetTimeout = globalThis.setTimeout.bind(globalThis);
 export const settle = async (ms = 60) => {
-  await new Promise((r) => setTimeout(r, ms));
+  await new Promise((r) => realSetTimeout(r, ms));
 };
 
 export const until = async (fn: () => boolean, ms = 3000) => {
-  const t0 = Date.now();
-  while (!fn() && Date.now() - t0 < ms) {
+  // performance.now, not Date.now: a test that fakes the Date to pin a seed must not stop this clock
+  const t0 = performance.now();
+  while (!fn() && performance.now() - t0 < ms) {
     // biome-ignore lint/performance/noAwaitInLoops: polling, each wait must finish before the next check
-    await settle(20);
+    await settle(3);
   }
   return fn();
 };

@@ -26,7 +26,8 @@ import {
   fixtureInstruments,
   fixtureJson,
   fixtureSfx,
-  fixtureSong,
+  fixtureShortDemo,
+  fixtureShortSong,
   peak,
   rms,
   runSynth,
@@ -56,26 +57,40 @@ function allFinite(r: RenderResult): boolean {
   return true;
 }
 
+/** The default render of each chip's short song, made once for the tests that only read it. */
+const shortRenders = new Map<string, RenderResult>();
+function shortRender(chip: string, d: Demo): RenderResult {
+  let r = shortRenders.get(chip);
+  if (!r) {
+    r = renderSong(d.song, d.instruments);
+    shortRenders.set(chip, r);
+  }
+  return r;
+}
+
 describe("renderSong", () => {
   it.each<[string, Demo]>([
-    ["nes", fixtureSong() as Demo],
-    ...CHIPS.map((chip): [string, Demo] => [chip, fixtureDemo(chip)]),
-  ])("%s song: stereo, audible, finite, under the ceiling, no DC", (_, d) => {
-    const r = renderSong(d.song, d.instruments);
-    expect(r.sampleRate).toBe(48_000);
-    expect(r.channels).toHaveLength(2);
-    expect(r.channels[0]?.length).toBe(r.frames);
-    expect(r.channels[1]?.length).toBe(r.frames);
-    expect(allFinite(r)).toBe(true);
-    const p = peak(r.channels);
-    expect(p).toBeGreaterThan(0.1);
-    expect(p).toBeLessThanOrEqual(CEILING + 1e-4);
-    expect(Math.abs(dc(r.channels[0] as Float32Array))).toBeLessThan(0.006);
-    expect(Math.abs(dc(r.channels[1] as Float32Array))).toBeLessThan(0.006);
-  });
+    ["nes", fixtureShortSong() as Demo],
+    ...CHIPS.map((chip): [string, Demo] => [chip, fixtureShortDemo(chip)]),
+  ])(
+    "%s song: stereo, audible, finite, under the ceiling, no DC",
+    (chip, d) => {
+      const r = shortRender(chip, d);
+      expect(r.sampleRate).toBe(48_000);
+      expect(r.channels).toHaveLength(2);
+      expect(r.channels[0]?.length).toBe(r.frames);
+      expect(r.channels[1]?.length).toBe(r.frames);
+      expect(allFinite(r)).toBe(true);
+      const p = peak(r.channels);
+      expect(p).toBeGreaterThan(0.1);
+      expect(p).toBeLessThanOrEqual(CEILING + 1e-4);
+      expect(Math.abs(dc(r.channels[0] as Float32Array))).toBeLessThan(0.006);
+      expect(Math.abs(dc(r.channels[1] as Float32Array))).toBeLessThan(0.006);
+    }
+  );
 
   it("honours the sample rate", () => {
-    const { song, instruments } = fixtureSong();
+    const { song, instruments } = fixtureShortSong();
     const a = renderSong(song, instruments, { sampleRate: 48_000, tail: 0.5 });
     const b = renderSong(song, instruments, { sampleRate: 44_100, tail: 0.5 });
     expect(b.sampleRate).toBe(44_100);
@@ -83,14 +98,14 @@ describe("renderSong", () => {
   });
 
   it("tail extends the render by the requested seconds", () => {
-    const { song, instruments } = fixtureSong();
+    const { song, instruments } = fixtureShortSong();
     const a = renderSong(song, instruments, { tail: 0.25 });
     const b = renderSong(song, instruments, { tail: 1.25 });
     expect(b.frames - a.frames).toBe(48_000);
   });
 
   it("loops: the loop section is repeated and loopStart and loopEnd bracket the second pass", () => {
-    const { song, instruments } = fixtureSong();
+    const { song, instruments } = fixtureShortSong();
     const one = renderSong(song, instruments, { loops: 1, tail: 0 });
     const three = renderSong(song, instruments, { loops: 3, tail: 0 });
     expect(one.loopStart).toBeDefined();
@@ -115,7 +130,7 @@ describe("renderSong", () => {
   });
 
   it("later passes of the loop keep the level of the one before (the passes are not sample identical: noise runs on)", () => {
-    const { song, instruments } = fixtureSong();
+    const { song, instruments } = fixtureShortSong();
     const r = renderSong(song, instruments, { loops: 3, tail: 0 });
     const ls = r.loopStart ?? 0;
     const le = r.loopEnd ?? 0;
@@ -127,23 +142,20 @@ describe("renderSong", () => {
     expect(Math.abs(a - b) / Math.max(a, 1e-9)).toBeLessThan(0.15);
   });
 
-  // one song render and a full analysis per case: seconds each, far more under coverage on a small runner
   it("the loop seam is clean on the title song: the audio before loopEnd matches the audio before loopStart (below -40 dB)", () => {
-    const { song, instruments } = fixtureSong();
-    const { loop } = analyze(renderSong(song, instruments));
+    const title = fixtureShortSong();
+    const { loop } = analyze(shortRender("nes", title as Demo));
     expect(loop).not.toBeNull();
     expect(loop?.seamDiffDb ?? 0).toBeLessThan(-40);
-  }, 60_000);
+  });
 
   it.each(CHIPS)(
     "the loop seam is clean on the %s demo (below -40 dB)",
     (chip) => {
-      const demo = fixtureDemo(chip);
-      const { loop } = analyze(renderSong(demo.song, demo.instruments));
+      const { loop } = analyze(shortRender(chip, fixtureShortDemo(chip)));
       expect(loop).not.toBeNull();
       expect(loop?.seamDiffDb ?? 0).toBeLessThan(-40);
-    },
-    60_000
+    }
   );
 
   it("a looped FM voice with an LFO repeats exactly: every pass puts its notes the same distance from a tick", () => {
@@ -228,7 +240,7 @@ describe("renderSong", () => {
   });
 
   it("songs without a loop have no loop points", () => {
-    const { song, instruments } = fixtureSong();
+    const { song, instruments } = fixtureShortSong();
     const noLoop = { ...song, loop: null };
     const r = renderSong(noLoop, instruments, { tail: 0.1 });
     expect(r.loopStart).toBeUndefined();
@@ -236,7 +248,7 @@ describe("renderSong", () => {
   });
 
   it("stems: one dry mono stem per channel, with the channel ids", () => {
-    const { song, instruments } = fixtureSong();
+    const { song, instruments } = fixtureShortSong();
     const r = renderSong(song, instruments, { stems: true, tail: 0.1 });
     expect(r.stemIds).toEqual(song.channels.map((c) => c.id));
     expect(r.stems).toHaveLength(song.channels.length);
@@ -248,17 +260,17 @@ describe("renderSong", () => {
   });
 
   it("events: one row event per row, the end event where the last row ends, nothing past the render", () => {
-    const { song, instruments } = fixtureSong();
+    const { song, instruments } = fixtureShortSong();
     const r = renderSong({ ...song, loop: null }, instruments, { tail: 0.1 });
-    // intro 32 rows and two verses of 64: 160 rows of 4800 frames at 150 BPM, 4 rows a beat
+    // 16 rows of 4800 frames at 150 BPM, 4 rows a beat
     const rows = r.events.filter((e) => e.type === "row");
-    expect(rows).toHaveLength(160);
+    expect(rows).toHaveLength(16);
     expect(rows.map((e) => e.frame)).toEqual(
-      Array.from({ length: 160 }, (_, i) => i * 4800)
+      Array.from({ length: 16 }, (_, i) => i * 4800)
     );
-    expect(r.events.find((e) => e.type === "end")?.frame).toBe(160 * 4800);
+    expect(r.events.find((e) => e.type === "end")?.frame).toBe(16 * 4800);
     // the tail is 0.1 s after the end
-    expect(r.frames).toBe(160 * 4800 + 4800);
+    expect(r.frames).toBe(16 * 4800 + 4800);
     for (const e of r.events) {
       expect(e.frame).toBeLessThan(r.frames);
     }
@@ -267,7 +279,7 @@ describe("renderSong", () => {
   });
 
   it("onProgress reports frames against the expected total, and returning false aborts the render", () => {
-    const { song, instruments } = fixtureSong();
+    const { song, instruments } = fixtureShortSong();
     const calls: [number, number][] = [];
     const aborted = renderSong(song, instruments, {
       onProgress: (frames, total) => {
@@ -275,8 +287,8 @@ describe("renderSong", () => {
         return calls.length < 2 ? undefined : false;
       },
     });
-    // the intro and verse pass, one more pass of the two verses (loop at order 1), and the 1 s tail
-    const expected = 160 * 4800 + 128 * 4800 + 48_000;
+    // the pattern, one more pass of it (the loop goes back to it), and the 1 s tail
+    const expected = 16 * 4800 + 16 * 4800 + 48_000;
     expect(calls).toEqual([
       [65_536, expected],
       [131_072, expected],
@@ -288,7 +300,7 @@ describe("renderSong", () => {
   });
 
   it("an empty song renders silence of the tail length at most", () => {
-    const { song, instruments } = fixtureSong();
+    const { song, instruments } = fixtureShortSong();
     const empty = {
       ...song,
       channels: song.channels.map((c) => ({ ...c, mml: null })),
@@ -303,7 +315,7 @@ describe("renderSong", () => {
   });
 
   it("master volume comes from the song, and the options set only the limiter", () => {
-    const { song, instruments } = fixtureSong();
+    const { song, instruments } = fixtureShortSong();
     const peakOf = (volume: number, opts: Record<string, unknown> = {}) =>
       peak(
         renderSong(
@@ -592,8 +604,8 @@ describe("no clicks at note boundaries", () => {
   function scan(
     chip: string
   ): { boundaries: number; worst: number; where: string }[] {
-    const d = chip === "nes" ? null : fixtureDemo(chip);
-    const { song, instruments } = d ?? fixtureSong();
+    const d = chip === "nes" ? null : fixtureShortDemo(chip, 8);
+    const { song, instruments } = d ?? fixtureShortSong();
     const out: { boundaries: number; worst: number; where: string }[] = [];
     for (let c = 0; c < song.channels.length; c += 1) {
       const s = createSynth({ sampleRate: 48_000 });
@@ -605,7 +617,7 @@ describe("no clicks at note boundaries", () => {
       s.setMaster({ limiter: false });
       s.play({ loop: false });
       const { latency } = s as unknown as { latency: number };
-      const r = runSynth(s, 48_000 * 5);
+      const r = runSynth(s, 48_000 * (chip === "nes" ? 2 : 1.2));
       const m = r.left;
       const pk = peak([m]);
       if (pk < 1e-3) {

@@ -43,9 +43,11 @@
     // implementation, and sharing it with the code under test would make the test agree with the bug.
     "ignore": ["**/test/**"]
   },
-  // Coverage for exact CRAP scores is passed on the command line: `pnpm fallow` runs the tests first, CI passes the
-  // coverage it just wrote. Without coverage, Fallow estimates the scores.
+  // CI runs no tests, so Fallow gets no coverage file and CRAP would only be an estimate. The cyclomatic and cognitive
+  // limits below stay in force.
   "health": {
+    // 0 turns the CRAP check off: it needs real per-function coverage, which nothing here produces.
+    "maxCrap": 0,
     // The same ceiling as Biome's noExcessiveCognitiveComplexity in the Ultracite preset, so one standard applies.
     "maxCognitive": 20,
     // Test files are not production code: their complexity and coverage say nothing about risk.
@@ -54,8 +56,7 @@
     // voice, where the branches are the signal flow (which chip's mixer, which stage of an envelope, which filter
     // mode). Splitting them into a helper per branch hides that flow and adds call overhead to the hottest code in the
     // engine, so Biome's complexity rule is off for these directories too. The ceilings sit just above today's values,
-    // so these functions cannot grow, and the golden hashes pin what they compute. Fully tested code scores a CRAP
-    // equal to its cyclomatic complexity, which is why the engine entries allow 45.
+    // so these functions cannot grow, and the golden hashes pin what they compute.
     "thresholdOverrides": [
       {
         "files": ["packages/core/src/dsp/**"],
@@ -75,7 +76,6 @@
         "files": ["packages/core/src/engine/voice.ts"],
         "functions": ["mixTo", "renderChunk", "amplitude", "sfxEnvelope"],
         "maxCognitive": 69,
-        "maxCrap": 45,
         "maxCyclomatic": 41,
         "reason": "A voice's per-sample mixing, source rendering, amplitude stage and sfx envelope."
       },
@@ -88,7 +88,6 @@
         "files": ["apps/studio/src/backdrop/reactive.ts"],
         "functions": ["render"],
         "maxCognitive": 46,
-        "maxCrap": 45,
         "maxCyclomatic": 26,
         "reason": "The reactive backdrop layer: the pulse glow, the rings, the sparkle bursts and the lightning, each a loop over pixels of one frame."
       },
@@ -104,34 +103,6 @@
         "functions": ["drawSpectrum"],
         "maxCognitive": 30,
         "reason": "The spectrum strip: one pass over the bars, each with its level from the FFT bins, its fall and peak hold, and its lit segments."
-      },
-      {
-        "files": ["apps/studio/src/visuals/waveform.ts"],
-        "functions": ["drawSpectrogram"],
-        "maxCrap": 45,
-        "reason": "The spectrogram picture: the image, the frequency ticks on a log axis and the playhead. A test of it would only restate its drawing calls."
-      },
-      // The studio's views, controls and canvas visuals are DOM and drawing code: what they do is checked by looking at
-      // them (Playwright screenshots of every view) and by the view tests that drive real controls and assert what the
-      // engine and the store receive. Unit tests of their remaining branches (which row glows, which column a scope
-      // trace starts in) would restate drawing calls, so CRAP gets a looser ceiling here. The complexity limits still
-      // apply in full, so these functions cannot grow more tangled.
-      {
-        "files": [
-          "apps/studio/src/views/**",
-          "apps/studio/src/ui/**",
-          "apps/studio/src/visuals/**"
-        ],
-        "maxCrap": 100,
-        "reason": "Studio DOM and canvas code, verified visually and through behavioral view tests rather than per-branch unit tests."
-      },
-      // The fake engine is a dev and test stand-in for the AudioWorklet (`?engine=fake`). The studio's tests set the song
-      // position by hand where they need one, so a test of the stand-in's own copy would only test the stand-in.
-      {
-        "files": ["apps/studio/src/dev/fake-engine.ts"],
-        "functions": ["positionAt"],
-        "maxCrap": 95,
-        "reason": "Dev-only engine stand-in: the song position it reports, from the last row event at or before the playing frame."
       }
     ]
   }

@@ -3,6 +3,8 @@
    crossing of the wave's own mid level with hysteresis, picked so that its phase continues from the last frame (the lock
    is kept in absolute engine frames), and the trace shows a whole number of periods, so a held note stands still. */
 
+import { traceColumns } from "./canvas.ts";
+
 export interface Trigger {
   /** Absolute engine frame (fractional) of the crossing the last frame locked to; negative before the first lock. */
   at: number;
@@ -216,24 +218,35 @@ export function searchPeriod(x: Float32Array): { corr: number; lag: number } {
   return searchPrepared(full, coarse);
 }
 
-/** Rising crossings of `mid` (fractional indices), each armed only after the wave fell `hyst` below `mid`. */
-export function risingCrossings(
+/**
+ * Calls `visit` with each rising crossing of `mid` (a fractional index) found in x[from..to], each armed only after
+ * the wave fell `hyst` below `mid`.
+ */
+function forEachRisingCrossing(
   x: Float32Array,
   mid: number,
-  hyst: number
-): number[] {
-  const out: number[] = [];
+  hyst: number,
+  from: number,
+  to: number,
+  visit: (crossing: number) => void
+): void {
   let armed = false;
-  for (let i = 1; i < x.length; i += 1) {
+  for (let i = from; i <= to; i += 1) {
     const v = (x[i] ?? 0) - mid;
     if (v < -hyst) {
       armed = true;
     } else if (armed && v >= 0) {
       const p = (x[i - 1] ?? 0) - mid;
-      out.push(i - 1 + (v === p ? 1 : -p / (v - p)));
+      visit(i - 1 + (v === p ? 1 : -p / (v - p)));
       armed = false;
     }
   }
+}
+
+/** Rising crossings of `mid` (fractional indices), each armed only after the wave fell `hyst` below `mid`. */
+function risingCrossings(x: Float32Array, mid: number, hyst: number): number[] {
+  const out: number[] = [];
+  forEachRisingCrossing(x, mid, hyst, 1, x.length - 1, (c) => out.push(c));
   return out;
 }
 
@@ -261,24 +274,15 @@ function crossingNearLock(
   for (let k = 0; k < LOCK_TRIES && expected - tol >= 0; k += 1) {
     const from = Math.max(1, Math.floor(expected - period * LOCK_LOOKBACK));
     const to = Math.min(x.length - 1, Math.ceil(expected + tol));
-    let armed = false;
     let best = -1;
     let bestDist = Number.POSITIVE_INFINITY;
-    for (let i = from; i <= to; i += 1) {
-      const v = (x[i] ?? 0) - mid;
-      if (v < -hyst) {
-        armed = true;
-      } else if (armed && v >= 0) {
-        const p = (x[i - 1] ?? 0) - mid;
-        const c = i - 1 + (v === p ? 1 : -p / (v - p));
-        const d = Math.abs(c - expected);
-        if (d <= tol && c <= room && d < bestDist) {
-          best = c;
-          bestDist = d;
-        }
-        armed = false;
+    forEachRisingCrossing(x, mid, hyst, from, to, (c) => {
+      const d = Math.abs(c - expected);
+      if (d <= tol && c <= room && d < bestDist) {
+        best = c;
+        bestDist = d;
       }
-    }
+    });
     if (best >= 0) {
       return best;
     }
@@ -351,26 +355,41 @@ export function findTrigger(
   return (ties.at(-1) ?? valid.at(-1)) as number;
 }
 
+/**
+ * The period a candidate `s` (the engine's hint or the previous period) gives when the wave really repeats at it,
+ * else 0. A hint that the correlation confirms is returned as is, the engine's own note frequency being exact.
+ */
+function confirmedPeriod(
+  x: Float32Array,
+  t: Trigger,
+  full: number,
+  s: number,
+  hint: number
+): number {
+  if (!(s > MIN_LAG && s * 2 < x.length)) {
+    return 0;
+  }
+  const r = refinePrepared(full, s, 2);
+  if (r.corr < GOOD_CORR) {
+    return 0;
+  }
+  if (s === hint && Math.abs(r.lag - hint) <= Math.max(0.6, hint * 0.01)) {
+    return hint;
+  }
+  // a steady estimate: small changes are smoothed away, so the span does not breathe
+  return t.period > 0 && Math.abs(r.lag - t.period) < t.period * 0.01
+    ? t.period * 0.8 + r.lag * 0.2
+    : r.lag;
+}
+
 /** The period of `x`: the hint if the wave really repeats at it, else the previous one, else a fresh search. */
 function estimatePeriod(x: Float32Array, t: Trigger, o: TriggerOpts): number {
   const sizes = prepareBoth(x);
   const hint = o.hintHz && o.hintHz > 20 ? o.sampleRate / o.hintHz : 0;
   for (const s of [hint, t.period]) {
-    if (s > MIN_LAG && s * 2 < x.length) {
-      const r = refinePrepared(sizes.full, s, 2);
-      if (r.corr >= GOOD_CORR) {
-        if (
-          s === hint &&
-          Math.abs(r.lag - hint) <= Math.max(0.6, hint * 0.01)
-        ) {
-          // the engine's own note frequency is exact: the correlation only confirms it
-          return hint;
-        }
-        // a steady estimate: small changes are smoothed away, so the span does not breathe
-        return t.period > 0 && Math.abs(r.lag - t.period) < t.period * 0.01
-          ? t.period * 0.8 + r.lag * 0.2
-          : r.lag;
-      }
+    const confirmed = confirmedPeriod(x, t, sizes.full, s, hint);
+    if (confirmed > 0) {
+      return confirmed;
     }
   }
   if (t.idle > 0) {
@@ -449,17 +468,5 @@ export function scopeTraceAt(
   w: number,
   h: number
 ): { peak: number; spans: Int32Array } {
-  const mid = h / 2;
-  const spans = new Int32Array(w * 2);
-  let prevY = mid;
-  let peak = 0;
-  for (let x = 0; x < w; x += 1) {
-    const v = Math.min(1, Math.max(-1, sampleAt(data, start + (span * x) / w)));
-    peak = Math.max(peak, Math.abs(v));
-    const y = Math.round(mid - v * (mid - 2));
-    spans[x * 2] = Math.min(y, prevY);
-    spans[x * 2 + 1] = Math.max(y, prevY);
-    prevY = y;
-  }
-  return { peak, spans };
+  return traceColumns(w, h, (x) => sampleAt(data, start + (span * x) / w));
 }

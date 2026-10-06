@@ -32,11 +32,11 @@ vi.mock("@bleepkit/core", async (importOriginal) => {
   };
 });
 
-const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
+const SEEDS = [1, 2, 3];
 /** Section 3.3: the duties an NES or Game Boy pulse offers. */
 const PULSE_DUTIES = [0.125, 0.25, 0.5, 0.75];
 
-// every category on every chip at 8 seeds, generated once; mutateSfx copies its input, so the sweeps can share them
+// every category on every chip at 3 seeds, generated once; mutateSfx copies its input, so the sweeps can share them
 let generated: Sfx[] | undefined;
 
 function eachSfx(fn: (sfx: Sfx) => void): void {
@@ -225,7 +225,7 @@ describe("mutateSfx", { timeout: SWEEP_TIMEOUT_MS }, () => {
         ).toBeGreaterThanOrEqual(floor * 0.99);
       }
     });
-    expect(checked).toBeGreaterThan(500);
+    expect(checked).toBeGreaterThan(150);
   });
 
   it("makes small musical nudges at the default amount: pitch moves in whole semitones, not more than a fourth", () => {

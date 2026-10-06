@@ -7,7 +7,7 @@ import { fallDb, riseFactor, SILENT_PEAK } from "./bands.ts";
 /** Frames of sound the level is read from: the newest 2048, about 43 ms at 48 kHz. */
 export const LEVEL_FRAMES = 2048;
 /** The scale in dB RMS: a full-scale square reads 0 dB, the floor is an empty display. */
-export const LEVEL_TOP_DB = 0;
+const LEVEL_TOP_DB = 0;
 export const LEVEL_FLOOR_DB = -36;
 /** Lowest height of a column (a fraction of the tallest): the texture only trims columns, it never empties them. */
 const TEXTURE_MIN = 0.5;
@@ -75,7 +75,7 @@ export function levelDb(data: Float32Array): number {
  * One step of `dt` seconds towards `target` dB: a rise with the attack time constant, a fall at the release rate
  * (the fast stop fall once the channel is `silent`).
  */
-export function stepLevel(
+function stepLevel(
   s: LevelState,
   target: number,
   dt: number,
@@ -98,7 +98,7 @@ export function updateLevel(
 }
 
 /** 0..1 height of a level in dB. */
-export function levelFraction(db: number): number {
+function levelFraction(db: number): number {
   const t = (db - LEVEL_FLOOR_DB) / (LEVEL_TOP_DB - LEVEL_FLOOR_DB);
   return Math.max(0, Math.min(1, t));
 }

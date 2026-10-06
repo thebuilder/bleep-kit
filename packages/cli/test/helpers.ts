@@ -23,11 +23,15 @@ function parse(stdout: string): unknown {
   }
 }
 
-/** Runs the CLI in this process (fast, and it counts for coverage): the same `main` the entry point calls. */
-export async function run(cwd: string, args: string[]): Promise<RunResult> {
+/** Runs the CLI in this process (fast): the same `main` the entry point calls. `entry` is the `main` to call. */
+export async function runWith(
+  entry: typeof main,
+  cwd: string,
+  args: string[]
+): Promise<RunResult> {
   let stdout = "";
   let stderr = "";
-  const code = await main(args, {
+  const code = await entry(args, {
     cwd,
     isTTY: false,
     stderr: (t) => {
@@ -39,6 +43,9 @@ export async function run(cwd: string, args: string[]): Promise<RunResult> {
   });
   return { code, json: parse(stdout), stderr, stdout };
 }
+
+export const run = (cwd: string, args: string[]): Promise<RunResult> =>
+  runWith(main, cwd, args);
 
 /** Runs the real entry point (`node src/index.ts`) the way a developer or agent would. */
 export function runProcess(cwd: string, args: string[]): RunResult {

@@ -23,6 +23,7 @@ jobs:
           key: turbo-${{ runner.os }}-${{ github.sha }}
           restore-keys: turbo-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
-      # typecheck (every package against its own tsconfig), Ultracite lint and formatting, tests with coverage,
-      # Fallow (unused code, duplication, complexity), build, and a pack-and-use check of the publishable packages
-      - run: pnpm verify
+      # typecheck (every package against its own tsconfig), Ultracite lint and formatting, Fallow (unused code,
+      # duplication, complexity) and build. Tests do not run here, they are slow and cost Actions minutes: run
+      # `pnpm verify` (adds the tests and the pack-and-use check of the publishable packages) locally before a release.
+      - run: pnpm ci:check

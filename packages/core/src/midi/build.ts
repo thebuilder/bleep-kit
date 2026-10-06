@@ -31,7 +31,7 @@ const MAX_VOLUME = 15;
 const MAX_VELOCITY = 127;
 
 /** MIDI velocity 1..127 to the volume column 1..15 (a played note never becomes silent). */
-export function velocityToVolume(velocity: number): number {
+function velocityToVolume(velocity: number): number {
   return Math.max(
     1,
     Math.min(MAX_VOLUME, Math.round((velocity / MAX_VELOCITY) * MAX_VOLUME))

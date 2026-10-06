@@ -9,7 +9,7 @@ import { ServerStore } from "../src/store/server.ts";
 import { installCanvasStub, settle, until } from "./helpers.ts";
 
 installCanvasStub();
-vi.setConfig({ hookTimeout: 60_000, testTimeout: 60_000 });
+vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
 
 type AppMod = typeof import("../src/app.ts");
 type DocsMod = typeof import("../src/state/docs.ts");

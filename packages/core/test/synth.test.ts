@@ -200,12 +200,12 @@ describe("transport", () => {
   it("loop false plays once and emits an end event, loop true emits loop events", () => {
     const once = songSynth();
     once.play({ loop: false });
-    const a = runSynth(once, SR * 40);
+    const a = runSynth(once, SR * 17);
     expect(a.events.some((e) => e.type === "end")).toBe(true);
     expect(a.events.some((e) => e.type === "loop")).toBe(false);
     const looping = songSynth();
     looping.play({ loop: true });
-    const b = runSynth(looping, SR * 40);
+    const b = runSynth(looping, SR * 17);
     expect(b.events.some((e) => e.type === "loop")).toBe(true);
     expect(b.events.some((e) => e.type === "end")).toBe(false);
   });

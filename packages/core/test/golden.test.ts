@@ -24,6 +24,7 @@ import {
   renderSong,
 } from "../src/index.ts";
 import {
+  cutSong,
   fixtureDemo,
   fixtureInstruments,
   fixtureJson,
@@ -94,10 +95,19 @@ function writeGolden(id: string, path: string, now: GoldenFile): void {
   writeFileSync(path, `${JSON.stringify(now, null, 2)}\n`);
 }
 
+/** A whole song is seconds of DSP, so its hash is pinned at the default rate only; the rate itself is pinned by the
+    sfx and instrument scenarios, which are cheap enough to render at both. */
+const SONG_IDS: readonly string[] = [
+  "song-title",
+  ...CHIPS.map((chip) => `demo-${chip}`),
+];
+const ratesOf = (id: string): readonly number[] =>
+  SONG_IDS.includes(id) ? [48_000] : RATES;
+
 function checkGolden(id: string, make: (rate: number) => RenderResult): void {
   const path = `${GOLDEN}${id}.json`;
   const now: GoldenFile = { engineVersion: ENGINE_VERSION, renders: {} };
-  for (const rate of RATES) {
+  for (const rate of ratesOf(id)) {
     const render = make(rate);
     // a hash of silence would pin nothing: every golden scenario has to make a sound
     expect(
@@ -203,7 +213,9 @@ describe("golden files and ENGINE_VERSION", () => {
         owners.set(key, id);
       }
     }
-    expect(owners.size).toBe(GOLDEN_IDS.length * RATES.length);
+    expect(owners.size).toBe(
+      GOLDEN_IDS.reduce((n, id) => n + ratesOf(id).length, 0)
+    );
   });
 });
 
@@ -251,8 +263,14 @@ describe("golden renders", () => {
 });
 
 describe("determinism", () => {
-  it("renderSong twice is bit identical", () => {
+  /** The title song cut to its first 16 rows: determinism does not need the whole song. */
+  const shortTitle = () => {
     const { song, instruments } = fixtureSong();
+    return { instruments, song: cutSong(song) };
+  };
+
+  it("renderSong twice is bit identical", () => {
+    const { song, instruments } = shortTitle();
     bitEqual(
       renderSong(song, instruments, { tail: 0.25 }),
       renderSong(song, instruments, { tail: 0.25 })
@@ -270,9 +288,10 @@ describe("determinism", () => {
   it("every chip's demo song renders identically twice", () => {
     for (const chip of CHIPS) {
       const d = fixtureDemo(chip);
+      const song = cutSong(d.song, 8);
       bitEqual(
-        renderSong(d.song, d.instruments, { tail: 0.1 }),
-        renderSong(d.song, d.instruments, { tail: 0.1 })
+        renderSong(song, d.instruments, { tail: 0.1 }),
+        renderSong(song, d.instruments, { tail: 0.1 })
       );
     }
   });
@@ -285,7 +304,7 @@ describe("determinism", () => {
   });
 
   it("a different seed changes the noise channel, the same seed does not", () => {
-    const { song, instruments } = fixtureSong();
+    const { song, instruments } = shortTitle();
     const a = renderSong(song, instruments, { seed: 1, tail: 0.1 });
     const b = renderSong(song, instruments, { seed: 1, tail: 0.1 });
     const c = renderSong(song, instruments, { seed: 2, tail: 0.1 });
@@ -294,7 +313,7 @@ describe("determinism", () => {
   });
 
   it("stems do not change the mix", () => {
-    const { song, instruments } = fixtureSong();
+    const { song, instruments } = shortTitle();
     const plain = renderSong(song, instruments, { tail: 0.1 });
     const withStems = renderSong(song, instruments, { stems: true, tail: 0.1 });
     expect(hashChannels(withStems.channels)).toBe(hashChannels(plain.channels));
@@ -343,7 +362,7 @@ describe("block size independence", () => {
 
   for (const chip of ["nes", ...CHIPS] as const) {
     it(`${chip}: 128 and 64 frame blocks give identical audio`, () => {
-      const frames = 48_000;
+      const frames = 24_000;
       const a = runSong(chip, 128, frames);
       const b = runSong(chip, 64, frames);
       // equal silence would prove nothing

@@ -1,3 +1,4 @@
+// @vitest-environment node
 /* The project in memory (src/state/docs.ts) against a real LocalStore: what an edit does to the document and to the
    store, when a save happens, what a stale etag means, how an outside change is told from the studio's own write.
    This is the path that decides whether what the user shaped is kept. The view tests only see its effects. */

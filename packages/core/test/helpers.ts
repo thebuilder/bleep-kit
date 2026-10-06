@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type {
   EngineEvent,
   Instrument,
+  Pattern,
   Sfx,
   Song,
   Synth,
@@ -71,6 +72,41 @@ export function fixtureDemo(chip: string): Demo {
     sfx: normalizeSfx(raw.sfx).value,
     song: normalizeSong(raw.song, instruments).value,
   };
+}
+
+/**
+ * A song cut down to the first `rows` rows of its first pattern, looping back to itself (or playing once, as the
+ * original does). Rendering a whole fixture song is seconds of DSP; a test that is
+ * about the engine's behavior rather than that particular music renders this instead.
+ */
+export function cutSong(song: Song, rows = 16): Song {
+  const first = song.order[0] as string;
+  const pattern = song.patterns[first] as Pattern;
+  const tracks: Pattern["tracks"] = {};
+  for (const [id, cells] of Object.entries(pattern.tracks)) {
+    tracks[id] = cells.filter((cell) => cell.row < rows);
+  }
+  return {
+    ...song,
+    loop: song.loop === null ? null : 0,
+    order: [first],
+    patterns: { [first]: { length: rows, tracks } },
+  };
+}
+
+/** The title song, cut to `rows` rows (see `cutSong`). */
+export function fixtureShortSong(rows = 16): {
+  song: Song;
+  instruments: Record<string, Instrument>;
+} {
+  const { song, instruments } = fixtureSong();
+  return { instruments, song: cutSong(song, rows) };
+}
+
+/** A chip's demo, with its song cut to `rows` rows (see `cutSong`). */
+export function fixtureShortDemo(chip: string, rows = 16): Demo {
+  const demo = fixtureDemo(chip);
+  return { ...demo, song: cutSong(demo.song, rows) };
 }
 
 export interface Captured {
@@ -211,7 +247,9 @@ function spectrum(
   fft(re, im);
   const mag = new Float64Array(n / 2);
   for (let i = 0; i < mag.length; i += 1) {
-    mag[i] = Math.hypot(re[i] ?? 0, im[i] ?? 0);
+    const r = re[i] ?? 0;
+    const q = im[i] ?? 0;
+    mag[i] = Math.sqrt(r * r + q * q);
   }
   return mag;
 }

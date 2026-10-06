@@ -1,3 +1,4 @@
+// @vitest-environment node
 /* The scope trigger and the spectrum maths: a held note must give the same picture whatever the window start, and the
    spectrum's bands, scale and ballistics must not pin every bar to the top. */
 import { describe, expect, it } from "vitest";
