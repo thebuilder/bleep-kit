@@ -1190,16 +1190,32 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
   });
 
   /* ----- visuals ----- */
-  /** Light the keys of the notes this instrument just played, when they are inside the two visible octaves. */
+  /** The key each preview channel last lit, so the engine's noteOff can put it out again. */
+  const litOn = new Map<number, number>();
+  /** Light the keys of the notes this instrument just played, when they are inside the two visible octaves, and put
+      them out on the engine's noteOff. The engine reports a note when it becomes audible, which for a quick click is
+      after the mouse is already up, so lighting without the matching release would leave the key stuck on. */
   function lightKeys(f: Frame): void {
     const lo = (octave + 1) * 12;
     for (const ev of f.events as readonly EngineEvent[]) {
-      if (ev.channel < 0 || ev.type !== "noteOn" || ev.id !== id) {
+      if (ev.channel < 0) {
+        continue;
+      }
+      if (ev.type === "noteOff") {
+        const n = litOn.get(ev.channel);
+        if (n !== undefined) {
+          piano.release(n, f.time);
+          litOn.delete(ev.channel);
+        }
+        continue;
+      }
+      if (ev.type !== "noteOn" || ev.id !== id) {
         continue;
       }
       const n = Math.round(ev.note);
       if (n >= lo && n < lo + 24) {
         piano.light(n, hex(), true, f.time);
+        litOn.set(ev.channel, n);
       }
     }
   }
