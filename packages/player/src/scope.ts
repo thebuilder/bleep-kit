@@ -8,6 +8,13 @@ import type { ScopeReader } from "@bleepkit/core";
 export const MAX_SCOPE_CHANNELS = 10;
 
 export interface RingSource {
+  /**
+   * The absolute engine frame just after the newest sample that really is in the rings, when the feed lags the
+   * engine (posted copies arrive in blocks, a message late). A window that would end after it is moved back so it
+   * never reads frames the ring has not received yet (they would hold sound from a whole ring ago). Shared memory
+   * is written every block, so it has none.
+   */
+  end?: () => number;
   readonly frames: number;
   /** Frames written so far modulo `frames`. */
   head: () => number;
@@ -56,6 +63,7 @@ export class PostedRings implements RingSource {
   private readonly channels: Float32Array[] = [];
   private readonly master: [Float32Array, Float32Array];
   private position = 0;
+  private written = 0;
 
   constructor(frames: number) {
     this.frames = frames;
@@ -64,6 +72,10 @@ export class PostedRings implements RingSource {
 
   head(): number {
     return this.position;
+  }
+
+  end(): number {
+    return this.written;
   }
 
   ring(channel: number): Float32Array | null {
@@ -102,6 +114,7 @@ export class PostedRings implements RingSource {
       }
     }
     this.position = ((frame % this.frames) + this.frames) % this.frames;
+    this.written = Math.max(this.written, frame);
   }
 
   private copyIn(ring: Float32Array, frame: number, data: Float32Array): void {
@@ -132,7 +145,10 @@ export function createRingReader(source: RingSource): ScopeReader {
   const count = (frames: number) =>
     Math.max(1, Math.min(Math.floor(frames), source.frames));
 
-  const copy = (channel: number, start: number, n: number) => {
+  const copy = (channel: number, from: number, n: number) => {
+    // a feed that lags the engine: show the newest sound it has, not the stale frames after it
+    const end = source.end?.();
+    const start = end === undefined ? from : Math.min(from, end - n);
     const out = output(channel, n);
     const ring = source.ring(channel);
     if (!ring) {

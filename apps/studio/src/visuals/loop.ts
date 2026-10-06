@@ -7,8 +7,8 @@ import type { EngineEvent, SongPosition } from "../lib/contract.ts";
 import { reducedMotion } from "../lib/dom.ts";
 import { rms } from "./canvas.ts";
 
-/* 1536 frames: long enough for a whole period of a low note, and short enough to stay inside the 2048 frame scope ring
-   (the frames just behind the write head are not yet valid). The spectrum takes the newest 1024 of them. */
+/* 1536 frames: the master scope's window and the source of the spectrum (it takes the newest 1024 of them). Far inside
+   the 8192 frame scope ring, whose spare frames cover the output latency (the engine writes ahead of what is audible). */
 export const MASTER_WINDOW = 1536;
 
 export interface Frame {

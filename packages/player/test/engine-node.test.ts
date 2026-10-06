@@ -1,4 +1,4 @@
-import type { FromWorklet, ToWorklet } from "@bleepkit/core";
+import { type FromWorklet, SCOPE_FRAMES, type ToWorklet } from "@bleepkit/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createEngineNode } from "../src/engine-node.ts";
 import { sharedScopeBytes } from "../src/scope.ts";
@@ -40,7 +40,11 @@ describe("createEngineNode: loading", () => {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [2],
-      processorOptions: { scopeFrames: 2048, scopes: true, sfxVoices: 6 },
+      processorOptions: {
+        scopeFrames: SCOPE_FRAMES,
+        scopes: true,
+        sfxVoices: 6,
+      },
     });
     expect(engine.node).toBe(node);
     expect(engine.sampleRate).toBe(48_000);

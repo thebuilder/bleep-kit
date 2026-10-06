@@ -57,7 +57,7 @@ describe("@bleepkit/core entry point", () => {
   it("exports the constants of section 1.1 with the contract's values", () => {
     expect(core.FORMAT_VERSION).toBe(1);
     expect(core.PPQ).toBe(96);
-    expect(core.SCOPE_FRAMES).toBe(2048);
+    expect(core.SCOPE_FRAMES).toBe(8192);
     expect(core.CHIP_IDS).toEqual([
       "nes",
       "gameboy",

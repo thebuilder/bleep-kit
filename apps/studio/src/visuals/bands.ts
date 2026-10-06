@@ -6,12 +6,23 @@ export const SPEC_MAX_HZ = 16_000;
 /** The fixed scale: 0 dBFS is a full-scale sine, the floor is where a bar is empty. No automatic gain. */
 export const DB_TOP = 0;
 export const DB_FLOOR = -72;
-/** A bar rises with this time constant (seconds), falls at this many dB per second. */
+/*
+ * The ballistics of every bar and meter in the studio, one set of numbers (strip.ts and level.ts read these):
+ * a bar rises with this time constant (seconds) and falls at this many dB per second, so a full 72 dB drop takes
+ * about 1.2 s and a typical loud bar (-20 dB) under a second.
+ */
 export const ATTACK_S = 0.012;
-export const RELEASE_DB_S = 24;
-/** The peak marker waits this long (ms) after its bar, then falls at this many dB per second. */
-export const PEAK_HOLD_MS = 700;
-export const PEAK_FALL_DB_S = 10;
+export const RELEASE_DB_S = 60;
+/** A peak marker waits this long (ms) after its bar, then falls at this many dB per second. */
+export const PEAK_HOLD_MS = 300;
+export const PEAK_FALL_DB_S = 40;
+/**
+ * Once the sound has stopped (the master is silent) bars and peak markers stop holding and fall this fast, so a
+ * stopped song clears the display in well under a second (72 dB in 0.6 s).
+ */
+export const STOP_FALL_DB_S = 120;
+/** The master counts as silent below this peak (about -66 dBFS, under the spectrum's floor). */
+export const SILENT_PEAK = 5e-4;
 
 /** `count + 1` band edges in Hz, log spaced from `minHz` to `maxHz` (kept below the Nyquist frequency). */
 export function bandEdgesHz(
@@ -96,26 +107,41 @@ export function createBallistics(count: number): Ballistics {
   };
 }
 
-/** One step of `dt` seconds at time `nowMs`: each bar chases its `target` dB. */
+/** One dB fall of a bar or a level over `dt` seconds: the release, or the fast stop fall once the sound is gone. */
+export function fallDb(dt: number, silent: boolean): number {
+  return (silent ? STOP_FALL_DB_S : RELEASE_DB_S) * dt;
+}
+
+/** The attack factor of one `dt` step: how much of the way to a higher target a bar goes. */
+export function riseFactor(dt: number): number {
+  return 1 - Math.exp(-dt / ATTACK_S);
+}
+
+/**
+ * One step of `dt` seconds at time `nowMs`: each bar chases its `target` dB. `silent` (the master has stopped)
+ * drops the peak hold and makes bars and markers fall at STOP_FALL_DB_S.
+ */
 export function stepBallistics(
   s: Ballistics,
   target: Float32Array,
   dt: number,
-  nowMs: number
+  nowMs: number,
+  silent = false
 ): void {
-  const rise = 1 - Math.exp(-dt / ATTACK_S);
+  const rise = riseFactor(dt);
+  const drop = fallDb(dt, silent);
   for (let b = 0; b < s.bars.length; b += 1) {
     const cur = s.bars[b] ?? DB_FLOOR;
     const t = target[b] ?? DB_FLOOR;
-    const next =
-      t > cur ? cur + (t - cur) * rise : Math.max(t, cur - RELEASE_DB_S * dt);
+    const next = t > cur ? cur + (t - cur) * rise : Math.max(t, cur - drop);
     s.bars[b] = next;
     const peak = s.peaks[b] ?? DB_FLOOR;
     if (next >= peak) {
       s.peaks[b] = next;
       s.peakAt[b] = nowMs;
-    } else if (nowMs - (s.peakAt[b] ?? 0) > PEAK_HOLD_MS) {
-      s.peaks[b] = Math.max(next, DB_FLOOR, peak - PEAK_FALL_DB_S * dt);
+    } else if (silent || nowMs - (s.peakAt[b] ?? 0) > PEAK_HOLD_MS) {
+      const fall = silent ? drop : PEAK_FALL_DB_S * dt;
+      s.peaks[b] = Math.max(next, DB_FLOOR, peak - fall);
     }
   }
 }

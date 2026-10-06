@@ -1,4 +1,9 @@
-import { createSynth, type EngineEvent, normalizeSfx } from "@bleepkit/core";
+import {
+  createSynth,
+  type EngineEvent,
+  normalizeSfx,
+  SCOPE_FRAMES,
+} from "@bleepkit/core";
 import { describe, expect, it } from "vitest";
 import coinJson from "../../core/test/fixtures/sfx-coin.json" with {
   type: "json",
@@ -19,6 +24,7 @@ describe("shared scope layout", () => {
   it("has room for the head, ten channels and two master rings", () => {
     expect(sharedScopeBytes(2048)).toBe(98_308);
     expect(sharedScopeBytes(256, 4)).toBe(6148);
+    expect(sharedScopeBytes(SCOPE_FRAMES)).toBe(4 + 4 * 8192 * 12);
   });
 
   it("reads rings the synth writes, in the documented order", () => {
@@ -131,6 +137,37 @@ describe("posted scope copies", () => {
     expect(Array.from(reader.at(0, 1100, 2))).toEqual([1100, 1101]);
   });
 
+  it("keep a low note whole in the scope ring and never read frames that have not arrived", () => {
+    // the default ring is sized so two periods of the lowest bass (27 Hz, 1780 frames at 48 kHz) fit with margin
+    expect(SCOPE_FRAMES).toBeGreaterThanOrEqual(4 * 1780);
+    const rate = 48_000;
+    const hz = 27.5;
+    const saw = (from: number, n: number) =>
+      Float32Array.from(
+        { length: n },
+        (_, i) => (((from + i) * hz) / rate) % 1
+      );
+    const rings = new PostedRings(SCOPE_FRAMES);
+    // the worklet posts the newest 1024 frames every 1024 frames: 5 posts, 5120 frames
+    for (let f = 1024; f <= 5 * 1024; f += 1024) {
+      rings.write(f, [saw(f - 1024, 1024)], [saw(f - 1024, 1024)]);
+    }
+    const reader = createRingReader(rings);
+    // 4096 frames, more than two periods of 27.5 Hz, straight out of the posted copies
+    expect(Array.from(reader.at(0, 1024, 4096))).toEqual(
+      Array.from(saw(1024, 4096))
+    );
+    // the engine is already past the last post (the clock runs ahead of the copies): the window moves back, so the
+    // frames after the last copy (a whole ring old, in the ring) are not read
+    expect(Array.from(reader.at(0, 2000, 4096))).toEqual(
+      Array.from(saw(5120 - 4096, 4096))
+    );
+    expect(Array.from(reader.at(0, 1024, 4096))).toEqual(
+      Array.from(reader.at(0, 4000, 4096))
+    );
+    expect(rings.end()).toBe(5120);
+  });
+
   it("allocates channel rings as copies arrive and reads silence from the rest", () => {
     const rings = new PostedRings(256);
     const reader = createRingReader(rings);
@@ -146,7 +183,7 @@ describe("posted scope copies", () => {
     rings.write(5, [ramp(0, 10)], []);
     const reader = createRingReader(rings);
     expect(Array.from(reader.latest(0, 5))).toEqual([5, 6, 7, 8, 9]);
-    expect(Array.from(reader.at(0, 251, 5))).toEqual([0, 1, 2, 3, 4]);
+    expect(Array.from(reader.at(0, -5, 5))).toEqual([0, 1, 2, 3, 4]);
   });
 
   it("keeps only the newest samples of a copy larger than the ring", () => {

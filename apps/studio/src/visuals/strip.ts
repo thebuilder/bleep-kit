@@ -10,6 +10,10 @@ import {
   createBallistics,
   DB_FLOOR,
   dbFraction,
+  PEAK_FALL_DB_S,
+  PEAK_HOLD_MS,
+  SILENT_PEAK,
+  STOP_FALL_DB_S,
   stepBallistics,
 } from "./bands.ts";
 import { rgba, surface } from "./canvas.ts";
@@ -21,8 +25,6 @@ const BARS = 64;
 const SEG = 3;
 const GAP = 1;
 const FFT_SIZE = 1024;
-const HOLD_MS = 400;
-const FALL_DB_S = 24;
 /** About how many frames the master scope shows (a whole number of periods near it when the mix has one). */
 const SCOPE_SPAN = 768;
 /** The scope normalizes quiet signals up to this height (a fraction of the half height) with at most this gain. */
@@ -144,7 +146,7 @@ export function createStrip(host: HTMLElement): Strip {
       // the newest FFT_SIZE frames of the window: the oldest ones are the ones the scope ring may not hold yet
       fft.magnitudes(f.master.subarray(f.master.length - FFT_SIZE), mag);
       bandLevels(mag, f.sampleRate, edgesHz, levels);
-      stepBallistics(ball, levels, f.dt, f.time);
+      stepBallistics(ball, levels, f.dt, f.time, f.peak < SILENT_PEAK);
     }
     const slot = w / BARS;
     const barW = Math.max(2, Math.floor(slot) - 1);
@@ -187,8 +189,13 @@ export function createStrip(host: HTMLElement): Strip {
     const frac = Math.max(0, Math.min(1, (db + 48) / 48));
     const rows = Math.floor((h - 8) / (SEG + GAP));
     const lit = Math.round(frac * rows);
-    if (f.time > peakHoldAt + HOLD_MS) {
-      peakHoldDb = Math.max(-60, peakHoldDb - FALL_DB_S * f.dt);
+    // the meter's marker keeps the spectrum's hold and fall, and clears fast once the sound has stopped
+    const silent = f.peak < SILENT_PEAK;
+    if (silent || f.time > peakHoldAt + PEAK_HOLD_MS) {
+      peakHoldDb = Math.max(
+        -60,
+        peakHoldDb - (silent ? STOP_FALL_DB_S : PEAK_FALL_DB_S) * f.dt
+      );
     }
     if (db >= peakHoldDb) {
       peakHoldDb = db;

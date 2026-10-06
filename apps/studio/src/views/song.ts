@@ -55,11 +55,22 @@ import {
   openTrackerHelp,
 } from "../ui/tracker-help.ts";
 import { surface } from "../visuals/canvas.ts";
+import {
+  columnHeights,
+  createLevelState,
+  createMode,
+  LEVEL_FRAMES,
+  type LevelState,
+  levelMode,
+  type ModeState,
+  updateLevel,
+} from "../visuals/level.ts";
 import { addVisual, type Frame } from "../visuals/loop.ts";
 import {
   createTrigger,
   locate,
   scopeTraceAt,
+  scopeWindowFrames,
   type Trigger,
 } from "../visuals/trigger.ts";
 
@@ -79,8 +90,8 @@ const OFFSET_IN_MESSAGE = /offset (\d+)/;
 const hex = (n: number, d = 1) => n.toString(16).toUpperCase().padStart(d, "0");
 /** Height of a tracker row in CSS pixels (.trow). */
 const ROW_H = 20;
-/** How far back from the playing frame each channel scope looks. */
-const SCOPE_FRAMES = 1536;
+/** Width in CSS pixels of a column of the level display (noise and other channels with no period). */
+const LEVEL_COL_PX = 2;
 /** About how many frames a channel scope shows (a whole number of periods near it). */
 const SCOPE_SPAN = 900;
 const KEY_LO = 36;
@@ -321,6 +332,8 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     ch: SongChannel;
     s: ReturnType<typeof surface>;
     idx: number;
+    level: LevelState;
+    mode: ModeState;
     trig: Trigger;
   }[] = [];
 
@@ -413,7 +426,15 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         `${KIND_LABEL[kindOf(c)]} ${c.instrument ?? ""}`.trim();
       head.append(cell);
       const cv = cell.querySelector("canvas") as HTMLCanvasElement;
-      scopeSurfs.push({ ch: c, idx, s: surface(cv), trig: createTrigger() });
+      const surf = surface(cv);
+      scopeSurfs.push({
+        ch: c,
+        idx,
+        level: createLevelState(Math.ceil(surf.w / LEVEL_COL_PX)),
+        mode: createMode(),
+        s: surf,
+        trig: createTrigger(),
+      });
     });
   }
 
@@ -1845,20 +1866,58 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     }
   }
 
-  /** The last SCOPE_FRAMES frames of a channel's sound, or null when nothing is to be drawn: not playing, reduced
+  /** The last `frames` frames of a channel's sound, or null when nothing is to be drawn: not playing, reduced
       motion, a channel the engine has no scope for, or a scope that cannot be read. */
   function scopeWindow(
     e: (typeof scopeSurfs)[number],
-    f: Parameters<Parameters<typeof addVisual>[0]>[0]
+    f: Parameters<Parameters<typeof addVisual>[0]>[0],
+    frames: number
   ): Float32Array | null {
     const reader = engine.scopes;
     if (!reader || e.idx < 0 || !f.playing || f.reduced) {
       return null;
     }
     try {
-      return reader.at(e.idx, f.frame - SCOPE_FRAMES, SCOPE_FRAMES);
+      return reader.at(e.idx, f.frame - frames, frames);
     } catch {
       return null;
+    }
+  }
+
+  /** The window a pitched channel's scope reads: long enough for two periods of its note (see scopeWindowFrames). */
+  function pitchedWindow(
+    e: (typeof scopeSurfs)[number],
+    f: Parameters<Parameters<typeof addVisual>[0]>[0]
+  ): number {
+    const hz = hzOf.get(e.idx);
+    const period = hz && hz > 20 ? f.sampleRate / hz : e.trig.period;
+    return scopeWindowFrames(period);
+  }
+
+  /** A fixed bar texture scaled by the smoothed level: what a noise channel (or a sound with no period) draws. */
+  function drawLevel(
+    e: (typeof scopeSurfs)[number],
+    f: Parameters<Parameters<typeof addVisual>[0]>[0],
+    data: Float32Array,
+    peak: number,
+    color: string
+  ): void {
+    const { ctx: g, w, h: hh } = e.s;
+    const mid = hh / 2;
+    const columns = Math.ceil(w / LEVEL_COL_PX);
+    if (e.level.heights.length !== columns) {
+      e.level = createLevelState(columns);
+    }
+    updateLevel(e.level, data, f.dt, peak);
+    const heights = columnHeights(e.level, mid - 2);
+    for (let c = 0; c < heights.length; c += 1) {
+      const x = c * LEVEL_COL_PX;
+      const half = heights[c] ?? 0;
+      const bw = Math.min(LEVEL_COL_PX, w - x);
+      g.fillStyle = `${color}40`;
+      g.fillRect(x, Math.floor(mid) - half - 1, bw, half * 2 + 3);
+      g.fillStyle = color;
+      g.fillRect(x, Math.floor(mid) - half, bw, Math.max(1, half * 2));
     }
   }
 
@@ -1872,19 +1931,45 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       g.fillStyle = "rgba(255,255,255,0.06)";
       g.fillRect(0, Math.floor(hh / 2), w, 1);
       const muted = e.ch.muted || (solo.size > 0 && !solo.has(e.ch.id));
-      const data = scopeWindow(e, f);
+      const noise = e.ch.kind === "noise";
+      // noise has no period to lock to: it never reads the long window or searches for one
+      const frames = noise ? LEVEL_FRAMES : pitchedWindow(e, f);
+      const data = scopeWindow(e, f, frames);
       const mid = hh / 2;
       if (!data || muted) {
         g.fillStyle = `${color}${muted ? "33" : "88"}`;
         g.fillRect(0, Math.floor(mid), w, 2);
         continue;
       }
-      const t = locate(e.trig, data, f.frame - SCOPE_FRAMES, {
-        sampleRate: f.sampleRate,
-        targetSpan: SCOPE_SPAN,
-        ...(hzOf.has(e.idx) ? { hintHz: hzOf.get(e.idx) as number } : {}),
-      });
-      const { peak, spans } = scopeTraceAt(data, t.start, t.span, w, hh);
+      let period = 0;
+      let t: ReturnType<typeof locate> | null = null;
+      if (!noise) {
+        t = locate(e.trig, data, f.frame - frames, {
+          sampleRate: f.sampleRate,
+          targetSpan: SCOPE_SPAN,
+          ...(hzOf.has(e.idx) ? { hintHz: hzOf.get(e.idx) as number } : {}),
+        });
+        ({ period } = t);
+      }
+      let peak = 0;
+      for (let i = 0; i < data.length; i += 8) {
+        peak = Math.max(peak, Math.abs(data[i] ?? 0));
+      }
+      if (levelMode(e.mode, noise, period, peak < 0.002) || !t) {
+        drawLevel(e, f, data, peak, color);
+        if (peak < 0.002) {
+          g.fillStyle = `${color}88`;
+          g.fillRect(0, Math.floor(mid), w, 2);
+        }
+        continue;
+      }
+      const { peak: tracePeak, spans } = scopeTraceAt(
+        data,
+        t.start,
+        t.span,
+        w,
+        hh
+      );
       for (let x = 0; x < w; x += 1) {
         const y0 = spans[x * 2] ?? 0;
         const y1 = spans[x * 2 + 1] ?? 0;
@@ -1893,7 +1978,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         g.fillStyle = color;
         g.fillRect(x, y0, 1, Math.max(1, y1 - y0 + 1));
       }
-      if (peak < 0.002) {
+      if (tracePeak < 0.002) {
         g.fillStyle = `${color}88`;
         g.fillRect(0, Math.floor(mid), w, 2);
       }

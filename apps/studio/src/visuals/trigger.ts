@@ -29,6 +29,28 @@ export interface TriggerResult {
   start: number;
 }
 
+/** The shortest and longest window (frames) a scope reads: see scopeWindowFrames. */
+export const MIN_WINDOW = 1536;
+export const MAX_WINDOW = 4096;
+const WINDOW_STEP = 256;
+/** Periods of the wave a window should hold: two to correlate over, a little more to pick a trigger in. */
+const WINDOW_PERIODS = 2.5;
+
+/**
+ * How many frames of a channel to read for a wave whose period is `period` frames (0 when it is not known): the
+ * shortest window that holds 2.5 periods, in steps of 256 frames so the reader's buffer is not resized every frame,
+ * never less than MIN_WINDOW (so a high note or an arpeggio sees one short stretch of sound, not many pitches) and
+ * never more than MAX_WINDOW (the scope ring holds MAX_WINDOW plus the output latency). 4096 frames hold two
+ * periods of 27.5 Hz, the lowest note the chips play, at 48 kHz.
+ */
+export function scopeWindowFrames(period: number): number {
+  if (!(period > 0)) {
+    return MIN_WINDOW;
+  }
+  const want = Math.ceil((period * WINDOW_PERIODS) / WINDOW_STEP) * WINDOW_STEP;
+  return Math.max(MIN_WINDOW, Math.min(MAX_WINDOW, want));
+}
+
 /** Most periods drawn at once: a high note stays readable at the 96 pixel scope width. */
 const MAX_PERIODS = 6;
 const MIN_LAG = 6;
@@ -98,16 +120,24 @@ function corr(p: Prep, n: number, lag: number): number {
 
 let fullPrep = newPrep(0);
 let coarsePrep = newPrep(0);
-const COARSE = 4;
+/** Frames averaged into one coarse sample (set by prepareBoth): 4, or 8 for the long windows of low notes. */
+const SHORT_DOWN = 4;
+const LONG_DOWN = 8;
+const LONG_WINDOW = 3072;
+let coarseDown = SHORT_DOWN;
 
 /** Prepare both scratch signals for `x` (reused between calls: the realtime visuals do not allocate each frame). */
 function prepareBoth(x: Float32Array): { coarse: number; full: number } {
+  // a long window means a low note: a coarser first pass keeps its search as cheap as a short window's
+  coarseDown = x.length >= LONG_WINDOW ? LONG_DOWN : SHORT_DOWN;
   if (fullPrep.x.length < x.length) {
     fullPrep = newPrep(x.length);
-    coarsePrep = newPrep(Math.ceil(x.length / COARSE));
+  }
+  if (coarsePrep.x.length < Math.ceil(x.length / coarseDown)) {
+    coarsePrep = newPrep(Math.ceil(x.length / coarseDown));
   }
   return {
-    coarse: prepare(x, COARSE, coarsePrep),
+    coarse: prepare(x, coarseDown, coarsePrep),
     full: prepare(x, 1, fullPrep),
   };
 }
@@ -153,7 +183,7 @@ export function refineLag(
 
 function searchPrepared(n: number, m: number): { corr: number; lag: number } {
   const maxLag = Math.floor(m / 2);
-  const minLag = Math.max(2, Math.ceil(MIN_LAG / COARSE));
+  const minLag = Math.max(2, Math.ceil(MIN_LAG / coarseDown));
   const cs = new Float32Array(maxLag + 2);
   for (let l = minLag; l <= maxLag; l += 1) {
     cs[l] = corr(coarsePrep, m, l);
@@ -174,7 +204,7 @@ function searchPrepared(n: number, m: number): { corr: number; lag: number } {
   for (let l = from; l <= maxLag; l += 1) {
     const c = cs[l] ?? 0;
     if (c >= top * 0.8 && c >= (cs[l - 1] ?? 0) && c >= (cs[l + 1] ?? 0)) {
-      return refinePrepared(n, l * COARSE, COARSE);
+      return refinePrepared(n, l * coarseDown, coarseDown);
     }
   }
   return { corr: 0, lag: 0 };
@@ -207,6 +237,56 @@ export function risingCrossings(
   return out;
 }
 
+/** How far back (in periods) the scan for a locked crossing starts, so the wave has time to fall below the trigger. */
+const LOCK_LOOKBACK = 0.75;
+/** Locked periods tried, newest first, before giving up and scanning the whole window. */
+const LOCK_TRIES = 3;
+
+/**
+ * The newest rising crossing at or before `room` that has the phase of `lockAt` (within LOCK_TOLERANCE of a period),
+ * found by scanning a stretch of 1 to 2 periods around where each locked crossing should be, newest first, instead of
+ * the whole window. -1 when none is there (the note changed, the wave moved): the caller then does the full search.
+ */
+function crossingNearLock(
+  x: Float32Array,
+  mid: number,
+  hyst: number,
+  period: number,
+  room: number,
+  lockAt: number
+): number {
+  const tol = LOCK_TOLERANCE * period;
+  // the newest locked position that leaves room for the trace
+  let expected = lockAt + Math.floor((room + tol - lockAt) / period) * period;
+  for (let k = 0; k < LOCK_TRIES && expected - tol >= 0; k += 1) {
+    const from = Math.max(1, Math.floor(expected - period * LOCK_LOOKBACK));
+    const to = Math.min(x.length - 1, Math.ceil(expected + tol));
+    let armed = false;
+    let best = -1;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (let i = from; i <= to; i += 1) {
+      const v = (x[i] ?? 0) - mid;
+      if (v < -hyst) {
+        armed = true;
+      } else if (armed && v >= 0) {
+        const p = (x[i - 1] ?? 0) - mid;
+        const c = i - 1 + (v === p ? 1 : -p / (v - p));
+        const d = Math.abs(c - expected);
+        if (d <= tol && c <= room && d < bestDist) {
+          best = c;
+          bestDist = d;
+        }
+        armed = false;
+      }
+    }
+    if (best >= 0) {
+      return best;
+    }
+    expected -= period;
+  }
+  return -1;
+}
+
 /**
  * The crossing to start the trace on: one with room for `span` frames after it, and with the phase of `lockAt` (an
  * index in this buffer, any whole number of periods away) when that is near enough, else the steepest one. The latest
@@ -229,6 +309,20 @@ export function findTrigger(
     return -1;
   }
   const mid = (hi + lo) / 2;
+  if (period > 0 && lockAt !== undefined) {
+    // the steady case, every frame of a held note: look only where the lock says the next crossing is
+    const near = crossingNearLock(
+      x,
+      mid,
+      amp * HYSTERESIS,
+      period,
+      x.length - span,
+      lockAt
+    );
+    if (near >= 0) {
+      return near;
+    }
+  }
   const all = risingCrossings(x, mid, amp * HYSTERESIS);
   const room = x.length - span;
   const valid = all.filter((c) => c <= room);

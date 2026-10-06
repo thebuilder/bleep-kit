@@ -8,17 +8,35 @@ import {
   createBallistics,
   DB_FLOOR,
   dbFraction,
+  PEAK_FALL_DB_S,
   PEAK_HOLD_MS,
   RELEASE_DB_S,
+  SILENT_PEAK,
+  STOP_FALL_DB_S,
   stepBallistics,
 } from "../src/visuals/bands.ts";
 import { createSpectrum } from "../src/visuals/fft.ts";
 import {
+  columnHeights,
+  createLevelState,
+  createMode,
+  createTexture,
+  LEVEL_ENTER_FRAMES,
+  LEVEL_FLOOR_DB,
+  LEVEL_LEAVE_FRAMES,
+  levelDb,
+  levelMode,
+  updateLevel,
+} from "../src/visuals/level.ts";
+import {
   createTrigger,
   findTrigger,
   locate,
+  MAX_WINDOW,
+  MIN_WINDOW,
   refineLag,
   scopeTraceAt,
+  scopeWindowFrames,
   searchPeriod,
 } from "../src/visuals/trigger.ts";
 
@@ -159,6 +177,162 @@ describe("trigger", () => {
   });
 });
 
+describe("low notes", () => {
+  it("sizes the window for two periods of the note, between 1536 and 4096 frames", () => {
+    expect(scopeWindowFrames(0)).toBe(MIN_WINDOW);
+    expect(scopeWindowFrames(SR / 440)).toBe(MIN_WINDOW);
+    // 55 Hz: 873 frames a period
+    expect(scopeWindowFrames(SR / 55)).toBe(2304);
+    // 27.5 Hz, the lowest note the chips play: 1745 frames a period, two of them fit with margin
+    const low = scopeWindowFrames(SR / 27.5);
+    expect(low).toBe(MAX_WINDOW);
+    expect(low).toBeGreaterThanOrEqual(2 * (SR / 27.5) + 256);
+    expect(scopeWindowFrames(SR / 10)).toBe(MAX_WINDOW);
+  });
+
+  it("locks to a 30 Hz triangle in the ring and draws the same trace every frame", () => {
+    for (const hz of [30, 27.5, 41.2]) {
+      const period = SR / hz;
+      const window = scopeWindowFrames(period);
+      const tr = createTrigger();
+      let first: number[] | null = null;
+      let phase = -1;
+      for (let frame = 0; frame < 60; frame += 1) {
+        // the playing frame moves 800 frames a display frame, the window ends there
+        const base = 50_000 + frame * 800 - window;
+        const x = wave("triangle", hz, base, window);
+        const r = locate(tr, x, base, {
+          hintHz: hz,
+          sampleRate: SR,
+          targetSpan: 900,
+        });
+        expect(r.period).toBeCloseTo(period, 0);
+        // a whole period fits after the crossing
+        expect(r.start + r.span).toBeLessThanOrEqual(window);
+        const p = phaseOf(r.start + base, 0, period);
+        if (phase >= 0) {
+          expect(wrapDiff(p, phase, period)).toBeLessThan(0.5);
+        }
+        phase = p;
+        const spans = Array.from(
+          scopeTraceAt(x, r.start, r.span, 96, 32).spans
+        );
+        if (first) {
+          const worst = spans.reduce(
+            (m, v, i) => Math.max(m, Math.abs(v - (first?.[i] as number))),
+            0
+          );
+          expect(worst).toBeLessThanOrEqual(1);
+        } else {
+          first = spans;
+        }
+      }
+    }
+  });
+
+  it("finds the period of a low note with no hint, in the long window only", () => {
+    const hz = 30;
+    expect(
+      searchPeriod(wave("triangle", hz, 7000, MAX_WINDOW)).lag
+    ).toBeCloseTo(SR / hz, 0);
+    // the old 1536 frame window holds less than one period of it: nothing to lock to
+    expect(
+      searchPeriod(wave("triangle", hz, 7000, MIN_WINDOW)).lag
+    ).not.toBeCloseTo(SR / hz, 0);
+  });
+
+  it("finds the locked crossing near the lock the same as a search of the whole window", () => {
+    for (const hz of [30, 110, 440]) {
+      const period = SR / hz;
+      const window = scopeWindowFrames(period);
+      const span = Math.min(2 * period, window - period);
+      const x = wave("triangle", hz, 12_345, window);
+      const free = findTrigger(x, period, span);
+      expect(free).toBeGreaterThanOrEqual(0);
+      // a lock a few periods before, and one that does not match the wave's phase
+      const locked = findTrigger(x, period, span, free - 3 * period);
+      expect(wrapDiff(locked, free, period)).toBeLessThan(0.5);
+      const other = findTrigger(x, period, span, free + period * 0.5);
+      expect(other).toBeGreaterThanOrEqual(0);
+    }
+  });
+});
+
+describe("level display", () => {
+  const noise = (seed: number, n: number, gain: number) => {
+    let s = seed;
+    return Float32Array.from({ length: n }, () => {
+      s = (s * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return (s / 2_147_483_648 - 0.5) * 2 * gain;
+    });
+  };
+
+  it("takes the level path for noise channels and for sound with no period, not for steady pitch", () => {
+    const m = createMode();
+    // a noise channel never needs a period
+    expect(levelMode(m, true, 0, false)).toBe(true);
+    expect(levelMode(m, true, 120, false)).toBe(true);
+    // a pitched channel shows its wave, and only gives it up after a run of frames with no period
+    const p = createMode();
+    for (let i = 0; i < 100; i += 1) {
+      expect(levelMode(p, false, 109, false)).toBe(false);
+    }
+    for (let i = 1; i < LEVEL_ENTER_FRAMES; i += 1) {
+      expect(levelMode(p, false, 0, false)).toBe(false);
+    }
+    expect(levelMode(p, false, 0, false)).toBe(true);
+    // a rest changes nothing, a flicker of detection does not bring the wave back
+    expect(levelMode(p, false, 0, true)).toBe(true);
+    expect(levelMode(p, false, 109, false)).toBe(true);
+    expect(levelMode(p, false, 0, false)).toBe(true);
+    for (let i = 0; i < LEVEL_LEAVE_FRAMES; i += 1) {
+      levelMode(p, false, 109, false);
+    }
+    expect(levelMode(p, false, 109, false)).toBe(false);
+  });
+
+  it("pulses up on a hit and falls at the release rate, whatever the noise does", () => {
+    const s = createLevelState(48);
+    const loud = noise(1, 2048, 0.6);
+    const quiet = new Float32Array(2048);
+    expect(s.db).toBe(LEVEL_FLOOR_DB);
+    for (let i = 0; i < 8; i += 1) {
+      updateLevel(s, noise(10 + i, 2048, 0.6), 0.016, 0.6);
+    }
+    // a uniform +-0.6 noise has an RMS of 0.35, about -9 dB; the attack has nearly reached it
+    expect(s.db).toBeGreaterThan(levelDb(loud) - 1);
+    const top = s.db;
+    // a quiet channel (not silent): the level falls at the release rate
+    updateLevel(s, quiet, 0.25, 0.01);
+    expect(top - s.db).toBeCloseTo(RELEASE_DB_S * 0.25, 6);
+    // a silent one clears fast
+    updateLevel(s, quiet, 0.25, 0);
+    expect(s.db).toBe(LEVEL_FLOOR_DB);
+  });
+
+  it("does not shimmer: noise of the same level draws the same bars frame after frame", () => {
+    const s = createLevelState(48);
+    const reach = 14;
+    const drawn: number[][] = [];
+    for (let i = 0; i < 40; i += 1) {
+      // every frame is a different noise wave of the same level
+      updateLevel(s, noise(100 + i, 2048, 0.5), 0.016, 0.5);
+      if (i >= 20) {
+        drawn.push(Array.from(columnHeights(s, reach)));
+      }
+    }
+    for (const h of drawn) {
+      h.forEach((v, c) => {
+        expect(Math.abs(v - (drawn[0]?.[c] as number))).toBeLessThanOrEqual(1);
+      });
+    }
+    // the texture is fixed (same every time) and trims columns without emptying them
+    expect(Array.from(createTexture(48))).toEqual(Array.from(s.texture));
+    expect(Math.min(...s.texture)).toBeGreaterThanOrEqual(0.5);
+    expect(Math.max(...s.texture)).toBeCloseTo(1, 6);
+  });
+});
+
 describe("spectrum bands", () => {
   it("spaces the bands logarithmically from 40 Hz to 16 kHz", () => {
     const e = bandEdgesHz(64, SR);
@@ -236,11 +410,67 @@ describe("spectrum ballistics", () => {
     }
     expect(s.peaks[0]).toBe(peak);
     expect(s.bars[0]).toBeLessThan(peak);
-    for (let k = 0; k < 30; k += 1) {
+    for (let k = 0; k < 20; k += 1) {
       now += 16;
       stepBallistics(s, quiet, 0.016, now);
     }
+    // the hold ended part way through these 320 ms: the marker fell, but by less than 320 ms at the fall rate
     expect(s.peaks[0]).toBeLessThan(peak);
-    expect(s.peaks[0]).toBeGreaterThan(peak - 8);
+    expect(s.peaks[0]).toBeGreaterThan(peak - PEAK_FALL_DB_S * 0.32);
+  });
+
+  it("uses the fast constants: a full bar falls in about a second, its marker follows after a short hold", () => {
+    expect(RELEASE_DB_S).toBe(60);
+    expect(PEAK_HOLD_MS).toBe(300);
+    expect(PEAK_FALL_DB_S).toBe(40);
+    const s = createBallistics(1);
+    const hit = new Float32Array([0]);
+    for (let t = 0; t < 10; t += 1) {
+      stepBallistics(s, hit, 0.016, t * 16);
+    }
+    expect(s.bars[0]).toBeGreaterThan(-3);
+    const quiet = new Float32Array([DB_FLOOR]);
+    let now = 160;
+    let barEmptyAt = -1;
+    let peakEmptyAt = -1;
+    while (peakEmptyAt < 0 && now < 5000) {
+      now += 16;
+      stepBallistics(s, quiet, 0.016, now);
+      if (barEmptyAt < 0 && (s.bars[0] as number) <= DB_FLOOR) {
+        barEmptyAt = now - 160;
+      }
+      if ((s.peaks[0] as number) <= DB_FLOOR) {
+        peakEmptyAt = now - 160;
+      }
+    }
+    // 72 dB at 60 dB/s is 1.2 s for the bar, the marker holds 300 ms then falls 72 dB at 40 dB/s
+    expect(barEmptyAt).toBeGreaterThan(1100);
+    expect(barEmptyAt).toBeLessThan(1350);
+    expect(peakEmptyAt).toBeGreaterThan(300 + 1600);
+    expect(peakEmptyAt).toBeLessThan(300 + 2000);
+  });
+
+  it("clears bars and peak markers in well under a second once the sound has stopped", () => {
+    const s = createBallistics(3);
+    const hit = new Float32Array([0, -10, -30]);
+    for (let t = 0; t < 20; t += 1) {
+      stepBallistics(s, hit, 0.016, t * 16);
+    }
+    const quiet = new Float32Array(3).fill(DB_FLOOR);
+    let now = 320;
+    let emptyAt = -1;
+    while (emptyAt < 0 && now < 5000) {
+      now += 16;
+      stepBallistics(s, quiet, 0.016, now, true);
+      const gone = [...s.bars, ...s.peaks].every((v) => v <= DB_FLOOR);
+      if (gone) {
+        emptyAt = now - 320;
+      }
+    }
+    expect(emptyAt).toBeGreaterThan(0);
+    expect(emptyAt).toBeLessThanOrEqual(72_000 / STOP_FALL_DB_S + 32);
+    expect(emptyAt).toBeLessThan(800);
+    // a silent master is under the spectrum floor, a quiet one is not
+    expect(SILENT_PEAK).toBeLessThan(10 ** (DB_FLOOR / 20) * 2);
   });
 });

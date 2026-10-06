@@ -397,7 +397,7 @@ export interface SynthOptions {
   sampleRate: number;           // 22050..96000
   /** Polyphony for sfx voices, default 8. */
   sfxVoices?: number;
-  /** Scope ring size in frames, default SCOPE_FRAMES (2048). */
+  /** Scope ring size in frames, default SCOPE_FRAMES (8192). */
   scopeFrames?: number;
   /** Optional shared memory for scopes (section 5.3). */
   scopeBuffer?: SharedArrayBuffer | null;
@@ -473,7 +473,8 @@ export interface SampleGeneratorSpec {
   loops: boolean;
 }
 
-export const SCOPE_FRAMES = 2048;
+/** Scope ring size: two periods of the lowest bass the chips play (about 27 Hz, 1780 frames at 48 kHz) plus the output latency. */
+export const SCOPE_FRAMES = 8192;
 
 /** Scope rings the synth writes every block. Layout in shared memory when scopeBuffer is given (section 5.3):
     [head: u32][channels * frames: f32][master L: frames f32][master R: frames f32]. */
