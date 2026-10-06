@@ -101,6 +101,12 @@ const pointerDown = (el: Element, init: PointerEventInit = {}) =>
 
 const go = async (hash: string, ready: () => boolean) => {
   appMod.app.navigate(hash);
+  // wait for the router to have mounted that route: the view of the page we came from can satisfy `ready` too, and
+  // the hashchange that replaces it arrives whenever the event loop gets to it, which under load is late
+  const target = JSON.stringify(appMod.parseRoute(hash));
+  expect(
+    await until(() => JSON.stringify(appMod.app.route) === target, 6000)
+  ).toBe(true);
   expect(await until(ready, 6000)).toBe(true);
   // a hashchange queued by an earlier navigation lands after this one; let it, so it cannot remount the view mid-test
   await settle(30);
@@ -454,19 +460,45 @@ describe("pads", () => {
 
     await until(() => pads().some((p) => padId(p) === copy.id));
     pointerDown(pads().find((p) => padId(p) === copy.id) as HTMLElement);
-    press(
+    const del = () =>
       [...insp().querySelectorAll<HTMLElement>(".btn")].find(
         (b) => b.textContent === "Delete"
-      ) ?? null
+      ) ?? null;
+    // declining keeps the sound
+    press(del());
+    expect(await until(() => document.querySelector(".confirm") !== null)).toBe(
+      true
     );
+    expect(document.querySelector(".confirm")?.textContent).toContain(
+      (copy.value as Sfx).name
+    );
+    press(document.querySelector(".confirm-btns .btn:not(.primary)"));
+    await until(() => document.querySelector(".confirm") === null);
+    expect(project().get("sfx", copy.id)).toBeDefined();
+    // confirming removes it, with a toast that brings it back
+    press(del());
+    expect(await until(() => document.querySelector(".confirm") !== null)).toBe(
+      true
+    );
+    press(document.querySelector(".confirm-btns .btn.primary"));
     expect(await until(() => project().get("sfx", copy.id) === undefined)).toBe(
       true
     );
+    expect(toast()).toContain("Deleted");
     await expect(project().store.readJson(copy.path)).rejects.toThrow();
     expect(await until(() => !pads().some((p) => padId(p) === copy.id))).toBe(
       true
     );
     expect(project().get("sfx", id)?.value).toEqual(original);
+    // Undo writes the same sound back, and the pad returns
+    press(document.querySelector("#toast button"));
+    expect(await until(() => project().get("sfx", copy.id) !== undefined)).toBe(
+      true
+    );
+    expect(project().get("sfx", copy.id)?.value).toEqual(copy.value);
+    expect(await until(() => pads().some((p) => padId(p) === copy.id))).toBe(
+      true
+    );
   });
 });
 
@@ -1431,14 +1463,14 @@ describe("the song editor", () => {
       expect(playingChips()).toEqual([]);
     });
 
-    it("flashes a row as the song reaches it, and only for a moment", async () => {
+    it("marks the row the song reaches steadily, with no flash", async () => {
       await goSong(SONG_P);
       engineAt({ order: 0, row: 8 });
       const el = document.querySelector(".trow.play") as HTMLElement;
-      expect(el.classList.contains("flash")).toBe(true);
-      await settle(150);
       expect(el.classList.contains("play")).toBe(true);
       expect(el.classList.contains("flash")).toBe(false);
+      await settle(150);
+      expect(el.classList.contains("play")).toBe(true);
     });
 
     it("with follow off, a pattern that is not on screen is marked in the order list and no row is", async () => {
@@ -1959,6 +1991,160 @@ describe("the analysis view", () => {
         .querySelector<HTMLAnchorElement>(".empty-state a")
         ?.getAttribute("href")
     ).toBe("#/pads");
+  });
+});
+
+describe("the analysis tab", () => {
+  const tab = () =>
+    document.querySelector<HTMLAnchorElement>('nav a[data-nav="chart"]');
+  /** Press the tab and check that it lands on the list of sounds to pick from. */
+  const picker = async () => {
+    press(tab());
+    expect(location.hash).toBe("#/analysis");
+    expect(await until(() => document.querySelector(".an-pick") !== null)).toBe(
+      true
+    );
+    expect(document.querySelector(".an-pick h1")?.textContent).toBe("Analysis");
+    expect(tab()?.classList.contains("cur")).toBe(true);
+  };
+
+  it("opens the analysis of the document being edited", async () => {
+    await goSfx("coin");
+    press(tab());
+    expect(location.hash).toBe("#/analysis/sfx/coin");
+    await go("#/pads", () => document.querySelector(".pad[data-id]") !== null);
+  });
+
+  it("opens a list to pick from when no document is open, and for an instrument, which has no analysis", async () => {
+    await go("#/pads", () => document.querySelector(".pad[data-id]") !== null);
+    await picker();
+    await goInstrument((project().list("instrument")[0] as { id: string }).id);
+    await picker();
+    // the list holds every sound effect and song, and each entry opens its analysis
+    const links = [
+      ...document.querySelectorAll<HTMLAnchorElement>(".an-pick a.tl"),
+    ].map((a) => a.getAttribute("href"));
+    expect(links).toEqual(
+      [...project().list("sfx"), ...project().list("song")].map(
+        (d) => `#/analysis/${d.kind}/${encodeURIComponent(d.id)}`
+      )
+    );
+    expect(links.length).toBeGreaterThan(1);
+    press(document.querySelector(".an-pick a.tl"));
+    expect(location.hash).toBe(links[0]);
+    await go("#/pads", () => document.querySelector(".pad[data-id]") !== null);
+  });
+});
+
+describe("the tracker help", () => {
+  const ID = "help-test";
+  /** The effect cell of the first channel on `row`. */
+  const fxCell = (row: number) =>
+    document.querySelector<HTMLElement>(
+      `.trow[data-r="${row}"] .tc[data-ch="0"] .f`
+    );
+  beforeAll(async () => {
+    const song = defaultSong(project().project.chip);
+    song.name = ID;
+    const id = song.channels[0]?.id as string;
+    song.patterns = {
+      "pattern-1": {
+        length: 16,
+        tracks: {
+          [id]: [
+            {
+              fx: [{ type: "arp", x: 4, y: 7 }],
+              inst: null,
+              note: 60,
+              row: 0,
+              vol: null,
+            },
+            {
+              fx: [{ type: "volSlide", x: 0, y: 4 }],
+              inst: null,
+              note: "off",
+              row: 1,
+              vol: null,
+            },
+            { fx: [], inst: null, note: "release", row: 2, vol: null },
+          ],
+        },
+      },
+    };
+    song.order = ["pattern-1"];
+    await project().create("song", ID, song);
+  });
+  afterAll(async () => {
+    await go("#/pads", () => document.querySelector(".pad[data-id]") !== null);
+    await project().remove(project().get("song", ID) as never);
+  });
+
+  it("says in words what a filled effect cell does, and hints at what an empty one takes", async () => {
+    await goSong(ID);
+    expect(fxCell(0)?.textContent).toBe("047");
+    expect(fxCell(0)?.title).toBe("047: arpeggio, +4 and +7 semitones");
+    expect(fxCell(1)?.title).toBe("A04: volume slide down, 4/16 per tick");
+    expect(fxCell(3)?.classList.contains("e")).toBe(true);
+    expect(fxCell(3)?.title).toBe("type an effect code, e.g. 047");
+  });
+
+  it("explains the note off and release marks on hover", async () => {
+    await goSong(ID);
+    expect(
+      document.querySelector(".tr-body .n.off")?.getAttribute("title")
+    ).toBe("note off: ends the note");
+    expect(
+      document.querySelector(".tr-body .n.rel")?.getAttribute("title")
+    ).toContain("release");
+    expect(
+      document
+        .querySelector(".tr-body .n:not(.off):not(.rel)")
+        ?.hasAttribute("title")
+    ).toBe(false);
+  });
+
+  it("the ? button opens the panel with the columns, the keys, the marks and every effect, and Escape closes it", async () => {
+    await goSong(ID);
+    press(document.getElementById("gHelp"));
+    const panel = document.querySelector(".overlay .th-body") as HTMLElement;
+    expect(panel).not.toBeNull();
+    const text = panel.textContent ?? "";
+    for (const word of ["Note off", "Release", "Octave"]) {
+      expect(text).toContain(word);
+    }
+    const codes = [...panel.querySelectorAll(".th-fx .th-code")].map(
+      (c) => c.textContent
+    );
+    // section 2.6, in the order of its table
+    expect(codes).toEqual([
+      "0xy",
+      "1xx",
+      "2xx",
+      "3xx",
+      "4xy",
+      "7xy",
+      "Axy",
+      "Bxx",
+      "Cxx",
+      "Dxx",
+      "Fxx",
+      "Vxx",
+      "Pxx",
+      "Sxx",
+      "Gxx",
+      "Qxy",
+      "Rxy",
+      "Xxx",
+      "Wxx",
+      "Hxx",
+    ]);
+    // every effect shows an example that is a real code
+    const { parseEffect } = await import("../src/lib/core.ts");
+    for (const eg of panel.querySelectorAll(".th-eg")) {
+      expect(parseEffect(eg.textContent ?? "")).not.toBeNull();
+    }
+    key("Escape");
+    expect(document.querySelector(".overlay")).toBeNull();
   });
 });
 

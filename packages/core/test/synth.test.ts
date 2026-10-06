@@ -143,6 +143,23 @@ describe("transport", () => {
     expect(s.position()?.pulse).toBeCloseTo(pulses(16_800), 1);
   });
 
+  it("pause releases the held notes at once: the output is silent within 100 ms and the position is kept", () => {
+    const s = songSynth();
+    s.play();
+    runSynth(s, 12_000);
+    const before = s.position()?.pulse;
+    expect(peak([runSynth(s, 480).left])).toBeGreaterThan(0.01);
+    s.pause();
+    const out = runSynth(s, 12_000);
+    expect(rms(out.left, 4800, 12_000)).toBeLessThan(1e-4);
+    expect(s.position()?.pulse).toBeGreaterThan(before ?? 0);
+    const held = s.position()?.pulse;
+    runSynth(s, 4800);
+    expect(s.position()?.pulse).toBe(held);
+    s.play();
+    expect(peak([runSynth(s, 12_000).left])).toBeGreaterThan(0.01);
+  });
+
   it("stop releases the voices and the audio decays to silence", () => {
     const s = songSynth();
     s.play();

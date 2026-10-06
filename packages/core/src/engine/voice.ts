@@ -29,6 +29,7 @@ import type { EnvelopeState } from "../dsp/envelope.ts";
 import {
   ENV_IDLE,
   ENV_SUSTAIN,
+  envelopeDamp,
   envelopeRelease,
   envelopeTrigger,
   MIN_ATTACK,
@@ -421,6 +422,14 @@ export class Voice {
       this.fmReleasing = true;
     } else {
       envelopeRelease(this.env);
+    }
+  }
+
+  /** Cap the release at `seconds` (a pause: an instrument with a long release must not keep ringing). The envelope
+      voices only; an FM voice keeps its operators' own release. The next note rebinds the instrument's release. */
+  damp(seconds: number): void {
+    if (this.active && this.src !== SRC_FM) {
+      envelopeDamp(this.env, seconds, this.sr);
     }
   }
 

@@ -1,6 +1,6 @@
 /* The left sidebar: view navigation, search, and the project tree (SFX, Songs, Instruments) with a "+ New" per section
    and a play button on every row, so everything is previewable without opening it. */
-import { app, type Route } from "../app.ts";
+import { analysisHash, app, type Route } from "../app.ts";
 import { categoryColor, KIND_HEX } from "../lib/chips.ts";
 import type { Instrument, Sfx, Song } from "../lib/contract.ts";
 import { fire, h, prefs } from "../lib/dom.ts";
@@ -98,12 +98,19 @@ export function createSidebar(host: HTMLElement): {
   const nav = h("nav", { class: "nav" });
   const links: [string, string, string][] = [
     ["#/pads", "pads", "Pads"],
-    ["#/analysis/", "chart", "Analysis"],
+    ["#/analysis", "chart", "Analysis"],
     ["#/project", "folder", "Project"],
   ];
   for (const [href, ic, label] of links) {
     const a = h("a", { "data-nav": ic, href });
     a.innerHTML = `${icon(ic, 20)}<span>${label}</span>`;
+    if (ic === "chart") {
+      // the sound being edited, or the list to pick one from
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        app.navigate(analysisHash(app.currentDoc()));
+      });
+    }
     nav.append(a);
   }
   const palBtn = h("a", {

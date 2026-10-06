@@ -54,6 +54,8 @@ const MAX_SONG_VOICES = 10;
 /** Master gain used when no song says otherwise (the project default). */
 const DEFAULT_MASTER = 0.8;
 const MAX_SAMPLE_SECONDS = 4;
+/** Longest release (seconds to -60 dB) a paused song's voices are given. */
+const PAUSE_RELEASE = 0.04;
 
 interface SidFilterState {
   cutoff: number;
@@ -511,8 +513,13 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
     this.releaseAll(false);
   }
 
+  /** Hold the position and let the song's voices go (the sequencer is not running, so nothing else would end them). */
   pause(): void {
     this.player.pause(this.frameNow);
+    this.releaseAll(false);
+    for (let i = 0; i < this.chanCount; i += 1) {
+      this.channelList[i]?.voice.damp(PAUSE_RELEASE);
+    }
   }
 
   seek(order: number, row: number): void {

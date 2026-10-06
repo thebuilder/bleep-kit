@@ -64,6 +64,18 @@ export function envelopeRelease(e: EnvelopeState): void {
   }
 }
 
+/** Shorten the release so the level is at -60 dB within `seconds` (a longer release is cut, a shorter one is kept). */
+export function envelopeDamp(
+  e: EnvelopeState,
+  seconds: number,
+  sampleRate: number
+): void {
+  e.releaseCoef = Math.min(
+    e.releaseCoef,
+    SIXTY_DB ** (1 / (Math.max(seconds, MIN_RELEASE) * sampleRate))
+  );
+}
+
 /** Write the level for each of n samples. Returns true while the envelope is still producing sound. */
 export function runEnvelope(
   e: EnvelopeState,

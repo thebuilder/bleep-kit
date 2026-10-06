@@ -38,6 +38,9 @@ describe("parseRoute and routeHash", () => {
       ref: "sfx/coin",
       view: "analysis",
     });
+    // no sound named: the analysis view lists them
+    expect(parseRoute("#/analysis")).toEqual({ ref: "", view: "analysis" });
+    expect(routeHash({ ref: "", view: "analysis" })).toBe("#/analysis");
     expect(parseRoute("#/project")).toEqual({ view: "project" });
     expect(parseRoute("#/project?export=1")).toEqual({
       export: true,

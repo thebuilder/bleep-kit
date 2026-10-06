@@ -1,8 +1,8 @@
-/* Deleting a song or an instrument from its editor: ask first, remove the document and its file through the store,
+/* Deleting a sound effect, a song or an instrument (from its editor or the pads): ask first, remove the document and its file through the store,
    stop what the engine holds of it, and keep a toast with Undo that writes the same document back. */
 import { app } from "../app.ts";
 import { engine } from "../engine/engine.ts";
-import type { Instrument, Song } from "../lib/contract.ts";
+import type { Instrument, Sfx, Song } from "../lib/contract.ts";
 import { fire, h } from "../lib/dom.ts";
 import { releaseNote, stopEverything } from "../playback.ts";
 import { type Doc, project } from "../state/docs.ts";
@@ -31,12 +31,18 @@ function question(doc: Doc, name: string): string {
         : "";
     return `Delete the instrument "${name}"? Its file is removed from the project.${warn}`;
   }
+  if (doc.kind === "sfx") {
+    return `Delete the sound effect "${name}"? Its file is removed from the project.`;
+  }
   return `Delete the song "${name}"? Its file is removed from the project.`;
 }
 
-/** Ask, then delete `doc` (a song or an instrument) and go back to the pads. Resolves true when it was deleted. */
+/** Ask, then delete `doc` (an sfx, a song or an instrument) and go back to the pads. Resolves true when it was deleted. */
 export async function deleteDocument(doc: Doc): Promise<boolean> {
-  const value = JSON.parse(JSON.stringify(doc.value)) as Song | Instrument;
+  const value = JSON.parse(JSON.stringify(doc.value)) as
+    | Sfx
+    | Song
+    | Instrument;
   const { kind, id } = doc;
   const name = value.name || id;
   if (!(await confirmDialog(question(doc, name), "Delete"))) {
@@ -57,7 +63,9 @@ export async function deleteDocument(doc: Doc): Promise<boolean> {
   app.toast(`Deleted ${name}`, "Undo", () => {
     fire(
       project.create(kind, id, value).then((back) => {
-        app.navigate(`#/${back.kind}/${back.id}`);
+        if (back.kind !== "sfx") {
+          app.navigate(`#/${back.kind}/${back.id}`);
+        }
         app.toast(`Brought back ${name}`);
       })
     );

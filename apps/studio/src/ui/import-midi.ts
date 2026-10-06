@@ -149,6 +149,11 @@ export function pickMidiFile(): void {
 
 let dropInstalled = false;
 
+/** True when the drag carries files from outside the page. An order chip or any other in-page drag does not, and must
+ *  never be taken for a file drop. */
+const carriesFiles = (e: DragEvent): boolean =>
+  Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
 /** A .mid file dropped anywhere on the window opens the import dialog. Other dropped files are ignored, not opened. */
 export function installMidiDrop(): void {
   if (dropInstalled) {
@@ -156,11 +161,14 @@ export function installMidiDrop(): void {
   }
   dropInstalled = true;
   window.addEventListener("dragover", (e) => {
-    if (e.dataTransfer?.types.includes("Files")) {
+    if (carriesFiles(e)) {
       e.preventDefault();
     }
   });
   window.addEventListener("drop", (e) => {
+    if (!carriesFiles(e)) {
+      return;
+    }
     const files = Array.from(e.dataTransfer?.files ?? []);
     if (files.length === 0) {
       return;

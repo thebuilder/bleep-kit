@@ -29,6 +29,7 @@ import {
 } from "../render-service.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
+import { deleteDocument } from "../ui/delete-doc.ts";
 import {
   group,
   inspectorTitle,
@@ -727,11 +728,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
         "button",
         {
           class: "btn small danger",
-          onclick: () => {
-            fire(
-              project.remove(doc).then(() => app.toast(`Deleted ${doc.id}`))
-            );
-          },
+          onclick: () => fire(deleteDocument(doc)),
         },
         "Delete"
       )

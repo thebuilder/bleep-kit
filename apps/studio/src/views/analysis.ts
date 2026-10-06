@@ -74,8 +74,50 @@ function loopCard(loop: NonNullable<Analysis["loop"]>): Card {
   };
 }
 
+/** `#/analysis` with no sound: the sound effects and songs to pick one from. */
+function mountPicker(host: HTMLElement): ViewHooks {
+  const sections: [string, Doc[]][] = [
+    ["Sound effects", project.list("sfx")],
+    ["Songs", project.list("song")],
+  ];
+  const wrap = h("div", { class: "an-pick" });
+  wrap.append(
+    h("h1", { class: "vh" }, "Analysis"),
+    h("p", { class: "muted" }, "Pick a sound effect or a song to measure.")
+  );
+  for (const [title, docs] of sections) {
+    const list = h("div", { class: "an-pick-list" });
+    for (const d of docs) {
+      const value = d.value as Sfx | Song;
+      const a = h("a", {
+        class: "tl",
+        href: `#/analysis/${d.kind}/${encodeURIComponent(d.id)}`,
+      });
+      a.innerHTML = `${icon(d.kind === "sfx" ? (value as Sfx).category : "song", 16)}<span class="nm"></span>`;
+      (a.querySelector(".nm") as HTMLElement).textContent = value.name || d.id;
+      const color =
+        d.kind === "sfx" ? categoryColor((value as Sfx).category) : "#f3b24a";
+      list.append(h("div", { class: "tree-item", style: `--kc:${color}` }, a));
+    }
+    if (docs.length > 0) {
+      wrap.append(h("h2", { class: "pxh" }, title), list);
+    }
+  }
+  if (sections.every(([, docs]) => docs.length === 0)) {
+    wrap.append(
+      h("p", { class: "muted" }, "There are no sounds in the project yet."),
+      h("a", { class: "btn", href: "#/pads" }, "Back to the pads")
+    );
+  }
+  host.replaceChildren(wrap);
+  return {};
+}
+
 export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
   const { host, insp } = ctx;
+  if (!ref) {
+    return mountPicker(host);
+  }
   const doc = project.find(ref);
   if (!doc) {
     host.innerHTML = `<div class="empty-state"><h2 class="pxh">Nothing to analyse</h2><p class="muted">There is no sound called <b></b>. Pick a sound effect or song in the project tree.</p><a class="btn" href="#/pads">Back to the pads</a></div>`;
@@ -518,11 +560,13 @@ export function mountAnalysis(ctx: ViewCtx, ref: string): ViewHooks {
         // the image has margins; the plot spans roughly 7% to 98% of the width for the built-in images
         const x0 = w * 0.065;
         const x1 = w * 0.985;
-        const x = x0 + (x1 - x0) * Math.min(1, t / fr.dur);
+        // snap to the nearest pixel: the start, middle and end of a sound land on whole pixels, and flooring a value
+        // that float error leaves a hair under one would put the bar a pixel early
+        const px = Math.round(x0 + (x1 - x0) * Math.min(1, t / fr.dur));
         g.fillStyle = "rgba(236,231,218,0.9)";
-        g.fillRect(Math.floor(x), 0, 2, hh);
+        g.fillRect(px, 0, 2, hh);
         g.fillStyle = "rgba(236,231,218,0.12)";
-        g.fillRect(Math.floor(x) - 14, 0, 14, hh);
+        g.fillRect(px - 14, 0, 14, hh);
       }
     }
     if (t > Math.max(...frames.map((x) => x.dur), 0) + 0.2) {

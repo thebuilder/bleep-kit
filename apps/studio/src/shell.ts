@@ -1,6 +1,7 @@
 /* The shell: top bar with transport, the sidebar, the stage with the master strip, the inspector, overlays, global
    shortcuts, the router and the boot sequence. Views are mounted into #view and #insp by the router. */
 import {
+  analysisHash,
   app,
   type Command,
   parseRoute,
@@ -356,11 +357,11 @@ export async function boot(root: HTMLElement): Promise<void> {
     }
   }
   function openAnalysis(): void {
-    const d = app.currentDoc() ?? project.list("sfx")[0] ?? null;
-    if (d && d.kind !== "instrument") {
-      app.navigate(`#/analysis/${d.kind}/${d.id}`);
-    } else if (d) {
+    const d = app.currentDoc();
+    if (d?.kind === "instrument") {
       app.toast("Analysis is for sound effects and songs");
+    } else {
+      app.navigate(analysisHash(d));
     }
   }
   function allCommands(): Command[] {

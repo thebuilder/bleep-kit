@@ -48,8 +48,20 @@ import {
 import { icon } from "../ui/icons.ts";
 import { showIssues } from "../ui/issues.ts";
 import { createPiano, keyToOffset } from "../ui/piano.ts";
-import { scopeTrace, surface, triggerIndex } from "../visuals/canvas.ts";
+import {
+  describeEffect,
+  describeNote,
+  EMPTY_EFFECT_HINT,
+  openTrackerHelp,
+} from "../ui/tracker-help.ts";
+import { surface } from "../visuals/canvas.ts";
 import { addVisual, type Frame } from "../visuals/loop.ts";
+import {
+  createTrigger,
+  locate,
+  scopeTraceAt,
+  type Trigger,
+} from "../visuals/trigger.ts";
 
 const ALNUM_KEY = /^[0-9a-z]$/;
 const TRAILING_NUMBER = /-\d+$/;
@@ -69,6 +81,8 @@ const hex = (n: number, d = 1) => n.toString(16).toUpperCase().padStart(d, "0");
 const ROW_H = 20;
 /** How far back from the playing frame each channel scope looks. */
 const SCOPE_FRAMES = 1536;
+/** About how many frames a channel scope shows (a whole number of periods near it). */
+const SCOPE_SPAN = 900;
 const KEY_LO = 36;
 const KEY_HI = 83;
 
@@ -182,8 +196,10 @@ function clearField(r: Row, field: number): void {
   }
 }
 
-const noteCell = (r: Row | undefined) =>
-  `<span class="n${NOTE_CLASS[String(r?.note)] ?? ""}" data-f="0">${noteText(r?.note ?? null)}</span>`;
+const noteCell = (r: Row | undefined) => {
+  const tip = describeNote(r?.note);
+  return `<span class="n${NOTE_CLASS[String(r?.note)] ?? ""}" data-f="0"${tip ? ` title="${tip}"` : ""}>${noteText(r?.note ?? null)}</span>`;
+};
 
 /** The instrument's number in the inspector's list, "??" when the row names one that is gone. */
 function instCell(
@@ -209,7 +225,8 @@ function volCell(r: Row | undefined) {
 function fxCell(r: Row | undefined, k: number) {
   const e = r?.fx[k];
   const text = e ? formatEffect(e).padEnd(3, "0").slice(0, 3) : "---";
-  return `<span class="f${e ? "" : " e"}" data-f="${3 + k}">${text}</span>`;
+  const tip = e ? describeEffect(e) : EMPTY_EFFECT_HINT;
+  return `<span class="f${e ? "" : " e"}" data-f="${3 + k}" title="${tip}">${text}</span>`;
 }
 
 export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
@@ -239,6 +256,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         <label class="num"><span>Length</span><input type="number" id="gLen" min="1" max="256" aria-label="Pattern length"></label>
         <label class="num"><span>Octave</span><span class="oct"><button class="btn icon small" id="gOctDn" aria-label="Octave down">${icon("minus", 12)}</button><b class="mono" id="gOct"></b><button class="btn icon small" id="gOctUp" aria-label="Octave up">${icon("plus", 12)}</button></span></label>
         <label class="tgl-row" title="Scroll the grid with the playhead (F, while the cursor is in the note column)"><span class="tgl"><input type="checkbox" id="gFollow"><span></span></span><small>Follow (F)</small></label>
+        <button class="btn icon th-btn" id="gHelp" title="How the tracker works: columns, keys, effects" aria-label="Tracker help">?</button>
       </div>
       <div class="orderbar" id="gOrder" role="list" aria-label="Order list"></div>
       <div class="tracker" id="gTracker" tabindex="0" aria-label="Tracker grid">
@@ -303,6 +321,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     ch: SongChannel;
     s: ReturnType<typeof surface>;
     idx: number;
+    trig: Trigger;
   }[] = [];
 
   function cellHtml(c: SongChannel, r: Row | undefined): string {
@@ -394,7 +413,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         `${KIND_LABEL[kindOf(c)]} ${c.instrument ?? ""}`.trim();
       head.append(cell);
       const cv = cell.querySelector("canvas") as HTMLCanvasElement;
-      scopeSurfs.push({ ch: c, idx, s: surface(cv) });
+      scopeSurfs.push({ ch: c, idx, s: surface(cv), trig: createTrigger() });
     });
   }
 
@@ -1252,6 +1271,9 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   followIn.addEventListener("change", () => setFollow(followIn.checked));
   q("#gOctDn").addEventListener("click", () => setOctave(octave - 1));
   q("#gOctUp").addEventListener("click", () => setOctave(octave + 1));
+  q("#gHelp").addEventListener("click", () =>
+    openTrackerHelp(() => tracker.focus())
+  );
 
   /* ----- playing ----- */
   const reloadSong = debounce(() => {
@@ -1600,7 +1622,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       h(
         "div",
         { class: "hint" },
-        "Keys: Z S X D C V G B H N J M and Q 2 W 3 E R 5 T 6 Y 7 U play notes. 1 is note off, ` is release, Delete clears, - and = change octave, F follows the playhead while the cursor is in the note column."
+        "Keys: Z S X D C V G B H N J M and Q 2 W 3 E R 5 T 6 Y 7 U play notes. 1 is note off, ` is release, Delete clears, - and = change octave, F follows the playhead while the cursor is in the note column. === is a note off, ^^^ a release. Press ? above the grid for the effect codes."
       )
     );
     inner.append(
@@ -1689,10 +1711,17 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     return c ? KIND_HEX[c.kind] : "#ece7da";
   };
   const lastNote = new Map<number, number>();
-  const flashTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  /** The note frequency of each channel's latest note, the period hint for its scope. */
+  const hzOf = new Map<number, number>();
+  /** Where the song is, from the engine's row events (they arrive when the row is audible, in order with the notes). */
+  let evPos: { order: number; row: number } | null = null;
   /** The strip lights with the notes that start and fades the ones that end; a cell pulses for each note. */
   function lightNotes(f: Frame): void {
+    const live = f.playing && engine.hasSong(id);
     for (const ev of f.events as readonly EngineEvent[]) {
+      if (ev.type === "row" && live) {
+        evPos = { order: ev.order, row: ev.row };
+      }
       if (ev.channel < 0) {
         continue;
       }
@@ -1700,7 +1729,11 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       if (ev.type === "noteOn") {
         keys.light(n, colorOf(ev.channelId), true, f.time);
         lastNote.set(ev.channel, n);
-        pulseCell(ev.channelId);
+        if (ev.hz > 0) {
+          hzOf.set(ev.channel, ev.hz);
+        }
+        const at = evPos?.order === orderIdx ? evPos.row : playRow;
+        pulseCell(ev.channelId, at);
       } else if (ev.type === "noteOff") {
         const held = lastNote.get(ev.channel);
         if (held !== undefined) {
@@ -1724,18 +1757,20 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     }
   }
 
-  function movePlayhead(f: Frame): void {
-    const pos = f.position;
-    if (f.playing && pos) {
+  /** `shown`: the song is this one and playing or paused, so the playhead stays where it is while paused. */
+  function movePlayhead(f: Frame, shown: boolean): void {
+    const pos = evPos ?? f.position;
+    if (shown && pos) {
       if (pos.order !== playOrder) {
         markPlayingOrder(pos.order);
       }
       if (pos.row !== playRow || pos.order !== playOrderShown) {
-        playRowEl(pos.order === orderIdx ? pos.row : -1, f.reduced);
+        playRowEl(pos.order === orderIdx ? pos.row : -1);
         playOrderShown = pos.order;
       }
     } else if (playRow >= 0) {
-      playRowEl(-1, true);
+      evPos = null;
+      playRowEl(-1);
       playOrder = -1;
       for (const el of orderEl.querySelectorAll(".ochip.playing")) {
         el.classList.remove("playing");
@@ -1764,9 +1799,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
 
   const offVisual = addVisual((f) => {
     // another song's position means nothing in this grid
-    const mine = f.playing && engine.hasSong(id);
+    const own = engine.hasSong(id);
+    const mine = f.playing && own;
     lightNotes(f);
-    movePlayhead(mine ? f : { ...f, playing: false });
+    movePlayhead(f, own && (f.playing || paused));
     syncPlayButton(mine);
     drawScopes(f);
     drawKeys(f);
@@ -1779,9 +1815,9 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     return t.content.firstElementChild as Node;
   };
 
-  function playRowEl(row: number, quiet: boolean): void {
+  function playRowEl(row: number): void {
     if (playRow >= 0) {
-      rowEls[playRow]?.classList.remove("play", "flash");
+      rowEls[playRow]?.classList.remove("play");
     }
     playRow = row;
     const el = rowEls[row];
@@ -1789,14 +1825,6 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return;
     }
     el.classList.add("play");
-    if (!quiet) {
-      el.classList.add("flash");
-      clearTimeout(flashTimers.get(row));
-      flashTimers.set(
-        row,
-        setTimeout(() => el.classList.remove("flash"), 80)
-      );
-    }
     if (follow) {
       const visible = Math.floor(
         (tracker.clientHeight - head.offsetHeight) / ROW_H
@@ -1804,14 +1832,12 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       tracker.scrollTop = snapRow(row - Math.floor(visible * 0.35));
     }
   }
-  function pulseCell(chId: string): void {
-    if (playRow < 0) {
+  function pulseCell(chId: string, row: number): void {
+    if (row < 0) {
       return;
     }
     const ci = song().channels.findIndex((c) => c.id === chId);
-    const tc = rowEls[playRow]?.querySelector<HTMLElement>(
-      `.tc[data-ch="${ci}"]`
-    );
+    const tc = rowEls[row]?.querySelector<HTMLElement>(`.tc[data-ch="${ci}"]`);
     if (tc) {
       tc.classList.remove("pulse");
       reflow(tc);
@@ -1853,14 +1879,12 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         g.fillRect(0, Math.floor(mid), w, 2);
         continue;
       }
-      const win = 512;
-      const { peak, spans } = scopeTrace(
-        data,
-        triggerIndex(data, win),
-        win,
-        w,
-        hh
-      );
+      const t = locate(e.trig, data, f.frame - SCOPE_FRAMES, {
+        sampleRate: f.sampleRate,
+        targetSpan: SCOPE_SPAN,
+        ...(hzOf.has(e.idx) ? { hintHz: hzOf.get(e.idx) as number } : {}),
+      });
+      const { peak, spans } = scopeTraceAt(data, t.start, t.span, w, hh);
       for (let x = 0; x < w; x += 1) {
         const y0 = spans[x * 2] ?? 0;
         const y1 = spans[x * 2 + 1] ?? 0;
@@ -1893,9 +1917,6 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       e.s.dispose();
     }
     keys.dispose();
-    for (const [, t] of flashTimers) {
-      clearTimeout(t);
-    }
     // solo is a session setting of the engine: clear it
     for (const c of solo) {
       const idx = engineIndex(c);

@@ -7,7 +7,9 @@ import type { EngineEvent, SongPosition } from "../lib/contract.ts";
 import { reducedMotion } from "../lib/dom.ts";
 import { rms } from "./canvas.ts";
 
-export const MASTER_WINDOW = 1024;
+/* 1536 frames: long enough for a whole period of a low note, and short enough to stay inside the 2048 frame scope ring
+   (the frames just behind the write head are not yet valid). The spectrum takes the newest 1024 of them. */
+export const MASTER_WINDOW = 1536;
 
 export interface Frame {
   /** seconds since the previous frame (clamped) */

@@ -119,6 +119,23 @@ describe("importing a MIDI file", () => {
     closeOverlays();
   });
 
+  it("ignores a drag that carries no files, such as an order chip being moved", () => {
+    const data = new Map<string, string>();
+    // what an in-page drag has: text data and no `types` list at all, or a list without "Files"
+    for (const dataTransfer of [
+      { getData: (k: string) => data.get(k) ?? "", setData: () => undefined },
+      { files: [], types: ["text/plain"] },
+    ]) {
+      for (const type of ["dragover", "drop"]) {
+        const e = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(e, "dataTransfer", { value: dataTransfer });
+        expect(() => document.body.dispatchEvent(e)).not.toThrow();
+        expect(e.defaultPrevented).toBe(false);
+      }
+    }
+    expect(dialogSelect()).toBeNull();
+  });
+
   it("opens the chip dialog when a .mid file is dropped, and imports it for the chosen chip", async () => {
     const { project } = docsMod;
     const before = project.list("song").length;

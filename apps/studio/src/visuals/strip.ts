@@ -1,20 +1,30 @@
-/* The master strip on top of every view: an oscilloscope (trigger on a rising zero crossing, a 2 pixel glow), a 64 bar
-   log spectrum with peak hold (hold 400 ms, then fall 24 dB/s, clipping turns the top red), and a level meter. */
+/* The master strip on top of every view: an oscilloscope (a locked trigger, section 11.4, a 2 pixel glow), a 64 bar
+   log spectrum over 40 Hz to 16 kHz on a fixed -72 to 0 dBFS scale (fast attack, a smooth release, a slow peak hold,
+   clipping turns the top red), and a level meter. */
 import { chipTheme } from "../lib/chips.ts";
 import type { ChipId } from "../lib/contract.ts";
 import { choose } from "../lib/dom.ts";
-import { rgba, surface, triggerIndex } from "./canvas.ts";
+import {
+  bandEdgesHz,
+  bandLevels,
+  createBallistics,
+  DB_FLOOR,
+  dbFraction,
+  stepBallistics,
+} from "./bands.ts";
+import { rgba, surface } from "./canvas.ts";
 import { createSpectrum } from "./fft.ts";
 import { addVisual, type Frame, MASTER_WINDOW } from "./loop.ts";
+import { createTrigger, locate, sampleAt } from "./trigger.ts";
 
 const BARS = 64;
 const SEG = 3;
 const GAP = 1;
-const MIN_HZ = 40;
-const MAX_HZ = 16_000;
-const DB_FLOOR = -60;
+const FFT_SIZE = 1024;
 const HOLD_MS = 400;
 const FALL_DB_S = 24;
+/** About how many frames the master scope shows (a whole number of periods near it when the mix has one). */
+const SCOPE_SPAN = 768;
 /** The scope normalizes quiet signals up to this height (a fraction of the half height) with at most this gain. */
 const SCOPE_TARGET = 0.85;
 const SCOPE_MAX_GAIN = 5;
@@ -35,33 +45,23 @@ export function createStrip(host: HTMLElement): Strip {
   const spec = surface(q("spec"));
   const meter = surface(q("meter"));
   const clipEl = host.querySelector(".clip") as HTMLElement;
-  const fft = createSpectrum(1024);
-  const mag = new Float32Array(512);
-  const bars = new Float32Array(BARS); // dB
-  const peaks = new Float32Array(BARS).fill(DB_FLOOR);
-  const peakAt = new Float32Array(BARS);
-  const edges = new Int32Array(BARS + 1);
-  let theme = chipTheme("nes");
+  const fft = createSpectrum(FFT_SIZE);
+  const mag = new Float32Array(FFT_SIZE / 2);
+  const levels = new Float32Array(BARS); // dB, what the bars chase
+  const ball = createBallistics(BARS);
+  const trigger = createTrigger();
+  let edgesHz = bandEdgesHz(BARS, 48_000);
   let lastRate = 0;
+  let theme = chipTheme("nes");
   let clipUntil = 0;
-  let peakHoldDb = DB_FLOOR;
+  let peakHoldDb = -60;
   let peakHoldAt = 0;
   let scopeGain = 1.6;
 
-  const binEdges = (rate: number) => {
-    if (rate === lastRate) {
-      return;
-    }
-    lastRate = rate;
-    const hzPerBin = rate / 1024;
-    for (let i = 0; i <= BARS; i += 1) {
-      const hz = MIN_HZ * (Math.min(MAX_HZ, rate / 2.1) / MIN_HZ) ** (i / BARS);
-      edges[i] = Math.max(1, Math.round(hz / hzPerBin));
-    }
-    for (let i = 1; i <= BARS; i += 1) {
-      if ((edges[i] ?? 0) <= (edges[i - 1] ?? 0)) {
-        edges[i] = (edges[i - 1] ?? 0) + 1;
-      }
+  const bands = (rate: number) => {
+    if (rate !== lastRate) {
+      lastRate = rate;
+      edgesHz = bandEdgesHz(BARS, rate);
     }
   };
 
@@ -74,35 +74,39 @@ export function createStrip(host: HTMLElement): Strip {
       ctx.fillRect(x, 0, 1, h);
     }
     ctx.fillRect(0, Math.round(h / 2), w, 1);
-    const win = 512;
-    const start = f.reduced ? 0 : triggerIndex(f.master, win);
-    const pts: number[] = [];
     const amp = h * 0.42;
-    // auto gain: quiet music still draws a readable wave; it rises slowly and drops fast so a loud hit never clips
-    let wavePeak = 0;
-    if (!f.reduced) {
-      for (let i = 0; i < win; i += 4) {
-        wavePeak = Math.max(
-          wavePeak,
-          Math.abs(f.master[Math.min(MASTER_WINDOW - 1, start + i)] ?? 0)
+    const pts: number[] = [];
+    let gainPeak = 0;
+    if (f.reduced) {
+      for (let i = 0; i < w; i += 2) {
+        pts.push(h / 2);
+      }
+    } else {
+      const t = locate(trigger, f.master, f.frame - MASTER_WINDOW, {
+        sampleRate: f.sampleRate,
+        targetSpan: SCOPE_SPAN,
+      });
+      for (let i = 0; i < t.span; i += 4) {
+        gainPeak = Math.max(
+          gainPeak,
+          Math.abs(
+            f.master[Math.min(MASTER_WINDOW - 1, Math.floor(t.start + i))] ?? 0
+          )
         );
       }
-    }
-    const want = Math.max(
-      1.2,
-      Math.min(SCOPE_MAX_GAIN, SCOPE_TARGET / Math.max(wavePeak, 1e-4))
-    );
-    scopeGain =
-      want < scopeGain
-        ? want
-        : scopeGain + (want - scopeGain) * Math.min(1, f.dt * 3);
-    for (let i = 0; i < w; i += 2) {
-      const idx = Math.min(
-        MASTER_WINDOW - 1,
-        start + Math.floor((i / w) * win)
+      // auto gain: quiet music still draws a readable wave; it rises slowly and drops fast so a loud hit never clips
+      const want = Math.max(
+        1.2,
+        Math.min(SCOPE_MAX_GAIN, SCOPE_TARGET / Math.max(gainPeak, 1e-4))
       );
-      const v = f.reduced ? 0 : (f.master[idx] ?? 0);
-      pts.push(h / 2 - Math.max(-1, Math.min(1, v * scopeGain)) * amp);
+      scopeGain =
+        want < scopeGain
+          ? want
+          : scopeGain + (want - scopeGain) * Math.min(1, f.dt * 1.5);
+      for (let i = 0; i < w; i += 2) {
+        const v = sampleAt(f.master, t.start + (t.span * i) / w);
+        pts.push(h / 2 - Math.max(-1, Math.min(1, v * scopeGain)) * amp);
+      }
     }
     const stroke = (width: number, color: string) => {
       ctx.lineWidth = width;
@@ -131,38 +135,23 @@ export function createStrip(host: HTMLElement): Strip {
   function drawSpectrum(f: Frame): void {
     const { ctx, w, h } = spec;
     ctx.clearRect(0, 0, w, h);
-    binEdges(f.sampleRate);
-    fft.magnitudes(f.master, mag);
-    const { dt } = f;
+    bands(f.sampleRate);
+    if (f.reduced) {
+      levels.fill(DB_FLOOR);
+      ball.bars.fill(DB_FLOOR);
+      ball.peaks.fill(DB_FLOOR);
+    } else {
+      // the newest FFT_SIZE frames of the window: the oldest ones are the ones the scope ring may not hold yet
+      fft.magnitudes(f.master.subarray(f.master.length - FFT_SIZE), mag);
+      bandLevels(mag, f.sampleRate, edgesHz, levels);
+      stepBallistics(ball, levels, f.dt, f.time);
+    }
     const slot = w / BARS;
     const barW = Math.max(2, Math.floor(slot) - 1);
     const rows = Math.floor((h - 4) / (SEG + GAP));
     for (let b = 0; b < BARS; b += 1) {
-      let m = 0;
-      for (let k = edges[b] ?? 1; k < (edges[b + 1] ?? 2); k += 1) {
-        m = Math.max(m, mag[k] ?? 0);
-      }
-      // pink-ish tilt so the highs are visible
-      const tilt = 1 + (b / BARS) * 2.2;
-      let db = m < 1e-6 ? DB_FLOOR : 20 * Math.log10(m * tilt);
-      db = Math.max(DB_FLOOR, Math.min(0, db));
-      if (f.reduced) {
-        db = DB_FLOOR;
-      }
-      const cur = bars[b] ?? DB_FLOOR;
-      bars[b] = db > cur ? db : Math.max(db, cur - FALL_DB_S * 1.4 * dt);
-      if ((bars[b] as number) >= (peaks[b] as number)) {
-        peaks[b] = bars[b] as number;
-        peakAt[b] = f.time;
-      } else if (f.time - (peakAt[b] as number) > HOLD_MS) {
-        peaks[b] = Math.max(DB_FLOOR, (peaks[b] as number) - FALL_DB_S * dt);
-      }
-      const lit = Math.round(
-        (((bars[b] as number) - DB_FLOOR) / -DB_FLOOR) * rows
-      );
-      const peakRow = Math.round(
-        (((peaks[b] as number) - DB_FLOOR) / -DB_FLOOR) * rows
-      );
+      const lit = Math.round(dbFraction(ball.bars[b] ?? DB_FLOOR) * rows);
+      const peakRow = Math.round(dbFraction(ball.peaks[b] ?? DB_FLOOR) * rows);
       const x = Math.round(b * slot);
       for (let r = 0; r < rows; r += 1) {
         const y = h - 2 - (r + 1) * (SEG + GAP);

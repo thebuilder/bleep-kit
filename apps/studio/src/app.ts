@@ -30,8 +30,10 @@ export function parseRoute(hash: string): Route {
   if (v === "instrument" && a) {
     return { id: a, view: "instrument" };
   }
-  if (v === "analysis" && a) {
-    return { ref: b ? `${a}/${b}` : a, view: "analysis" };
+  if (v === "analysis") {
+    // no ref: the view lists the sounds to pick from
+    const ref = [a, b].filter(Boolean).join("/");
+    return { ref, view: "analysis" };
   }
   if (v === "project") {
     return new URLSearchParams(query).get("export")
@@ -48,12 +50,19 @@ export function routeHash(r: Route): string {
     case "instrument":
       return `#/${r.view}/${encodeURIComponent(r.id)}`;
     case "analysis":
-      return `#/analysis/${r.ref}`;
+      return r.ref ? `#/analysis/${r.ref}` : "#/analysis";
     case "project":
       return "#/project";
     default:
       return "#/pads";
   }
+}
+
+/** Where "open the analysis" goes: the sound or song being edited, else the list to pick one from. */
+export function analysisHash(doc: Doc | null): string {
+  return doc && doc.kind !== "instrument"
+    ? `#/analysis/${doc.kind}/${doc.id}`
+    : "#/analysis";
 }
 
 export interface Command {
