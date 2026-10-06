@@ -451,6 +451,24 @@ describe("/api/file", () => {
     }
   });
 
+  it("leaves a symlink in out/ that points outside the project out of the listing", async () => {
+    const link = path.join(project, "out", "leak.txt");
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.symlinkSync(path.join(outer, "secret.txt"), link);
+    try {
+      const r = await api("GET", "/api/project");
+      expect(r.status).toBe(200);
+      const paths = (r.body.files as { path: string }[]).map((f) => f.path);
+      expect(paths).not.toContain("out/leak.txt");
+      expect(JSON.stringify(r.body)).not.toContain(SECRET);
+      expect(paths.sort()).toEqual(
+        expectedFiles(project).filter((p) => p !== "out/leak.txt")
+      );
+    } finally {
+      fs.rmSync(link, { force: true });
+    }
+  });
+
   it("PUT saves the normalized document without leaving temp files, and returns the new etag", async () => {
     const dir = path.join(project, "sfx");
     const get = await api("GET", "/api/file?path=sfx/coin.json");

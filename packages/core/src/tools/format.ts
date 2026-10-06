@@ -18,31 +18,36 @@ const NOTE_LABELS = [
   "B-",
 ] as const;
 
-/** Format a duration in seconds: "310 ms", "2.50 s", "1:05.2". */
+/** Format a duration in seconds: "310 ms", "2.50 s", "1:05.2". Rounds first, then picks the unit. */
 export function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds)) {
     return "-";
   }
   const s = Math.max(0, seconds);
-  if (s < 1) {
-    return `${Math.round(s * 1000)} ms`;
+  const ms = Math.round(s * 1000);
+  if (ms < 1000) {
+    return `${ms} ms`;
   }
-  if (s < 60) {
-    return `${s.toFixed(2)} s`;
+  const centis = Math.round(s * 100);
+  if (centis < 6000) {
+    return `${(centis / 100).toFixed(2)} s`;
   }
-  const minutes = Math.floor(s / 60);
-  const rest = s - minutes * 60;
-  const whole = rest.toFixed(1).padStart(4, "0");
-  return `${minutes}:${whole}`;
+  // whole tenths of a second, so the seconds part can never print as 60.0
+  const tenths = Math.round(s * 10);
+  const minutes = Math.floor(tenths / 600);
+  const rest = (tenths - minutes * 600) / 10;
+  return `${minutes}:${rest.toFixed(1).padStart(4, "0")}`;
 }
 
-/** Format a level in dB with one decimal; anything at or below the floor reads "-inf dB". */
+/** Format a level in dB; anything at or below the floor reads "-inf dB". A negative zero prints as zero. */
 export function formatDb(db: number, digits = 1): string {
   if (Number.isNaN(db) || db <= DB_FLOOR) {
     return "-inf dB";
   }
   const text = db.toFixed(digits);
-  return `${text === "-0.0" ? "0.0" : text} dB`;
+  const unsigned =
+    text.startsWith("-") && Number(text) === 0 ? text.slice(1) : text;
+  return `${unsigned} dB`;
 }
 
 /** Linear amplitude (0..1 full scale) to dB, floored at DB_FLOOR. */

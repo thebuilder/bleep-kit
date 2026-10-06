@@ -292,14 +292,10 @@ describe("changes made behind the studio's back", () => {
     expect(log).toEqual([["warn", "careful"]]);
   });
 
-  /* KNOWN BUG, see the audit ledger. The LocalStore announces a write to its subscribers before writeJson returns, so
-     the project sees the "file" message while it still holds the old etag, takes the studio's own save for an outside
-     edit and reads the file back. Every standalone save then flashes the sidebar row, and an edit made while the save is
-     in flight (a slider being dragged) raises a false "changed on disk" conflict against the studio's own write. The
-     same echo makes create() ingest a new document twice, so the Doc it returns is replaced in the list by a second
-     copy. The server store is not affected: its file message arrives after the PUT has been answered. These two tests
-     state the correct behavior and are expected to fail until docs.ts ignores the echo of its own write. */
-  it.fails("does not mistake its own save for an outside change", async () => {
+  /* The LocalStore announces a write to its subscribers before writeJson returns, while the project still holds the old
+     etag. The project holds file messages for a path while its own write is in flight and drops the one that carries
+     the etag it got back, so a standalone save is not an outside change and does not conflict with itself. */
+  it("does not mistake its own save for an outside change", async () => {
     const causes: string[] = [];
     project.subscribe((e) => {
       if (e.type === "doc") {
@@ -313,7 +309,7 @@ describe("changes made behind the studio's back", () => {
     expect(coin().flashAt).toBe(0);
   });
 
-  it.fails("keeps editing during a save from turning into a conflict with itself", async () => {
+  it("keeps editing during a save from turning into a conflict with itself", async () => {
     setVolume(0.32);
     const saving = project.save(coin());
     setVolume(0.33);

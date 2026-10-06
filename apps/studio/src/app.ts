@@ -149,10 +149,15 @@ class App {
   async save(): Promise<void> {
     const d = this.currentDoc();
     if (d) {
-      const ok = await project.save(d, true);
-      this.toast(
-        ok ? `Saved ${d.id}` : "Could not save: fix the errors in the inspector"
-      );
+      // the etag check stays on: a newer file on disk raises the conflict bar instead of being overwritten
+      const ok = await project.save(d, false, true);
+      if (ok) {
+        this.toast(`Saved ${d.id}`);
+      } else if (d.conflict) {
+        this.toast(`${d.id} changed on disk: choose Reload or Keep mine`);
+      } else {
+        this.toast("Could not save: fix the errors in the inspector");
+      }
     } else {
       await project.saveAll();
       this.toast("Saved");

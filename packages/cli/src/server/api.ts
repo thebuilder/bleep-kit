@@ -177,6 +177,16 @@ function allowedPath(
   return { abs: path.join(root, rel), cls, rel };
 }
 
+/** The stat of a regular file whose real path stays inside the project, else null (escaping or dangling symlink). */
+function readableStat(root: string, abs: string): fs.Stats | null {
+  try {
+    const stat = fs.statSync(abs);
+    return stat.isFile() && insideRoot(root, abs) ? stat : null;
+  } catch {
+    return null;
+  }
+}
+
 function walk(root: string, rel: string, out: FileEntry[]): void {
   const abs = path.join(root, rel);
   let names: fs.Dirent[];
@@ -196,7 +206,11 @@ function walk(root: string, rel: string, out: FileEntry[]): void {
       const cls = classify(childRel);
       if (cls) {
         const full = path.join(root, childRel);
-        const stat = fs.statSync(full);
+        // a symlink that escapes the project (or dangles) is skipped, as reading it is 403
+        const stat = readableStat(root, full);
+        if (!stat) {
+          continue;
+        }
         out.push({
           etag: fileEtag(full, stat),
           kind: cls.kind,
@@ -212,8 +226,9 @@ function walk(root: string, rel: string, out: FileEntry[]): void {
 function listFiles(root: string): FileEntry[] {
   const out: FileEntry[] = [];
   const projectFile = path.join(root, "project.json");
-  if (fs.existsSync(projectFile)) {
-    const stat = fs.statSync(projectFile);
+  const projectStat = readableStat(root, projectFile);
+  if (projectStat) {
+    const stat = projectStat;
     out.push({
       etag: fileEtag(projectFile, stat),
       kind: "project",

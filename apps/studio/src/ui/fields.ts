@@ -11,7 +11,16 @@ export interface Group {
 
 export function group(
   title: string,
-  opts: { key?: string; closed?: boolean; lock?: boolean; hint?: string } = {}
+  opts: {
+    key?: string;
+    closed?: boolean;
+    lock?: boolean;
+    hint?: string;
+    /** The lock is on from the start, for a view that rebuilds its groups and keeps the lock itself. */
+    locked?: boolean;
+    /** Called with the new state when the padlock is clicked. */
+    onLock?: (on: boolean) => void;
+  } = {}
 ): Group {
   const key = `grp:${opts.key ?? title}`;
   const closed = prefs.get(key, opts.closed ?? false);
@@ -22,7 +31,7 @@ export function group(
   });
   head.innerHTML = `${icon("down", 12, "chev")}<span class="pxh"></span>`;
   (head.querySelector(".pxh") as HTMLElement).textContent = title;
-  let lock = false;
+  let lock = Boolean(opts.lock && opts.locked);
   const el = h(
     "section",
     { class: `grp${closed ? " closed" : ""}` },
@@ -33,11 +42,11 @@ export function group(
   if (opts.lock) {
     lockBtn = h("button", {
       "aria-label": `Lock ${title}`,
-      "aria-pressed": "false",
-      class: "lk",
+      "aria-pressed": String(lock),
+      class: `lk${lock ? " on" : ""}`,
       title: "Keep this group fixed while randomizing",
     });
-    lockBtn.innerHTML = icon("unlock", 14);
+    lockBtn.innerHTML = icon(lock ? "lock" : "unlock", 14);
     lockBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       lock = !lock;
@@ -46,6 +55,7 @@ export function group(
       if (lockBtn) {
         lockBtn.innerHTML = icon(lock ? "lock" : "unlock", 14);
       }
+      opts.onLock?.(lock);
     });
     head.append(lockBtn);
   }

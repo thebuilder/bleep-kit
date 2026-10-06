@@ -171,6 +171,25 @@ describe("the worklet bundle with the real engine", () => {
     expect(w.render(20)).toEqual({ left: 0, right: 0 });
   });
 
+  it("names what is wrong with a malformed song instead of a raw TypeError", async () => {
+    const w = await load();
+    const errors = () => w.of("error").map((m) => m.message);
+    w.send({ instruments: {}, song: { not: "a song" }, type: "loadSong" });
+    expect(errors()).toEqual(['cannot load the song: its "chip" is missing']);
+    // right shape at the top, broken inside: the engine's TypeError is wrapped, not leaked
+    w.send({
+      instruments,
+      song: { ...song, order: undefined, patterns: undefined },
+      type: "loadSong",
+    });
+    const last = errors().at(-1) ?? "";
+    expect(last).toContain("cannot load the song");
+    expect(last).toContain("malformed");
+    w.send({ id: "bad", sfx: null, type: "loadSfx" });
+    expect(errors().at(-1)).toBe('cannot load sfx "bad": it is not an object');
+    expect(() => w.render(10)).not.toThrow();
+  });
+
   it("reports a bad document as an error message and keeps working", async () => {
     const w = await load();
     w.send({ instruments: {}, song: { not: "a song" }, type: "loadSong" });

@@ -77,16 +77,6 @@ function deadParams(id: SampleGeneratorId): string[] {
   });
 }
 
-/* SUSPECTED PRODUCTION BUG, documented rather than hidden: these parameters are in the specs (and so in the studio's
-   sample panel and in normalize's clamping) but the generator never reads them. `lead` ignores its params argument
-   altogether (src/samples/generators.ts, `function lead(_p, _seed, sr)`), and `choir` reads vowel and breath only.
-   The `it.fails` test at the bottom asserts the intended behavior and starts failing the day this is fixed: then
-   delete this table and that test. */
-const KNOWN_DEAD_PARAMS: Partial<Record<SampleGeneratorId, string[]>> = {
-  choir: ["vibrato"],
-  lead: ["bright", "duty", "vibrato"],
-};
-
 function finite(a: Float32Array): boolean {
   for (let i = 0; i < a.length; i += 1) {
     if (!Number.isFinite(a[i])) {
@@ -247,12 +237,8 @@ describe("sample generators", () => {
         }
       });
 
-      it("every declared parameter changes the sound (known exceptions: see KNOWN_DEAD_PARAMS)", () => {
-        expect(
-          deadParams(id).filter(
-            (k) => !(KNOWN_DEAD_PARAMS[id] ?? []).includes(k)
-          )
-        ).toEqual([]);
+      it("every declared parameter changes the sound", () => {
+        expect(deadParams(id)).toEqual([]);
       });
     });
   }
@@ -368,7 +354,7 @@ describe("sample generators", () => {
     }
   });
 
-  it.fails("BUG: every declared parameter of lead and choir changes the sound", () => {
+  it("every declared parameter of lead and choir changes the sound", () => {
     expect(deadParams("lead")).toEqual([]);
     expect(deadParams("choir")).toEqual([]);
   });

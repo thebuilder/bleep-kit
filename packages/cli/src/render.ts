@@ -503,7 +503,7 @@ function writeStems(job: Job, result: RenderResult): string[] {
   (result.stems ?? []).forEach((stem, i) => {
     const rel = `${job.base}.stem-${result.stemIds?.[i] ?? `ch${i + 1}`}.wav`;
     const mono: RenderResult = {
-      channels: [stem, stem],
+      channels: [stem],
       events: [],
       frames: stem.length,
       sampleRate: result.sampleRate,

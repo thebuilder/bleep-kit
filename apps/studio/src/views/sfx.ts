@@ -208,6 +208,9 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
   };
 
   const groups: Record<string, Group> = {};
+  /* Locked groups, by key. The inspector is rebuilt after every randomize and mutate, so the lock lives here and not
+     in the group: it holds until the user unlocks it. */
+  const locks = new Set<string>();
   const handles: Record<string, FieldHandle | undefined> = {};
   let wg: WaveGrid | null = null;
 
@@ -308,7 +311,19 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
     inner.append(box);
 
     const mk = (key: string, title: string, o: { closed?: boolean } = {}) => {
-      const g = group(title, { key: `sfx-${key}`, lock: true, ...o });
+      const g = group(title, {
+        key: `sfx-${key}`,
+        lock: true,
+        locked: locks.has(key),
+        onLock: (on) => {
+          if (on) {
+            locks.add(key);
+          } else {
+            locks.delete(key);
+          }
+        },
+        ...o,
+      });
       groups[key] = g;
       inner.append(g.el);
       return g;

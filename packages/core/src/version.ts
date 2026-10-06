@@ -6,10 +6,12 @@
  * envelope shape, a changed sequencer rule). `test/golden.test.ts` stores the version in each golden file and refuses to
  * regenerate hashes under a version it already holds, so a changed sound cannot ship without invalidating old renders.
  */
-export const ENGINE_VERSION = "3";
+export const ENGINE_VERSION = "4";
 
 /*
  * History, newest first:
+ *   "4"  The `lead` sample generator now honors bright, duty and vibrato and `choir` honors vibrato (they were ignored).
+ *        No golden hash moved: no golden fixture uses them. Renders of songs that do (the demo's boss-hall) are redone.
  *   "3"  Gain staging and loops. Chips are leveled once in core (a full-volume square peaks -12 dBFS on every chip),
  *        FM level maps linearly to TL in dB (modulators no longer near silent) and FM key-on resets operator state,
  *        the sfx FM index is in radians (divided by 2 pi), PSG noise on genesis follows tone3, the noise lift is capped,

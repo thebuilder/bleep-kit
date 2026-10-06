@@ -420,7 +420,7 @@ export function parseMml(src: string, opts: MmlOptions = {}): MmlParse {
         if (n === null) {
           err(`"k" needs a signed number of semitones at offset ${t.pos}`);
         } else {
-          st.transpose = Math.min(48, Math.max(-48, n));
+          st.transpose = ranged("k", t.pos, n, -48, 48, st.transpose);
         }
         break;
       }

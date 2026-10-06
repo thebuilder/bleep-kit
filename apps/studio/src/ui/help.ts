@@ -41,7 +41,10 @@ const SECTIONS: [string, [string, string][]][] = [
       ["Arrows, Tab, Shift Tab", "Move"],
       ["PgUp  PgDn  Home  End", "Jump 16 rows, start, end"],
       ["Delete", "Clear the cell"],
-      ["F", "Follow the playhead"],
+      [
+        "F",
+        "Follow the playhead (in the note column; in other columns F is a hex digit)",
+      ],
     ],
   ],
 ];

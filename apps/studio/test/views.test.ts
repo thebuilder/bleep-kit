@@ -553,10 +553,9 @@ describe("the sfx editor", () => {
     restoreSfx("coin", original);
   });
 
-  /* The padlock lives on the inspector group, and randomize and mutate rebuild the inspector afterwards, so the lock
-     (and its icon) is gone after one press. Pressing Randomize again to look for a better sound, with the envelope
-     locked, throws the envelope away. Suspected bug, see the audit ledger. */
-  it.fails("a lock keeps holding for the next randomize", async () => {
+  /* The inspector is rebuilt after every randomize and mutate, so the lock is kept by the view and has to survive it:
+     pressing Randomize again with the envelope locked must not throw the envelope away. */
+  it("a lock keeps holding for the next randomize", async () => {
     await goSfx("coin");
     const original = clone(sfxValue("coin"));
     lock("Envelope");
@@ -779,17 +778,15 @@ describe("the song editor", () => {
     expect(rowsOf()).toEqual(before);
   });
 
-  /* F is a hex digit, and the key that turns Follow on and off. The tracker checks Follow before the field it is in, so
-     F never reaches the volume, instrument or effect column: the top volume (F) and any code ending or starting in F
-     (A0F, the hint's own example, or the tempo effect F) cannot be typed. Expected to fail until the hex columns see
-     the key first. */
-  it.fails("the volume column takes F, the top volume", () => {
+  /* F is a hex digit and also the Follow key. Follow only takes it in the note column (where F is not a note key), so
+     the volume, instrument and effect columns see F as a hex digit: the top volume and codes like A0F can be typed. */
+  it("the volume column takes F, the top volume", () => {
     clickCell(0, 0, 2);
     typeKeys("f");
     expect(rowsOf().find((r) => r.row === 0)?.vol).toBe(15);
   });
 
-  it.fails("an effect code ending in F, the example the hint gives, can be typed", () => {
+  it("an effect code ending in F, the example the hint gives, can be typed", () => {
     clickCell(1, 0, 3);
     typeKeys("a", "0", "f");
     expect(rowsOf().find((r) => r.row === 1)?.fx).toEqual([
@@ -797,9 +794,9 @@ describe("the song editor", () => {
     ]);
   });
 
-  /* The hint offers A0F as its example of an arpeggio; in the effect table A is the volume slide and the arpeggio is
-     0xy. Expected to fail until the hint's example is corrected. */
-  it.fails("the example effect code in the hint for a bad code is the effect it names", () => {
+  /* The hint's example for an arpeggio has to be an arpeggio: in the effect table A is the volume slide and the
+     arpeggio is 0xy. */
+  it("the example effect code in the hint for a bad code is the effect it names", () => {
     typeKeys("z", "z", "z");
     const [, code, name] = /Try (\w{3}) \((\w+)\)/.exec(toast()) ?? [];
     expect(name).toBe("arpeggio");
@@ -939,9 +936,9 @@ describe("the song editor", () => {
     expect(track()).toEqual(before);
   });
 
-  /* AMBIGUOUS REQUIREMENT, see the audit ledger. MML has no release, so a tracker release row (the backtick) comes back
-     from MML as a note off: the envelope's tail is cut instead of played. The toast does not say so. */
-  it.fails("a release row survives a trip through MML", async () => {
+  /* MML has no release, so the conversion notes the release rows in a trailing MML comment and converting back turns the
+     note offs on those rows into releases again. */
+  it("a release row survives a trip through MML", async () => {
     await makeSong("release-song");
     await goSong("release-song");
     typeKeys("z", "`");
@@ -1097,10 +1094,9 @@ describe("the song editor", () => {
       expect(toast()).toBe("A song needs at least one pattern");
     });
 
-    /* The song's loop is an index into the order. Editing the order around it moves the index's meaning: after these
-       edits the song loops back to a different pattern than the one marked. Each is expected to fail until the loop
-       index follows its pattern (see the audit ledger). */
-    it.fails("adding a pattern before the loop target keeps the loop on the same pattern", async () => {
+    /* The song's loop is an index into the order, so editing the order around it has to carry the index along: the song
+       keeps looping back to the pattern that was marked. */
+    it("adding a pattern before the loop target keeps the loop on the same pattern", async () => {
       await open("order-loop-new", 2, 1);
       press(chips()[0] as HTMLElement);
       press(orderBtn("New"));
@@ -1108,7 +1104,7 @@ describe("the song editor", () => {
       expect(s.order[s.loop as number]).toBe("pattern-2");
     });
 
-    it.fails("removing a pattern before the loop target keeps the loop on the same pattern", async () => {
+    it("removing a pattern before the loop target keeps the loop on the same pattern", async () => {
       await open("order-loop-remove", 3, 1);
       press(chips()[0] as HTMLElement);
       press(orderBtn("Remove"));
@@ -1116,7 +1112,7 @@ describe("the song editor", () => {
       expect(s.order[s.loop as number]).toBe("pattern-2");
     });
 
-    it.fails("moving a pattern across the loop target keeps the loop on the same pattern", async () => {
+    it("moving a pattern across the loop target keeps the loop on the same pattern", async () => {
       await open("order-loop-move", 3, 1);
       press(chips()[0] as HTMLElement);
       press(orderBtn("Right"));

@@ -395,6 +395,15 @@ describe("sound effects", () => {
     expect(ctx.sources.every((s) => s.stops.length === 0)).toBe(true);
   });
 
+  it("preload reports unknown ids and still preloads the known ones", async () => {
+    await (p as BleepPlayer).preload(["unknown", "coin", "other"]);
+    expect(errors.map((e) => e.message)).toEqual([
+      'unknown sfx or song "unknown"',
+      'unknown sfx or song "other"',
+    ]);
+    expect(ctx.sources).toHaveLength(0);
+  });
+
   it("reports an unknown id and hands back an inert handle", () => {
     // a mistake the types would catch, made at runtime
     const h = (p as BleepPlayer).sfx("missing");

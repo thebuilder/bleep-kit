@@ -75,6 +75,70 @@ interface Cursor {
   row: number;
 }
 
+/* The song's loop is an index into the order, so an edit of the order has to carry it along to keep the loop on the
+   same pattern. */
+
+/** A step was inserted at `at`: a loop at or after it moves down one. */
+function loopAfterInsert(loop: number | null, at: number): number | null {
+  return loop !== null && loop >= at ? loop + 1 : loop;
+}
+
+/** The step at `at` was removed (`length` is the new order length). A loop on the removed step falls to the step that
+   took its place. */
+function loopAfterRemove(
+  loop: number | null,
+  at: number,
+  length: number
+): number | null {
+  if (loop === null) {
+    return null;
+  }
+  const next = loop > at ? loop - 1 : loop;
+  return Math.max(0, Math.min(next, length - 1));
+}
+
+/** The step at `from` was moved to `to`: the loop follows its pattern, and the steps in between shift by one. */
+function loopAfterMove(
+  loop: number | null,
+  from: number,
+  to: number
+): number | null {
+  if (loop === null) {
+    return null;
+  }
+  if (loop === from) {
+    return to;
+  }
+  if (from < loop && loop <= to) {
+    return loop - 1;
+  }
+  if (to <= loop && loop < from) {
+    return loop + 1;
+  }
+  return loop;
+}
+
+/* MML has no release (section 2.7), so a release row would come back from MML as a plain note off. The conversion
+   writes the rows that held a release into a trailing comment, which parseMml ignores, and converting back turns the
+   note offs on those rows into releases again. A row the MML edit has since moved simply stays a note off. */
+const RELEASE_COMMENT = /^;\s*release rows:\s*([\d ]+)$/m;
+
+function withReleaseNote(mml: string, rows: readonly Row[]): string {
+  const at = rows.filter((r) => r.note === "release").map((r) => r.row);
+  return at.length > 0 ? `${mml}\n; release rows: ${at.join(" ")}` : mml;
+}
+
+function restoreReleases(rows: Row[], mml: string): Row[] {
+  const listed = RELEASE_COMMENT.exec(mml)?.[1];
+  if (!listed) {
+    return rows;
+  }
+  const at = new Set(listed.split(" ").filter(Boolean).map(Number));
+  return rows.map((r) =>
+    r.note === "off" && at.has(r.row) ? { ...r, note: "release" } : r
+  );
+}
+
 function noteText(n: NoteValue | null): string {
   if (n === null) {
     return "---";
@@ -170,7 +234,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         <label class="num"><span>Rows/beat</span><input type="number" id="gRpb" min="1" max="16" aria-label="Rows per beat"></label>
         <label class="num"><span>Length</span><input type="number" id="gLen" min="1" max="256" aria-label="Pattern length"></label>
         <label class="num"><span>Octave</span><span class="oct"><button class="btn icon small" id="gOctDn" aria-label="Octave down">${icon("minus", 12)}</button><b class="mono" id="gOct"></b><button class="btn icon small" id="gOctUp" aria-label="Octave up">${icon("plus", 12)}</button></span></label>
-        <label class="tgl-row" title="Scroll the grid with the playhead (F)"><span class="tgl"><input type="checkbox" id="gFollow"><span></span></span><small>Follow (F)</small></label>
+        <label class="tgl-row" title="Scroll the grid with the playhead (F, while the cursor is in the note column)"><span class="tgl"><input type="checkbox" id="gFollow"><span></span></span><small>Follow (F)</small></label>
       </div>
       <div class="orderbar" id="gOrder" role="list" aria-label="Order list"></div>
       <div class="tracker" id="gTracker" tabindex="0" aria-label="Tracker grid">
@@ -426,9 +490,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       }
       project.edit<Song>(doc(), (d) => {
         d.order.splice(orderIdx, 1);
-        if (d.loop !== null && d.loop >= d.order.length) {
-          d.loop = d.order.length - 1;
-        }
+        d.loop = loopAfterRemove(d.loop, orderIdx, d.order.length);
       });
       orderIdx = Math.min(orderIdx, song().order.length - 1);
       rebuildAll();
@@ -465,9 +527,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       if (x !== undefined) {
         d.order.splice(to, 0, x);
       }
-      if (d.loop === from) {
-        d.loop = to;
-      }
+      d.loop = loopAfterMove(d.loop, from, to);
     });
     orderIdx = to;
     rebuildAll();
@@ -488,6 +548,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     project.edit<Song>(doc(), (d) => {
       d.patterns[pid] = { length: len, tracks: {} };
       d.order.splice(orderIdx + 1, 0, pid);
+      d.loop = loopAfterInsert(d.loop, orderIdx + 1);
     });
     orderIdx += 1;
     rebuildAll();
@@ -501,6 +562,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     project.edit<Song>(doc(), (d) => {
       d.patterns[pid] = JSON.parse(JSON.stringify(src));
       d.order.splice(orderIdx + 1, 0, pid);
+      d.loop = loopAfterInsert(d.loop, orderIdx + 1);
     });
     orderIdx += 1;
     rebuildAll();
@@ -636,13 +698,14 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     }
   }
 
-  /** The keys that mean the same in every field: octave down and up, follow. */
-  function globalKey(k: string): boolean {
+  /** The keys that mean the same in every field: octave down and up. F follows the playhead, but only where F is not a
+   hex digit: in the note column (or an MML channel), never in the instrument, volume or effect columns. */
+  function globalKey(k: string, hexColumn: boolean): boolean {
     if (k === "-" || k === "_") {
       setOctave(octave - 1);
     } else if (k === "=" || k === "+") {
       setOctave(octave + 1);
-    } else if (k === "f" || k === "F") {
+    } else if ((k === "f" || k === "F") && !hexColumn) {
       setFollow(!follow);
     } else {
       return false;
@@ -736,7 +799,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     entry = "";
     if (!eff) {
       app.toast(
-        `${code.toUpperCase()} is not an effect. Try A0F (arpeggio) or 0C4 style codes: a letter, then two hex digits.`
+        `${code.toUpperCase()} is not an effect. Try 047 (arpeggio) or A0F (volume slide): a letter or digit, then two hex digits.`
       );
       return true;
     }
@@ -764,7 +827,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     if (e.shiftKey && k.length > 1) {
       return false;
     }
-    if (globalKey(k)) {
+    if (globalKey(k, c.mml === null && cur.field > 0)) {
       return true;
     }
     if (c.mml !== null) {
@@ -900,8 +963,11 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return;
     }
     if (c.mml === null) {
-      const text =
-        patternToMml(flatRows(c.id), song().rowsPerBeat) || "o4 l8 r";
+      const rows = flatRows(c.id);
+      const text = withReleaseNote(
+        patternToMml(rows, song().rowsPerBeat) || "o4 l8 r",
+        rows
+      );
       project.edit<Song>(doc(), (d) => {
         const ch = d.channels[ci];
         if (!ch) {
@@ -925,7 +991,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return;
     }
     const res = mmlToTrack(c.mml, song().rowsPerBeat);
-    const { rows } = res;
+    const rows = restoreReleases(res.rows, c.mml);
     project.edit<Song>(doc(), (d) => {
       const ch = d.channels[ci];
       if (!ch) {
@@ -1503,7 +1569,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       h(
         "div",
         { class: "hint" },
-        "Keys: Z S X D C V G B H N J M and Q 2 W 3 E R 5 T 6 Y 7 U play notes. 1 is note off, ` is release, Delete clears, - and = change octave, F follows the playhead."
+        "Keys: Z S X D C V G B H N J M and Q 2 W 3 E R 5 T 6 Y 7 U play notes. 1 is note off, ` is release, Delete clears, - and = change octave, F follows the playhead while the cursor is in the note column."
       )
     );
   }
@@ -1818,7 +1884,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       group: "Song",
       icon: "eye",
       id: "song:follow",
-      keys: "F",
+      keys: "F (note column)",
       run: () => setFollow(!follow),
       title: "Toggle follow playhead",
     },

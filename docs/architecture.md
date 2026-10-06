@@ -51,7 +51,7 @@ Rules:
 ```ts
 // documents and normalize
 export { FORMAT_VERSION, CHIP_IDS, CHANNEL_KINDS, SFX_CATEGORIES, SFX_WAVES, EFFECT_TYPES, SAMPLE_GENERATOR_IDS, PPQ, SCOPE_FRAMES } from "./types.ts";
-export { ENGINE_VERSION } from "./version.ts";   // a string ("2" today): the version of the sound, bumped when golden hashes change on purpose (section 6.2)
+export { ENGINE_VERSION } from "./version.ts";   // a string (see src/version.ts for the current value): the version of the sound, bumped when golden hashes change on purpose (section 6.2)
 export type * from "./types.ts";
 export { normalizeProject, normalizeSfx, normalizeInstrument, normalizeSong, defaultProject, defaultSfx, defaultInstrument, defaultSong } from "./normalize/index.ts";
 export { issuesToText } from "./normalize/issues.ts";
@@ -1022,7 +1022,7 @@ Validation rules beyond types: every `order` entry names an existing pattern; `l
 One string per channel (`SongChannel.mml`). It compiles to the same timeline as patterns. Grammar (whitespace ignored, case sensitive, `;` comments to end of line):
 
 ```
-note      c d e f g a b, optionally + or # (sharp) or - (flat), optional length (1 2 4 8 16 32 64, optional dots), & ties to the next note
+note      c d e f g a b, optionally + or # (sharp) or - (flat), optional length (1 2 3 4 6 8 12 16 24 32 48 64 96 128 192, optional dots; 3, 6, 12, 24, 48, 96 and 192 are the triplet forms, and 96, 128 and 192 are the fine tick forms of 4, 3 and 2 pulses), & ties to the next note
 n<midi>   note by MIDI number, optional length
 r         rest, optional length
 o<0-8>    octave (default 4)    >  octave up    <  octave down
@@ -1031,7 +1031,7 @@ v<0-15>   volume (default 15)
 p<0-15>   pan (0 left, 8 center, 15 right)
 @<id>     instrument by id (letters, digits, dashes), ends at a non-id character
 q<1-8>    gate: notes sound for q/8 of their length (default 8)
-k<n>      transpose in semitones, signed (k-12)
+k<n>      transpose in semitones, signed (k-12); outside -48 to 48 it clamps with a warning
 t<n>      tempo; sets song.tempo when the song has no patterns, otherwise a warning if it differs
 w<n>      duty index (shorthand for {V0n})
 {Axx}     attach a tracker effect to the next note (several braces allowed)
@@ -1136,7 +1136,7 @@ FM runs at the host rate with a sine table of 4096 entries and linear interpolat
 
 ### 3.7 Sample generators (snes profile)
 
-`generateSample(gen, params, seed, sampleRate)` synthesizes a `GeneratedSample` deterministically: drums (kick: sine sweep with click; snare: tone plus filtered noise; hat: metallic noise burst; tom; clap: four noise bursts; crash: long filtered noise), and tonal generators with loop points (pluck: Karplus-Strong; bass: filtered saw; pad: detuned saws with slow filter; organ: additive drawbars; bell: FM 2 op; strings: sawtooth chorus; choir: formant filtered pulses; lead: pulse with vibrato). Samples are generated at `chipProfile.sampleRate ?? host` (32000 for snes), cached by a key of `(gen, params, seed, rate)` inside the synth (a `Map`, filled on `loadSong`, never in `process`). Voice playback uses linear interpolation at the host rate, with the SNES gaussian blur applied in coloring. Max sample length 4 s.
+`generateSample(gen, params, seed, sampleRate)` synthesizes a `GeneratedSample` deterministically: drums (kick: sine sweep with click; snare: tone plus filtered noise; hat: metallic noise burst; tom; clap: four noise bursts; crash: long filtered noise), and tonal generators with loop points (pluck: Karplus-Strong; bass: filtered saw; pad: detuned saws with slow filter; organ: additive drawbars; bell: FM 2 op; strings: sawtooth chorus; choir: formant filtered pulses; lead: pulse with slow pulse width modulation, `bright` low pass, `duty` width and `vibrato` depth; choir `vibrato` is pitch vibrato on the source). Samples are generated at `chipProfile.sampleRate ?? host` (32000 for snes), cached by a key of `(gen, params, seed, rate)` inside the synth (a `Map`, filled on `loadSong`, never in `process`). Voice playback uses linear interpolation at the host rate, with the SNES gaussian blur applied in coloring. Max sample length 4 s.
 
 ### 3.8 Chip coloring and master
 
@@ -1303,7 +1303,7 @@ Binary `bleepkit`, built with esbuild into `packages/cli/dist/index.mjs` like Pi
 | `bleepkit validate [ref...]` | normalizes every document (or the named ones) with the instrument map; exit 1 when any error | `{ ok, documents: [{ ref, ok, issues }] }` |
 | `bleepkit list [sfx|songs|instruments]` | lists documents with name, chip, category or kind, duration when a render exists in `out/` | `{ ok, sfx: [...], songs: [...], instruments: [...] }` |
 | `bleepkit render [ref...] [--format wav] [--loops 1] [--tail 1] [--stems] [--analyze] [--images] [--rate 48000]` | renders to `out/<kind>/<id>.wav` (`.ogg`/`.mp3` with `--format`), writes `<id>.events.json`; `--loops` is the number of extra passes of a looping song after the first (minimum 1, so a render always holds the intro and two passes and `loopStart` / `loopEnd` bracket the second); `--analyze` adds the analysis JSON; `--images` writes `out/analysis/<id>.waveform.png`, `.spectrogram.png`, `.scopes.png`; no refs = everything | `{ ok, renders: [{ ref, path, duration, loopStart, loopEnd, peakDb, rmsDb, clipped, analysis? }] }` |
-| `bleepkit analyze <file or ref> [--images] [--pitch] [--window 2048]` | analysis of a render in `out/` or any wav/ogg path; renders first when `out/` is stale or missing (render if the document is newer) | the `Analysis` object (section 6.4) with `ok: true` |
+| `bleepkit analyze <file or ref> [--images] [--pitch] [--window 2048]` | analysis of a render in `out/` or any WAV path (the CLI has no ogg or mp3 decoder); renders first when `out/` is stale or missing (render if the document is newer) | the `Analysis` object (section 6.4) with `ok: true` |
 | `bleepkit play <ref> [--studio http://localhost:5174] [--visual]` | POSTs `/api/play` to the running studio; exit 4 when no studio answers | `{ ok, studio }` |
 | `bleepkit export [--dir] [--manifest] [--sfx-format] [--music-format] [--embed] [--clean] [--dry-run]` | renders everything whose render is stale, encodes to the project's export formats, writes files to `export.dir`, writes the manifest; `--clean` removes files in `export.dir` that no document produces; `--dry-run` lists what would change | `{ ok, written: string[], removed: string[], manifest, warnings: string[] }` |
 | `bleepkit studio [dir] [--port 5174] [--open] [--no-open]` | starts the server (section 6.3) and serves the built studio; prints the URL; runs until Ctrl-C | streams `{ type: "listening", url }` then one line per file event in `--json` |

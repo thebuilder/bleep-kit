@@ -228,6 +228,10 @@ export async function createPlayer<M extends AudioManifest = AudioManifest>(
       const jobs: Promise<void>[] = [];
       const embedded: string[] = [];
       for (const id of all) {
+        if (!(id in manifest.sfx || id in manifest.songs)) {
+          report(new Error(`unknown sfx or song "${id}"`));
+          continue;
+        }
         const kind = id in manifest.sfx ? "sfx" : "songs";
         if (useSynth(kind, id)) {
           embedded.push(id);

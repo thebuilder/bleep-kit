@@ -1020,6 +1020,7 @@ describe("render and analyze", () => {
     );
     for (const c of channels) {
       const stem = readWav(path.join(project, `out/songs/title.stem-${c}.wav`));
+      expect(stem.channels, c).toBe(1);
       expect(stem.frames, c).toBe(master.frames);
       expect(
         stem.samples.every((v) => v === 0),

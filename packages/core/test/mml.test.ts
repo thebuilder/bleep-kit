@@ -273,6 +273,18 @@ describe("mml errors", () => {
     expect(notes("q0 c4")[0]?.gate).toBe(12);
   });
 
+  it("k outside -48 to 48 clamps with a warning that names the position", () => {
+    const hi = warnings("c k99 c");
+    expect(hi).toHaveLength(1);
+    expect(hi[0]).toContain('"k99"');
+    expect(hi[0]).toContain("clamped");
+    expect(hi[0]).toContain("offset 2");
+    expect(notes("k99 o0 c")[0]?.note).toBe(12 + 48);
+    expect(warnings("k-60 c")[0]).toContain('"k-60"');
+    expect(notes("k-60 o8 c")[0]?.note).toBe(108 - 48);
+    expect(warnings("k48 c k-48 c")).toHaveLength(0);
+  });
+
   it("bad effect codes are errors", () => {
     expect(errors("{zz} c").length).toBeGreaterThan(0);
     expect(errors("{} c").length).toBeGreaterThan(0);

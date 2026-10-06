@@ -603,11 +603,9 @@ describe("the studio app", () => {
     expect(await stored()).toBe(original);
   });
 
-  /* AMBIGUOUS REQUIREMENT, see the audit ledger. Ctrl+S goes through app.save, which saves with overwrite = true (it is
-     how a document that is not dirty is written anyway), and that also leaves the etag out. Section 6.3 says a save
-     with a stale etag gets 412 and the changed-on-disk bar, with Keep mine as the only way to overwrite; Ctrl+S
-     overwrites without asking. Expected to fail until app.save keeps the etag check. */
-  it.fails("Ctrl+S does not silently overwrite a change made on disk", async () => {
+  /* Section 6.3: a save with a stale etag gets the changed-on-disk bar, and Keep mine is the only way to overwrite.
+     Ctrl+S keeps the etag check like autosave does. */
+  it("Ctrl+S does not silently overwrite a change made on disk", async () => {
     await go("#/sfx/coin", () => document.querySelector("#sName") !== null);
     const { project } = docsMod;
     const insp = document.getElementById("insp") as HTMLElement;

@@ -75,6 +75,45 @@ function copyNewest(ring: Float32Array, head: number, n: number): Float32Array {
   return out;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Name the first thing wrong with a song document, or null when its top level looks like a song. */
+function songProblem(song: unknown): string | null {
+  if (!isRecord(song)) {
+    return "it is not an object";
+  }
+  if (typeof song.chip !== "string") {
+    return 'its "chip" is missing';
+  }
+  if (!Array.isArray(song.channels)) {
+    return 'its "channels" list is missing';
+  }
+  if (!isRecord(song.master)) {
+    return 'its "master" settings are missing';
+  }
+  return null;
+}
+
+/** Run a document load and turn the engine's raw TypeError into a message that says which document is wrong. */
+function loadChecked(what: string, problem: string | null, load: () => void) {
+  if (problem !== null) {
+    throw new Error(`cannot load ${what}: ${problem}`);
+  }
+  try {
+    load();
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(
+        `cannot load ${what}: the document is malformed, a required field is missing or has the wrong type (${error.message}); run it through normalizeSong or normalizeSfx first`,
+        { cause: error }
+      );
+    }
+    throw error;
+  }
+}
+
 export class BleepkitEngine {
   private readonly port: EnginePort;
   private readonly env: EngineEnv;
@@ -171,13 +210,19 @@ export class BleepkitEngine {
     const synth = this.requireSynth();
     switch (msg.type) {
       case "loadSong":
-        synth.loadSong(msg.song, msg.instruments);
+        loadChecked("the song", songProblem(msg.song), () =>
+          synth.loadSong(msg.song, msg.instruments)
+        );
         break;
       case "unloadSong":
         synth.unloadSong();
         break;
       case "loadSfx":
-        synth.loadSfx(msg.id, msg.sfx);
+        loadChecked(
+          `sfx "${String(msg.id)}"`,
+          isRecord(msg.sfx) ? null : "it is not an object",
+          () => synth.loadSfx(msg.id, msg.sfx)
+        );
         break;
       case "unloadSfx":
         synth.unloadSfx(msg.id);

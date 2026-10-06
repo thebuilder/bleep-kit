@@ -103,18 +103,16 @@ describe("format", () => {
     expect(formatDuration(seconds)).toBe(text);
   });
 
-  // Known defect: the sub-unit is rounded after the unit was chosen, so values just under a boundary roll over wrongly
-  // ("1:60.0" instead of "2:00.0", "1000 ms" instead of "1.00 s"). formatDuration is used in the image headers.
-  // These pass while the defect exists (it.fails); when formatDuration is fixed they fail: turn them into plain it.
-  it.fails("rolls 119.97 s over to 2:00.0, not 1:60.0", () => {
+  // Values just under a unit boundary round up into the next unit (formatDuration is used in the image headers).
+  it("rolls 119.97 s over to 2:00.0, not 1:60.0", () => {
     expect(formatDuration(119.97)).toBe("2:00.0");
   });
 
-  it.fails("rolls 59.999 s over to 1:00.0, not 60.00 s", () => {
+  it("rolls 59.999 s over to 1:00.0, not 60.00 s", () => {
     expect(formatDuration(59.999)).toBe("1:00.0");
   });
 
-  it.fails("rolls 0.9996 s over to 1.00 s, not 1000 ms", () => {
+  it("rolls 0.9996 s over to 1.00 s, not 1000 ms", () => {
     expect(formatDuration(0.9996)).toBe("1.00 s");
   });
 
@@ -131,8 +129,8 @@ describe("format", () => {
     expect(formatDb(db, digits)).toBe(text);
   });
 
-  // Known defect: only the one-decimal "-0.0" is turned into "0.0", so two or more decimals still print a negative zero.
-  it.fails("does not print a negative zero with two decimals", () => {
+  // A negative value that rounds to zero never prints a minus sign, for any decimal count.
+  it("does not print a negative zero with two decimals", () => {
     expect(formatDb(-0.004, 2)).toBe("0.00 dB");
   });
 

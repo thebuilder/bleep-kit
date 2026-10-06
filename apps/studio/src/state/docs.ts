@@ -25,6 +25,7 @@ import {
   type ProjectStore,
   pathFor,
   type ServerMessage,
+  type WriteResult,
 } from "../store/store.ts";
 
 export type DocKind = "sfx" | "instrument" | "song";
@@ -87,6 +88,11 @@ class ProjectState {
   private readonly listeners = new Set<(e: ProjectEvent) => void>();
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private off: (() => void) | null = null;
+  /** File messages that arrived while a write to the path was in flight, one list per write. */
+  private readonly inflight = new Map<
+    string,
+    Extract<ServerMessage, { type: "file" }>[][]
+  >();
   /** Set when the studio server asks to play something. */
   onRemotePlay: ((ref: string, visual: boolean) => void) | null = null;
   onLog: ((level: string, message: string) => void) | null = null;
@@ -331,10 +337,11 @@ class ProjectState {
     this.emit({ type: "project" });
   }
 
-  /** Save a document. `overwrite` ignores the etag (Keep mine). Returns false when it did not save. */
-  async save(doc: Doc, overwrite = false): Promise<boolean> {
+  /** Save a document. `overwrite` ignores the etag (Keep mine). `force` writes a clean document too, still with the
+   etag. Returns false when it did not save. */
+  async save(doc: Doc, overwrite = false, force = false): Promise<boolean> {
     clearTimeout(this.timers.get(doc.path));
-    if (!(doc.dirty || overwrite)) {
+    if (!(doc.dirty || overwrite || force)) {
       return true;
     }
     const n = this.normalize(doc.kind, doc.value);
@@ -345,7 +352,7 @@ class ProjectState {
     }
     const text = JSON.stringify(doc.value);
     doc.saving = true;
-    const res = await this.store.writeJson(
+    const res = await this.write(
       doc.path,
       doc.value,
       overwrite ? undefined : (doc.etag ?? undefined)
@@ -377,7 +384,7 @@ class ProjectState {
   async saveProject(): Promise<boolean> {
     clearTimeout(this.timers.get("project.json"));
     const text = JSON.stringify(this.project);
-    const res = await this.store.writeJson(
+    const res = await this.write(
       "project.json",
       this.project,
       this.projectDoc.etag ?? undefined
@@ -428,6 +435,39 @@ class ProjectState {
     return this.save(doc, true);
   }
 
+  /* ----- writing through the store ----- */
+
+  /** Write through the store and swallow the echo of our own write. A store may announce the write to its subscribers
+   before writeJson returns (the LocalStore does), when the etag is not known here yet, so file messages for the path
+   are held while the write is in flight and the ones carrying the etag we got back are dropped. Anything else is a
+   real outside change and is handled afterwards. */
+  private async write(
+    path: string,
+    json: unknown,
+    ifMatch?: string
+  ): Promise<WriteResult> {
+    const held: Extract<ServerMessage, { type: "file" }>[] = [];
+    const outer = this.inflight.get(path);
+    this.inflight.set(path, [...(outer ?? []), held]);
+    let res: WriteResult;
+    try {
+      res = await this.store.writeJson(path, json, ifMatch);
+    } finally {
+      const rest = (this.inflight.get(path) ?? []).filter((h) => h !== held);
+      if (rest.length > 0) {
+        this.inflight.set(path, rest);
+      } else {
+        this.inflight.delete(path);
+      }
+    }
+    for (const m of held) {
+      if (!(res.ok && m.etag === res.etag)) {
+        fire(this.onFile(m));
+      }
+    }
+    return res;
+  }
+
   /* ----- creating and deleting ----- */
 
   uniqueId(kind: DocKind, base: string): string {
@@ -447,7 +487,7 @@ class ProjectState {
   async create(kind: DocKind, id: string, value: AnyDoc): Promise<Doc> {
     const path = pathFor(kind, id);
     const n = this.normalize(kind, value);
-    const res = await this.store.writeJson(path, n.value);
+    const res = await this.write(path, n.value);
     const doc = this.ingest(kind, path, n.value, res.ok ? res.etag : null);
     doc.dirty = !res.ok;
     this.emit({ type: "list" });
@@ -491,6 +531,13 @@ class ProjectState {
       return;
     }
     if (m.type === "file") {
+      const writes = this.inflight.get(m.path);
+      if (writes && writes.length > 0) {
+        for (const held of writes) {
+          held.push(m);
+        }
+        return;
+      }
       fire(this.onFile(m));
     }
   }

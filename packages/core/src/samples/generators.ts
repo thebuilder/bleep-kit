@@ -554,17 +554,25 @@ const VOWEL_FORMANTS: readonly (readonly number[])[] = [
 ];
 const FORMANT_WEIGHTS = [1, 0.7, 0.35] as const;
 
-/** Glottal-ish source: a narrow pulse train with a little vibrato whose period is the loop. */
+/** Choir vibrato: five cycles per loop body (about 4 Hz), up to 0.2 carrier cycles deep (about +-30 cents at C-4). */
+const CHOIR_VIBRATO_CYCLES = 5;
+const CHOIR_VIBRATO_DEPTH = 0.2;
+
+/** Glottal-ish source: a narrow pulse train with vibrato (`vibrato` 0..1) whose period divides the loop. */
 function glottalSource(
   buf: Float32Array,
   f: number,
   start: number,
   body: number,
+  vibrato: number,
   sr: number
 ): void {
+  const depth = vibrato * CHOIR_VIBRATO_DEPTH;
   for (let i = 0; i < buf.length; i += 1) {
     const t = (i - start) / sr;
-    const ph = f * t + 0.004 * Math.sin((TWO_PI * (i - start)) / body);
+    const ph =
+      f * t +
+      depth * Math.cos((TWO_PI * CHOIR_VIBRATO_CYCLES * (i - start)) / body);
     const x = ph - Math.floor(ph);
     buf[i] = x < 0.22 ? 1 - x / 0.22 : -0.2;
   }
@@ -620,6 +628,7 @@ function choir(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "choir";
   const vowel = param(g, p, "vowel");
   const breath = param(g, p, "breath");
+  const vibrato = param(g, p, "vibrato");
   const rng = mulberry32(seed);
   const shape = loopShape(BASE_HZ, sr, 1.2);
   const body = shape.n;
@@ -627,7 +636,7 @@ function choir(p: Params, seed: number, sr: number): GeneratedSample {
   const total = intro + body;
   const pre = Math.round(sr * 0.1);
   const buf = new Float32Array(total + pre);
-  glottalSource(buf, shape.f, pre + intro, body, sr);
+  glottalSource(buf, shape.f, pre + intro, body, vibrato, sr);
   const out = formantMix(buf, vowel, sr).slice(pre);
   addBreath(out, rng, breath, sr);
   // crossfade the loop seam, so the breath noise does not click
@@ -643,7 +652,15 @@ function choir(p: Params, seed: number, sr: number): GeneratedSample {
   return withLoop(out, intro, sr);
 }
 
-function lead(_p: Params, _seed: number, sr: number): GeneratedSample {
+/** Lead vibrato: three cycles per loop body (about 4 Hz), up to 0.35 carrier cycles deep (about +-50 cents at C-4). */
+const LEAD_VIBRATO_CYCLES = 3;
+const LEAD_VIBRATO_DEPTH = 0.35;
+
+function lead(p: Params, _seed: number, sr: number): GeneratedSample {
+  const g: SampleGeneratorId = "lead";
+  const bright = param(g, p, "bright");
+  const duty = param(g, p, "duty");
+  const vibrato = param(g, p, "vibrato");
   const shape = loopShape(BASE_HZ, sr, 0.8);
   const body = shape.n;
   const intro = Math.round(0.02 * sr);
@@ -654,10 +671,18 @@ function lead(_p: Params, _seed: number, sr: number): GeneratedSample {
   for (let i = 0; i < total; i += 1) {
     const rel = i - intro;
     // vibrato of exactly three cycles per loop body, in cycles of the carrier
-    const vib = 0.0035 * Math.sin((TWO_PI * 3 * rel) / body);
+    // (a cosine in phase, so the pitch is on the note at the start and the middle of the body, not at an extreme)
+    const vib =
+      vibrato *
+      LEAD_VIBRATO_DEPTH *
+      Math.cos((TWO_PI * LEAD_VIBRATO_CYCLES * rel) / body);
     phase = (f * rel) / sr + vib + 8;
     const x = phase - Math.floor(phase);
-    const width = 0.3 + 0.1 * Math.sin((TWO_PI * rel) / body);
+    // slow pulse width modulation around the `duty` setting, never past a square
+    const width = Math.min(
+      0.5,
+      Math.max(0.02, duty + 0.06 * Math.sin((TWO_PI * rel) / body))
+    );
     out[i] = x < width ? 1 : -1;
   }
   let mean = 0;
@@ -668,7 +693,7 @@ function lead(_p: Params, _seed: number, sr: number): GeneratedSample {
   for (let i = 0; i < total; i += 1) {
     out[i] = (out[i] ?? 0) - mean;
   }
-  svf(out, "lp", 6000, 0.7, sr);
+  svf(out, "lp", 600 + bright * 9000, 0.7, sr);
   fadeIn(out, sr, 0.006);
   normalize(out, 0.7);
   return withLoop(out, intro, sr);
