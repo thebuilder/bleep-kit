@@ -35,6 +35,7 @@
         "packages/core/src/chips/**",
         "packages/core/src/samples/**",
         "packages/core/src/tools/**",
+        "packages/core/src/midi/**",
         "packages/core/src/prng.ts",
         "packages/core/test/**"
       ],

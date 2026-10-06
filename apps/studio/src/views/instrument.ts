@@ -27,6 +27,7 @@ import { fitFmOps, toggleSidWave } from "../lib/instrument-edits.ts";
 import { playInstrumentDoc, releaseNote, stopEverything } from "../playback.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
+import { deleteButton } from "../ui/delete-doc.ts";
 import {
   type FieldHandle,
   group,
@@ -1086,6 +1087,13 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       fxOff
     );
     inner.append(g4.el);
+    inner.append(
+      h(
+        "div",
+        { style: "margin-top: 12px" },
+        deleteButton(doc, "Delete instrument")
+      )
+    );
   }
 
   function changeKind(kind: ChannelKind): void {

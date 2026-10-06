@@ -175,7 +175,11 @@ export class ServerStore implements ProjectStore {
   }
 
   async remove(path: string): Promise<void> {
-    await fetch(this.url(path), { method: "DELETE" });
+    const res = await fetch(this.url(path), { method: "DELETE" });
+    // a file that is already gone is what was asked for; anything else means it is still on disk
+    if (!(res.ok || res.status === 404)) {
+      throw new Error(`the server answered ${res.status} for ${path}`);
+    }
   }
 
   async readBytes(path: string): Promise<Uint8Array | null> {

@@ -56,10 +56,13 @@ class Engine {
   private readonly sfxKeys = new Map<string, string>();
   private readonly instKeys = new Map<string, string>();
   private songKey = "";
+  /** The document id of the song the worklet holds ("" when none, or when it was not loaded from a document). */
+  private songId = "";
+  /** A song was loaded and not started yet: clock messages already on their way still describe the old one. */
+  private songFresh = false as boolean;
   private handle = 0;
   private offNode: (() => void) | null = null;
   private tempo = 120;
-  private previewSongLoaded = false as boolean;
 
   /** Create the context and the engine node. Safe to call once; the context stays suspended until a gesture. */
   async init(opts: { fake?: boolean } = {}): Promise<void> {
@@ -134,9 +137,9 @@ class Engine {
         }
         break;
       case "clock": {
-        this.position = msg.position;
+        this.position = this.songFresh ? null : msg.position;
         const was = this.playing;
-        this.playing = msg.playing;
+        this.playing = this.songFresh ? false : msg.playing;
         const load = msg as { cpu?: number; load?: number };
         const cpu = load.load ?? load.cpu;
         if (typeof cpu === "number") {
@@ -260,21 +263,51 @@ class Engine {
   loadSong(
     song: Song,
     instruments: Record<string, Instrument>,
-    _channelIds: readonly string[]
+    _channelIds: readonly string[],
+    songId = ""
   ): void {
     if (!this.node) {
       return;
     }
     const key = JSON.stringify([song, instruments]);
     this.tempo = song.tempo;
-    this.previewSongLoaded = false;
+    this.songId = songId;
     if (key !== this.songKey) {
       this.songKey = key;
       this.node.send({ instruments, song, type: "loadSong" });
+      // a new song starts stopped at its top, whatever the last one was doing
+      this.songFresh = true;
+      this.position = null;
+      if (this.playing) {
+        this.playing = false;
+        this.emit();
+      }
+      // the worklet drops every instrument it held and keeps exactly the ones the song came with
+      this.instKeys.clear();
+      for (const [id, inst] of Object.entries(instruments)) {
+        this.instKeys.set(id, JSON.stringify(inst));
+      }
     }
   }
 
+  /** True while the worklet holds the song of document `id`: what plays, pauses or takes held notes is that song. */
+  hasSong(id: string): boolean {
+    return this.songKey !== "" && this.songId === id;
+  }
+
+  /** Drop the loaded song (and with it the worklet's instruments, so the next upload really sends them). */
+  unloadSong(): void {
+    if (this.songKey === "") {
+      return;
+    }
+    this.node?.send({ type: "unloadSong" });
+    this.songKey = "";
+    this.songId = "";
+    this.instKeys.clear();
+  }
+
   playSong(opts: { order?: number; row?: number; loop?: boolean } = {}): void {
+    this.songFresh = false;
     this.node?.send({ type: "play", ...opts });
     this.playing = true;
     this.emit();
@@ -350,15 +383,24 @@ class Engine {
     if (!this.node) {
       return -1;
     }
-    if (!this.previewSongLoaded && this.songKey !== "") {
-      this.node.send({ type: "unloadSong" });
-      this.songKey = "";
-    }
-    this.previewSongLoaded = true;
+    // the preview channels exist only while no song is loaded
+    this.unloadSong();
     this.setInstrument(id, inst);
     const channel = this.previewChannelFor(inst.kind);
     this.node.send({ channel, instrument: id, note, type: "noteOn", velocity });
     return channel;
+  }
+
+  /** Hold a note through a channel of the loaded song, with an instrument of the project: the song stays loaded. */
+  songNoteOn(
+    channel: number,
+    id: string,
+    inst: Instrument,
+    note: number,
+    velocity = 0.9
+  ): void {
+    this.setInstrument(id, inst);
+    this.noteOn(channel, note, velocity, id);
   }
 
   noteOn(

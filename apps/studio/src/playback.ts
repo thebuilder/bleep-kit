@@ -28,7 +28,7 @@ export function loadSongDoc(doc: Doc): readonly string[] {
   const song = doc.value as Song;
   const ids = chipChannels(song).map((c) => c.id);
   const insts = project.instruments();
-  engine.loadSong(song, insts, ids);
+  engine.loadSong(song, insts, ids, doc.id);
   return ids;
 }
 
@@ -58,6 +58,44 @@ export function playInstrumentDoc(doc: Doc, note = 60, duration = 0.5): void {
   });
   clearTimeout(noteTimer);
   noteTimer = setTimeout(releaseNote, duration * 1000);
+}
+
+/**
+ * Play a note in the song editor: on the song's own channel `channel` (the engine's index of it), through the
+ * instrument `inst`. The song stays loaded, so what plays and what the other channels hold are not touched. Without a
+ * `duration` the note is held until releaseNote() (a mouse press on the keyboard).
+ */
+export function auditionSongNote(
+  song: Doc,
+  channel: { index: number; id: string },
+  inst: Doc,
+  note: number,
+  duration?: number
+): void {
+  if (channel.index < 0) {
+    return;
+  }
+  unlockAudio();
+  releaseNote();
+  // something else (an instrument preview) may have unloaded the song since the editor loaded it
+  if (!engine.hasSong(song.id)) {
+    loadSongDoc(song);
+  }
+  engine.songNoteOn(channel.index, inst.id, inst.value as Instrument, note);
+  heldChannel = channel.index;
+  engine.announce({
+    channel: channel.index,
+    channelId: channel.id,
+    hz: 440 * 2 ** ((note - 69) / 12),
+    id: inst.id,
+    note,
+    type: "noteOn",
+    velocity: 0.9,
+  });
+  clearTimeout(noteTimer);
+  if (duration !== undefined) {
+    noteTimer = setTimeout(releaseNote, duration * 1000);
+  }
 }
 
 export function releaseNote(): void {

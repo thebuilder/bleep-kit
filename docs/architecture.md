@@ -60,6 +60,8 @@ export { parseEffect, formatEffect, parseRowString, formatRowString } from "./no
 // notes and notation
 export { noteToHz, hzToNote, noteName, parseNoteName, NOTE_NAMES } from "./notes.ts";
 export { parseMml, formatMml, mmlToTrack, patternToMml } from "./mml/index.ts";
+export { midiToSong, parseMidi, parseMidiMap } from "./midi/index.ts";            // MIDI import (section 2.8)
+export { makeInstrument, INSTRUMENT_PRESETS } from "./presets.ts";                      // preset instruments (lead, bass, drums, pad, bell)
 export { compileSong, type SongTimeline, type TimelineEvent } from "./engine/timeline.ts";
 
 // chips
@@ -97,6 +99,10 @@ function parseMml(src: string, opts?: MmlOptions): { events: MmlEvent[]; issues:
 function formatMml(events: readonly MmlEvent[], opts?: MmlOptions): string;
 function mmlToTrack(src: string, rowsPerBeat: number, opts?: MmlOptions): { rows: Row[]; issues: Issue[]; loopRow: number | null };
 function patternToMml(rows: readonly Row[], rowsPerBeat: number): string;
+function midiToSong(bytes: Uint8Array, opts?: MidiToSongOptions): MidiImport;   // section 2.8
+function parseMidi(bytes: Uint8Array): MidiFile;
+function parseMidiMap(text: string): { map: Record<string, string>; issues: Issue[] };   // "1=pulse1,10=noise"
+function makeInstrument(kind: ChannelKind, chip: ChipId | null, preset: InstrumentPreset, name: string): Instrument;
 function parseEffect(code: string): Effect | null;                  // "A0F" -> { type: "volSlide", x: 0, y: 15 }
 function formatEffect(e: Effect): string;
 function parseRowString(s: string, row: number): { row: Row; issues: Issue[] };
@@ -203,6 +209,8 @@ src/version.ts            ENGINE_VERSION
 src/notes.ts              note names and frequencies
 src/normalize/            issues.ts (Issue, Normalized, helpers), project.ts, sfx.ts, instrument.ts, song.ts, effects.ts (fx string <-> typed), index.ts
 src/mml/                  lexer.ts, parser.ts, format.ts, index.ts
+src/midi/                 parse.ts (SMF reader), parts.ts (parts, --map selectors, automatic placement), plan.ts (per chip channel plan, ranges, GM drums), reduce.ts (rows, one note at a time, range), build.ts (patterns), instruments.ts, convert.ts (midiToSong), index.ts
+src/presets.ts            instrument presets shared by the CLI (`new instrument`, `init`) and the MIDI importer
 src/chips/                nes.ts, gameboy.ts, c64.ts, genesis.ts, adlib.ts, snes.ts, custom.ts, index.ts
 src/dsp/                  tables.ts (sine, exp), osc.ts, noise.ts, envelope.ts, macro.ts, fm.ts, sid-filter.ts, svf.ts, echo.ts, reverb.ts, color.ts, limiter.ts, resampler.ts
 src/samples/              one file per generator plus index.ts
@@ -1044,6 +1052,40 @@ Rules: a note's `duration` is `384 / length` pulses (dots multiply by 1.5, 1.75,
 
 A song with every channel in MML and no patterns is allowed: `patterns: {}`, `order: []`, and normalize synthesizes one pattern per 4 beats for the studio's tracker view (read only until the user converts it).
 
+### 2.8 MIDI import
+
+`midiToSong(bytes, opts)` turns a Standard MIDI File into a normalized `Song` plus the instruments it plays. It is pure and dependency free (`parseMidi` is its parser) and never throws: the result is `{ song, instruments, issues, parts }`, and an `error` issue means there is no usable song (the song is then the chip's default). Every warning says what the chip could not keep, so a person knows what was lost.
+
+Options: `chip` (default `nes`; every chip but `custom`), `rowsPerBeat` (default 4, a whole number from 1 to 16), `map`, `name` (default "Imported MIDI") and `loop` (default true: the song loops to order 0; false plays once).
+
+The file. Formats 0 and 1 (format 2 is read as 1), running status, tempo and time signature metas, note on with velocity 0 as note off, several tracks. A note struck again while held ends where the second begins; notes still held at the end of a track end with it. SMPTE time division has no beats and is read as 120 BPM. Controllers, pitch bend, program changes, sysex, lyrics and markers are ignored.
+
+Parts. A part is the notes of one MIDI track on one MIDI channel; its reference is `t<track>ch<channel>`, both counted from 1 (`t2ch1`). MIDI channel 10 is percussion.
+
+Placement. `map` is `{ selector: chipChannelId | "-" }`; a selector is a MIDI channel (`"1"` to `"16"` or `"ch1"`), a track (`"t2"`) or a track's channel (`"t2ch1"`), and `"-"` leaves the part out. `parseMidiMap("1=pulse1,2=triangle,10=noise")` reads the text form the CLI takes. Several parts mapped to one channel share it. Every part the map does not name is placed automatically on the channels the map left free:
+
+1. Percussion goes to the chip's drum channel.
+2. The bass goes to the bass channel: the part with the lowest median pitch among the busy ones (at least 4 onsets and 15 percent of the busiest part's), if some other part of the file has a median at least 5 semitones higher. A file with one melodic part has no bass.
+3. The busiest remaining part goes to the first melodic channel (the lead). "Busy" counts distinct start ticks, so chords do not inflate it; the score is weighted a little towards high parts. The others follow in order of score on the remaining melodic channels, then on the bass channel if no bass was found, then on the drum channel when the chip's drum channel can play melody and the file has no drums.
+4. A part with no channel left is left out, and an issue names it.
+
+| chip | lead, then more | bass | drums |
+| --- | --- | --- | --- |
+| nes | pulse1, pulse2 | triangle | noise (pitch by drum: kick 36, snare 62, hat 84) |
+| gameboy | pulse1, pulse2 | wave | noise |
+| c64 | voice1 | voice2 | voice3, a SID voice with the noise waveform (melody when there are no drums) |
+| genesis | fm2 to fm6, psg1 to psg3 | fm1 | psgNoise |
+| adlib | fm2 to fm8 | fm1 | fm9, an FM drum voice (melody when there are no drums) |
+| snes | ch1 to ch6 | ch7 | ch8, one sample instrument per drum (kick, snare, hat, tom, crash, clap), chosen by the `inst` column |
+
+One note at a time. Every chip channel plays one note, so polyphony is reduced: notes that start on the same row keep only the top note (the lowest on the bass channel), a note that starts while an earlier one is still held takes over from it (the held note is cut short and does not come back), and drums on one row keep the most important drum (kick and snare over toms, cymbals and hats). Dropped and shortened notes are counted per channel in an issue (`/channels/<id>`), with the bar and beat of the first one.
+
+Time. A note starts on row `round(tick * rowsPerBeat / ppq)` and lasts at least one row; the note off goes on the row it ends on unless the next note starts there. When more than 10 percent of the notes start over a quarter row off the grid, an issue suggests a finer `rowsPerBeat`. The song tempo is the first tempo of the file (two decimals, 20 to 400); later tempo changes become tempo effects on their rows (whole BPM, 32 to 255), and a restore of the first tempo on row 0 so a loop starts right. A pattern is whole bars of the first time signature, up to 64 rows (a later time signature change is reported and ignored); identical patterns are stored once; the last pattern is cut at the end of the song, which is the end of the last note extended to the end of its bar when the file's own end allows. A note that would end after the last row ends one row early. At most 256 patterns are written; the rest is cut and reported.
+
+Volume and range. Velocity 1 to 127 becomes the volume column 1 to 15, written when it changes and on the first note of every pattern; the NES triangle has no volume, so it gets none. Each channel has a range from its period registers (NES pulse A1 to C8, triangle A0 to C7, Game Boy pulse C2 up, PSG A2 up, FM and SID from the low 20s, samples C1 to C7). A part with more than a fifth of its notes outside is moved by whole octaves as one piece, and then single stray notes are folded in by octaves. Both are reported.
+
+Instruments. `instruments` holds new instruments built from the shared presets under ids `midi-<chip>-<role>` (`lead`, `harmony`, `bass`, `drums`; a PSG square among FM voices is `midi-genesis-harmony-pulse`; the sample chip's drums are `midi-snes-kick` and so on). None exists in the project yet by design: callers write the ones the project lacks and keep any that exist, so a second import for the same chip reuses them.
+
 ## 3. Engine design
 
 ### 3.1 Clocks and rates
@@ -1299,6 +1341,7 @@ Binary `bleepkit`, built with esbuild into `packages/cli/dist/index.mjs` like Pi
 | `bleepkit new sfx <id> --category coin [--chip] [--seed] [--name]` | generates with `@bleepkit/sfx`, writes `sfx/<id>.json`, exits 1 if it exists (`--force` overwrites) | `{ ok, path, doc, description }` |
 | `bleepkit new instrument <id> --kind pulse [--chip] [--preset lead|bass|drums|pad|bell]` | writes a default instrument | `{ ok, path, doc }` |
 | `bleepkit new song <id> [--chip] [--tempo 120] [--mml "<ch>=<mml>" ...] [--template empty|loop8]` | writes a song; `--mml pulse1="o4 l8 cdefgab>c"` sets a channel's MML; `loop8` is 8 bars of empty patterns with a loop at order 0 | `{ ok, path, doc }` |
+| `bleepkit import <file.mid> [--id <id>] [--chip nes] [--rows-per-beat 4] [--map "1=pulse1,2=triangle,10=noise"] [--name] [--no-loop] [--force]` | imports a Standard MIDI file with `midiToSong` (section 2.8): writes `songs/<id>.json` (id defaults to the file name) and the `midi-<chip>-*` instruments the project lacks; the chip defaults to the project's (nes for a custom project); exits 1 on an unreadable file or an existing id without `--force`; the `issues` list what the chip could not play | `{ ok, chip, path, doc, instruments: [{ id, path, created }], issues, parts: [{ ref, name, notes, target }] }` |
 | `bleepkit mutate <ref> [--amount 0.15] [--count 1] [--seed] [--out <id>]` | sfx only today; writes `<id>-m1.json`... (or `--out`) and prints descriptions | `{ ok, results: [{ id, path, description }] }` |
 | `bleepkit validate [ref...]` | normalizes every document (or the named ones) with the instrument map; exit 1 when any error | `{ ok, documents: [{ ref, ok, issues }] }` |
 | `bleepkit list [sfx|songs|instruments]` | lists documents with name, chip, category or kind, duration when a render exists in `out/` | `{ ok, sfx: [...], songs: [...], instruments: [...] }` |
@@ -1453,6 +1496,8 @@ Vite app, vanilla TypeScript, one `index.html` with the styles inline like Pixel
 
 The whole page sits on the Pixelkit backdrop (section 11.5), with the panels at 92% opacity over it so the backdrop glows through the gaps. The stage canvas views are opaque.
 
+Import MIDI (section 2.8): an "Import MIDI" button next to New in the Songs section of the sidebar, an "Import MIDI file" command in the palette, and a `.mid` file dropped anywhere on the window all open a small dialog that asks for the chip (the project's chip is preselected). The studio then creates the instruments the project lacks and the song through its store, opens the song, and shows a notice with a Details button listing what the chip could not keep. Other dropped files are ignored (and never opened by the browser).
+
 ### 11.2 Views
 
 - Pads (home, `#/pads`): a grid of every sfx as a square pad (category color, name, duration, waveform thumbnail drawn from the last render). Click or tap plays at once and the pad bursts (ring expanding, waveform flashes). Keys 1..9 and 0 play the first ten pads; `Q..P` the next ten. Each pad has a small `mutate` button (dice icon) that creates 4 variants in a drawer under the pad, each playable; `keep` saves a variant as a new document; `randomize` on the pad replaces the pad's sfx with a fresh one of the same category (undoable). A "+ New SFX" pad at the end opens a category picker (13 categories with an icon each and a one-line hint); choosing one generates and plays immediately. Primary action of the view: play. Secondary: mutate.
@@ -1482,7 +1527,7 @@ All canvas, all at `devicePixelRatio`, all driven by one `requestAnimationFrame`
 
 ### 11.5 Pixelkit backdrop
 
-Ejected via Pixelkit's CLI into `apps/studio/src/pixelkit/` (core plus generators `sky`, `nebula`, `embers`, `lightning`, `fireflies`, `dust`, `glow`, `crt`, `skyline`), with a studio scene per chip (`src/backdrop/scenes/<chip>.ts`): nes a night skyline with fireflies, gameboy a four-shade green sky, c64 a blue-purple nebula, genesis a dark sea skyline with embers, adlib amber dust and glow, snes a purple nebula with aurora, custom a plain starfield. The backdrop runs through the ejected renderer on a canvas behind the panels, scene `size: { mode: "fill", minPixel: 3, maxPixel: 6 }`, at 12 fps. Audio reactivity comes through `taps` and one extra layer: `src/backdrop/reactive.ts` registers a `bleep-pulse` generator (a `live: true` light layer whose intensity is the master RMS from the last scope read, so the scene breathes with the music) and sends taps: a `trigger` of category `explosion` or `hit` is a tap at a random x on the skyline layer (lightning strikes); `coin`, `powerup`, `blip` taps the embers or fireflies layer (sparkles); `noteOn` on the bass or triangle channel pulses the glow. Taps are rate limited to 8 per second. `prefers-reduced-motion` renders one settled frame.
+Ejected via Pixelkit's CLI into `apps/studio/src/pixelkit/` (core plus generators `sky`, `nebula`, `embers`, `lightning`, `fireflies`, `dust`, `glow`, `crt`, `skyline`), with a studio scene per chip (`src/backdrop/scenes/<chip>.ts`): nes a still night sky with twinkling stars, gameboy a four-shade green sky, c64 a blue-purple nebula, genesis a dark sea skyline with embers, adlib amber dust and glow, snes a purple nebula with aurora, custom a plain starfield. The backdrop runs through the ejected renderer on a canvas behind the panels, scene `size: { mode: "fill", minPixel: 3, maxPixel: 6 }`, at 12 fps. No scene pans the camera (`camera.speed` is 0 everywhere): only the layers' own motion moves. Audio reactivity comes through `taps` and one extra layer: `src/backdrop/reactive.ts` registers a `bleep-pulse` generator (a `live: true` light layer whose intensity is the master RMS from the last scope read, so the scene breathes with the music) and sends taps: a `trigger` of category `explosion` or `hit` is a tap at a random x on the skyline layer (lightning strikes); `coin`, `powerup`, `blip` taps the embers or fireflies layer (sparkles); `noteOn` on the bass or triangle channel pulses the glow. Taps are rate limited to 8 per second. `prefers-reduced-motion` renders one settled frame.
 
 ### 11.6 Visual language
 

@@ -14,7 +14,7 @@ Bleepkit generates 80s and 90s style game audio (chiptune and FM era) for browse
 ## Layout
 
 ```
-packages/core      @bleepkit/core: engine, chips, documents + normalize, MML, sample generators
+packages/core      @bleepkit/core: engine, chips, documents + normalize, MML, MIDI import, sample generators
                    @bleepkit/core/tools: WAV/OGG/MP3, analysis, spectrogram, pitch, PNG images
 packages/sfx       @bleepkit/sfx: sfx generators per category, randomize, mutate, describe
 packages/player    @bleepkit/player: game runtime (AudioWorklet, files or synth mode, typed manifest)
@@ -31,7 +31,7 @@ docs/architecture.md   the contract: formats, engine design, worklet protocol, C
 You cannot hear, so work from text and measurements:
 
 1. `pnpm bleepkit help workflow` and `pnpm bleepkit help formats` teach the whole document format and MML syntax.
-2. Author: `new sfx <id> --category <c> --chip <chip>`, `mutate`, `new song <id> --mml "pulse1=..."`, or edit the JSON in `sfx/`, `songs/`, `instruments/` directly.
+2. Author: `new sfx <id> --category <c> --chip <chip>`, `mutate`, `new song <id> --mml "pulse1=..."`, `import tune.mid --chip nes` (a MIDI file to a song, with the notes it had to drop listed), or edit the JSON in `sfx/`, `songs/`, `instruments/` directly.
 3. Check: `validate`, then `describe <ref>` (a precise text description).
 4. Measure: `render <ref> --analyze --images`, then look at `out/analysis/<id>.waveform.png`, `.spectrogram.png` and `.scopes.png` with your image reader. `analyze <ref> --json` gives peak, RMS, LUFS, clipping, pitch track, loop seam and envelope.
 5. Targets that sound right in practice: songs around -14 to -16 LUFS and within 3 LUFS of each other; sfx peaks between -6 and -16 dBFS; zero clipped frames; loop `seamDiffDb` below -40 dB.

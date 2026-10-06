@@ -20,6 +20,7 @@ import { probeServer, ServerStore } from "./store/server.ts";
 import type { ProjectStore } from "./store/store.ts";
 import { openHelp } from "./ui/help.ts";
 import { icon } from "./ui/icons.ts";
+import { installMidiDrop, pickMidiFile } from "./ui/import-midi.ts";
 import { modalOpen } from "./ui/modal.ts";
 import { openPalette } from "./ui/palette.ts";
 import {
@@ -102,7 +103,7 @@ export async function boot(root: HTMLElement): Promise<void> {
           <div class="chip-badge" id="chipBadge"></div>
           <button class="btn icon small" id="bUndo" title="Undo (Ctrl+Z)" aria-label="Undo">${icon("undo", 14)}</button>
           <button class="btn icon small" id="bRedo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">${icon("redo", 14)}</button>
-          <div class="savestate" id="saveState"><i></i><span>Saved</span></div>
+          <span class="savestate" id="saveState" data-state="saved" role="img" aria-label="Saved" title="Saved">${icon("save", 16)}</span>
           <button class="btn icon small" id="bPal" title="Command palette (Ctrl+K)" aria-label="Command palette">${icon("search", 14)}</button>
           <button class="btn icon small" id="bHelp" title="Shortcuts (?)" aria-label="Shortcuts">?</button>
         </div>
@@ -215,22 +216,29 @@ export async function boot(root: HTMLElement): Promise<void> {
     const el = q("saveState");
     const d = app.currentDoc();
     const errs = d?.issues.filter((i) => i.severity === "error").length ?? 0;
+    const failed = project.failedCount > 0;
     const dirty = project.dirtyCount > 0;
-    el.className = `savestate${choose(
+    /* One fixed size icon: only its colour (data-state) and its words (tooltip and aria-label) change, so nothing in
+       the top bar moves. */
+    const [state, words] = choose<[string, string]>(
       [
-        [errs > 0, " err"],
-        [dirty, " dirty"],
+        [
+          errs > 0,
+          ["error", `${errs} error${errs > 1 ? "s" : ""} in this document`],
+        ],
+        [failed, ["error", "Could not save, see the log"]],
+        [project.savingCount > 0, ["saving", "Saving"]],
+        [
+          dirty && project.autosave,
+          ["unsaved", "Unsaved changes, autosave pending"],
+        ],
+        [dirty, ["unsaved", "Unsaved changes, press Ctrl+S to save"]],
       ],
-      ""
-    )}`;
-    (el.querySelector("span") as HTMLElement).textContent = choose(
-      [
-        [errs > 0, `${errs} error${errs > 1 ? "s" : ""}`],
-        [dirty && project.autosave, "Saving soon"],
-        [dirty, "Unsaved"],
-      ],
-      "Saved"
+      ["saved", "Saved"]
     );
+    el.dataset.state = state;
+    el.title = words;
+    el.setAttribute("aria-label", words);
     const undoBtn = q<HTMLButtonElement>("bUndo");
     const redoBtn = q<HTMLButtonElement>("bRedo");
     undoBtn.disabled = !d?.history.canUndo;
@@ -263,7 +271,12 @@ export async function boot(root: HTMLElement): Promise<void> {
     );
   };
   project.subscribe((e) => {
-    if (e.type === "doc" || e.type === "project" || e.type === "list") {
+    if (
+      e.type === "doc" ||
+      e.type === "project" ||
+      e.type === "list" ||
+      e.type === "saving"
+    ) {
       syncStatus();
     }
     if (e.type === "project") {
@@ -456,6 +469,13 @@ export async function boot(root: HTMLElement): Promise<void> {
         title: "New song",
       },
       {
+        group: "File",
+        icon: "import",
+        id: "import-midi",
+        run: pickMidiFile,
+        title: "Import MIDI file",
+      },
+      {
         group: "New",
         icon: "plus",
         id: "new-inst",
@@ -603,6 +623,8 @@ export async function boot(root: HTMLElement): Promise<void> {
       plainKey(e);
     }
   });
+
+  installMidiDrop();
 
   /* ----- router ----- */
   const cleanups: (() => void)[] = [];

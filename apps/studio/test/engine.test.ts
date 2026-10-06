@@ -357,6 +357,8 @@ describe("songs and instruments reach the engine as the user edited them", () =>
     const s = song();
     s.tempo = 120;
     load(engine, s);
+    // a clock that says "playing" before the studio asked for play is the old song's, so it is not believed
+    engine.playSong();
     deliver({
       frame: 0,
       playing: true,
@@ -379,6 +381,78 @@ describe("songs and instruments reach the engine as the user edited them", () =>
     expect(kinds()).toEqual(["setInstrument"]);
     engine.setInstrument("lead", { ...inst, name: "changed" });
     expect(kinds()).toEqual(["setInstrument", "setInstrument"]);
+  });
+
+  it("uploads an instrument again once a song load or unload made the worklet drop it", async () => {
+    const engine = await boot();
+    const inst = defaultInstrument("pulse", "nes");
+    engine.setInstrument("mine", inst);
+    // loadSong keeps only the instruments it came with: "mine" is gone from the worklet, so it must be sent again
+    load(engine);
+    player.sent.length = 0;
+    engine.setInstrument("mine", inst);
+    expect(kinds()).toEqual(["setInstrument"]);
+    // the instruments a song came with are known to be there
+    const [firstId] = Object.keys(instruments());
+    const known = instruments()[firstId as string] as never;
+    engine.setInstrument(firstId as string, known);
+    expect(kinds()).toEqual(["setInstrument"]);
+    // unloading drops them all again
+    engine.unloadSong();
+    engine.setInstrument("mine", inst);
+    expect(kinds()).toEqual(["setInstrument", "unloadSong", "setInstrument"]);
+  });
+
+  it("does not believe a clock that was already on its way when a song was loaded, until the song plays", async () => {
+    const engine = await boot();
+    load(engine);
+    engine.playSong();
+    deliver({
+      frame: 0,
+      playing: true,
+      position: { order: 3, pulse: 96, row: 8, tick: 0 },
+      time: 0,
+      type: "clock",
+    });
+    expect(engine.position?.order).toBe(3);
+    const other = song();
+    other.tempo += 5;
+    load(engine, other);
+    expect(engine.playing).toBe(false);
+    expect(engine.position).toBeNull();
+    deliver({
+      frame: 1024,
+      playing: true,
+      position: { order: 3, pulse: 192, row: 16, tick: 0 },
+      time: 0.02,
+      type: "clock",
+    });
+    expect(engine.playing).toBe(false);
+    expect(engine.position).toBeNull();
+    engine.playSong();
+    deliver({
+      frame: 2048,
+      playing: true,
+      position: { order: 0, pulse: 6, row: 0, tick: 0 },
+      time: 0.04,
+      type: "clock",
+    });
+    expect(engine.position?.order).toBe(0);
+  });
+
+  it("knows which song document it holds", async () => {
+    const engine = await boot();
+    expect(engine.hasSong("starter-theme")).toBe(false);
+    engine.loadSong(
+      song() as never,
+      instruments() as never,
+      [],
+      "starter-theme"
+    );
+    expect(engine.hasSong("starter-theme")).toBe(true);
+    expect(engine.hasSong("other")).toBe(false);
+    engine.unloadSong();
+    expect(engine.hasSong("starter-theme")).toBe(false);
   });
 
   it("holds a preview note on a channel of the instrument's kind, dropping a loaded song first", async () => {

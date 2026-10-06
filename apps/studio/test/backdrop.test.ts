@@ -5,6 +5,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Backdrop, createBackdrop } from "../src/backdrop/index.ts";
 import { reactive, resetReactive } from "../src/backdrop/reactive.ts";
+import { sceneFor } from "../src/backdrop/scenes/index.ts";
 import { CHIP_IDS, type EngineEvent } from "../src/lib/contract.ts";
 import { drawLog, installCanvasStub } from "./helpers.ts";
 
@@ -94,7 +95,7 @@ describe("the scenes", () => {
     custom: [],
     gameboy: ["skyline", "dust"],
     genesis: ["skyline", "embers", "bleep-sea"],
-    nes: ["skyline", "fireflies"],
+    nes: ["sky", "sparkles"],
     snes: ["nebula", "aurora"],
   };
 
@@ -109,6 +110,15 @@ describe("the scenes", () => {
       }
     });
   }
+
+  it("never pans the camera, so no scene shifts sideways, and the nes is a still night sky", () => {
+    for (const chip of CHIP_IDS) {
+      expect(sceneFor(chip).camera.speed, chip).toBe(0);
+    }
+    const nes = sceneFor("nes").layers.map((l) => l.type);
+    expect(nes).not.toContain("skyline");
+    expect(nes).not.toContain("fireflies");
+  });
 
   it("draws the new scene to the canvas as soon as the chip changes", () => {
     sceneOn("nes");

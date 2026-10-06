@@ -17,12 +17,7 @@ import {
   type Sfx,
   type SfxWave,
 } from "../lib/contract.ts";
-import {
-  chipProfile,
-  describeSfx,
-  mutateSfx,
-  randomizeSfx,
-} from "../lib/core.ts";
+import { chipProfile, mutateSfx, randomizeSfx } from "../lib/core.ts";
 import { debounce, h, prefs } from "../lib/dom.ts";
 import { playSfx, stopEverything } from "../playback.ts";
 import { playLength, renderSfxAsync } from "../render-service.ts";
@@ -64,6 +59,16 @@ const GROUP_FIELDS: Record<string, readonly (keyof Sfx)[]> = {
   vibrato: ["vibrato"],
   wave: ["wave", "noise", "fm", "table"],
 };
+
+/** What a switch turns on to: a setting you can hear at once (8 bits or a 300 Hz highpass are nearly inaudible). */
+const CRUSH_BITS_ON = 4;
+const LOWPASS_ON_HZ = 2000;
+const HIGHPASS_ON_HZ = 600;
+
+const joinOr = (names: readonly string[]): string =>
+  names.length > 1
+    ? `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`
+    : (names[0] ?? "");
 
 const ARP_TEXT = (steps: readonly number[]) => steps.join(" ");
 const parseArp = (s: string): number[] =>
@@ -114,7 +119,6 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
       <div class="ed-foot">
         <button class="btn small" id="sSpecBtn" aria-pressed="false">${icon("chart", 12)}<span>Spectrogram</span></button>
         <button class="btn small" id="sAna">${icon("chart", 12)}<span>Analyse</span></button>
-        <p class="desc" id="sDesc"></p>
       </div>
     </div>`;
   const q = <T extends HTMLElement>(sel: string) =>
@@ -125,7 +129,6 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
   const autoIn = q<HTMLInputElement>("#sAuto");
   const hint = q("#sHint");
   const info = q("#sInfo");
-  const desc = q("#sDesc");
   const specBox = q("#sSpecBox");
   const specBtn = q("#sSpecBtn");
   const waveSurf = surface(q<HTMLCanvasElement>("#sWave"));
@@ -229,10 +232,14 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
   /** The filter group: greyed whole when the chip has no filter, else each knob follows its own switch. */
   function applyFilterOff(s: Sfx, cn: string, notes: string[]): void {
     if (!profile().constraints.filter) {
+      const withFilter = CHIP_IDS.filter(
+        (c) => chipProfile(c).constraints.filter
+      ).map((c) => CHIP_THEME[c].short);
+      const why = `The ${cn} has no filter. Switch the chip to ${joinOr(withFilter)} to use one.`;
       for (const k of FILTER_FIELDS) {
-        handles[k]?.setOff(`${cn} has no filter`);
+        handles[k]?.setOff(why);
       }
-      notes.push(`${cn} has no filter, so the Filter group is greyed out.`);
+      notes.push(why);
       return;
     }
     handles.lpOn?.setOff(false);
@@ -700,8 +707,9 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
       label: "Lowpass",
       onInput: (on) => {
         edit((d) => {
-          d.filter.lowpass = on ? (d.filter.lowpass ?? 2000) : null;
+          d.filter.lowpass = on ? (d.filter.lowpass ?? LOWPASS_ON_HZ) : null;
         }, "lpon");
+        handles.lpHz?.set(sfxNow().filter.lowpass ?? LOWPASS_ON_HZ);
         applyOff();
         autoPlay();
       },
@@ -711,7 +719,7 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
       gl,
       "lpHz",
       "Cutoff (Hz)",
-      (d) => d.filter.lowpass ?? 2000,
+      (d) => d.filter.lowpass ?? LOWPASS_ON_HZ,
       (d, v) => {
         d.filter.lowpass = v;
       },
@@ -748,8 +756,9 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
       label: "Highpass",
       onInput: (on) => {
         edit((d) => {
-          d.filter.highpass = on ? (d.filter.highpass ?? 300) : null;
+          d.filter.highpass = on ? (d.filter.highpass ?? HIGHPASS_ON_HZ) : null;
         }, "hpon");
+        handles.hpHz?.set(sfxNow().filter.highpass ?? HIGHPASS_ON_HZ);
         applyOff();
         autoPlay();
       },
@@ -759,7 +768,7 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
       gl,
       "hpHz",
       "Cutoff (Hz)",
-      (d) => d.filter.highpass ?? 300,
+      (d) => d.filter.highpass ?? HIGHPASS_ON_HZ,
       (d, v) => {
         d.filter.highpass = v;
       },
@@ -787,8 +796,9 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
       label: "Bit crush",
       onInput: (on) => {
         edit((d) => {
-          d.bitcrush.bits = on ? (d.bitcrush.bits ?? 8) : null;
+          d.bitcrush.bits = on ? (d.bitcrush.bits ?? CRUSH_BITS_ON) : null;
         }, "bitson");
+        handles.bits?.set(sfxNow().bitcrush.bits ?? CRUSH_BITS_ON);
         handles.bits?.setOff(on ? false : "Turn Bit crush on first");
         autoPlay();
       },
@@ -798,7 +808,7 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
       gc,
       "bits",
       "Bits",
-      (d) => d.bitcrush.bits ?? 8,
+      (d) => d.bitcrush.bits ?? CRUSH_BITS_ON,
       (d, v) => {
         d.bitcrush.bits = Math.round(v);
       },
@@ -841,7 +851,6 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
     ico.innerHTML = icon(s.category, 20);
     ico.style.color = categoryColor(s.category);
     host.style.setProperty("--kc", categoryColor(s.category));
-    desc.textContent = describeSfx(s);
     ctx.setChip(s.chip);
   }
 

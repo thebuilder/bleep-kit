@@ -45,6 +45,8 @@ export interface Doc<T = AnyDoc> {
   /** Time of the last local edit, for hashing renders. */
   rev: number;
   savedText: string;
+  /** The last write failed for a reason other than a conflict or invalid content (the file system, the network). */
+  saveFailed: boolean;
   saving: boolean;
   value: T;
 }
@@ -56,7 +58,9 @@ type ProjectEvent =
       path: string;
       cause: "edit" | "undo" | "external" | "saved" | "conflict" | "load";
     }
-  | { type: "project" };
+  | { type: "project" }
+  /** A write started or ended, for the status icon only. */
+  | { type: "saving" };
 
 const SAVE_DELAY = 800;
 
@@ -192,6 +196,17 @@ class ProjectState {
     );
   }
 
+  /** How many documents are being written right now. */
+  get savingCount(): number {
+    return [...this.docs.values()].filter((d) => d.saving).length;
+  }
+
+  /** How many documents have a failed write or a conflict with the file on disk. */
+  get failedCount(): number {
+    return [...this.docs.values()].filter((d) => d.saveFailed || d.conflict)
+      .length;
+  }
+
   get projectDirty(): boolean {
     return JSON.stringify(this.project) !== this.projectDoc.savedText;
   }
@@ -229,6 +244,7 @@ class ProjectState {
       path,
       rev: Date.now(),
       savedText: text,
+      saveFailed: false,
       saving: false,
       value: n.value,
     };
@@ -352,6 +368,8 @@ class ProjectState {
     }
     const text = JSON.stringify(doc.value);
     doc.saving = true;
+    doc.saveFailed = false;
+    this.emit({ type: "saving" });
     const res = await this.write(
       doc.path,
       doc.value,
@@ -376,6 +394,8 @@ class ProjectState {
       doc.issues = res.issues;
       this.emit({ cause: "edit", path: doc.path, type: "doc" });
     } else {
+      doc.saveFailed = true;
+      this.emit({ type: "saving" });
       this.onLog?.("error", res.message);
     }
     return false;

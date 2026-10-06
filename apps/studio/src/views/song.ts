@@ -28,13 +28,15 @@ import {
 } from "../lib/core.ts";
 import { choose, clamp, debounce, h, prefs, reflow } from "../lib/dom.ts";
 import {
+  auditionSongNote,
   loadSongDoc,
-  playInstrumentDoc,
   playSongDoc,
+  releaseNote,
   stopEverything,
 } from "../playback.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
+import { deleteButton } from "../ui/delete-doc.ts";
 import {
   type Group,
   group,
@@ -243,7 +245,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         <div class="tr-head" id="gHead"></div>
         <div class="tr-body" id="gBody"></div>
       </div>
-      <div class="keystrip"><canvas id="gKeys" aria-label="Notes playing"></canvas></div>
+      <div class="keystrip"><canvas id="gKeys" aria-label="Piano keys: press one to hear the current channel's instrument"></canvas></div>
       <div class="mml-panel" id="gMml"></div>
     </div>`;
   const q = <T extends HTMLElement>(sel: string) =>
@@ -263,6 +265,18 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     hi: KEY_HI,
     label: (n) => (n % 12 === 0 ? `C${Math.floor(n / 12) - 1}` : null),
     lo: KEY_LO,
+    onDown: (n) => {
+      const c = song().channels[cur.ch];
+      audition(n, true);
+      if (c) {
+        keys.light(n, colorOf(c.id), true);
+      }
+      tracker.focus({ preventScroll: true });
+    },
+    onUp: (n) => {
+      releaseNote();
+      keys.release(n);
+    },
   });
 
   /* ----- lookups ----- */
@@ -627,10 +641,18 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     );
   }
 
-  function audition(note: number): void {
+  /** Play a note on the cursor's channel, through its own instrument; `hold` keeps it until the key is let go. */
+  function audition(note: number, hold = false): void {
+    const c = song().channels[cur.ch];
     const d = instrumentFor(cur.ch, currentRow());
-    if (d) {
-      playInstrumentDoc(d, note, 0.35);
+    if (c && d) {
+      auditionSongNote(
+        doc(),
+        { id: c.id, index: engineIndex(c.id) },
+        d,
+        note,
+        hold ? undefined : 0.35
+      );
     }
   }
 
@@ -1233,6 +1255,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
 
   /* ----- playing ----- */
   const reloadSong = debounce(() => {
+    if (engine.playing && !engine.hasSong(id)) {
+      // another song is playing: an edit here must not cut it off or start this one at its position
+      return;
+    }
     if (engine.playing) {
       const pos = engine.position;
       loadSongDoc(doc());
@@ -1247,7 +1273,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     playSongDoc(doc(), { order, row });
   }
   function play(): void {
-    if (engine.playing) {
+    if (!engine.hasSong(id)) {
+      // the engine holds another song (played from the sidebar) or none (an instrument was previewed): start this one
+      playFrom(orderIdx, 0);
+    } else if (engine.playing) {
       engine.pauseSong();
       paused = true;
     } else if (paused && engine.position) {
@@ -1574,6 +1603,9 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         "Keys: Z S X D C V G B H N J M and Q 2 W 3 E R 5 T 6 Y 7 U play notes. 1 is note off, ` is release, Delete clears, - and = change octave, F follows the playhead while the cursor is in the note column."
       )
     );
+    inner.append(
+      h("div", { style: "margin-top: 12px" }, deleteButton(doc, "Delete song"))
+    );
   }
 
   function retarget(chip: ChipId): void {
@@ -1731,9 +1763,11 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   }
 
   const offVisual = addVisual((f) => {
+    // another song's position means nothing in this grid
+    const mine = f.playing && engine.hasSong(id);
     lightNotes(f);
-    movePlayhead(f);
-    syncPlayButton(f.playing);
+    movePlayhead(mine ? f : { ...f, playing: false });
+    syncPlayButton(mine);
     drawScopes(f);
     drawKeys(f);
   });

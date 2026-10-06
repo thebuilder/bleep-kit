@@ -2,6 +2,7 @@ import { analyzeCommand } from "./analyze.ts";
 import { describeCommand } from "./describe.ts";
 import { exportCommand } from "./export.ts";
 import { buildHelpCommand } from "./help.ts";
+import { importCommand } from "./import.ts";
 import { initCommand } from "./init.ts";
 import { listCommand } from "./list.ts";
 import { mutateCommand } from "./mutate.ts";
@@ -15,6 +16,7 @@ import { validateCommand } from "./validate.ts";
 const base: CommandSpec[] = [
   initCommand,
   newCommand,
+  importCommand,
   mutateCommand,
   validateCommand,
   listCommand,

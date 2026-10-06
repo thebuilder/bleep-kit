@@ -11,8 +11,13 @@ import {
   it,
   vi,
 } from "vitest";
+import indexHtml from "../index.html?raw";
 import type { Instrument, Sfx, Song } from "../src/lib/contract.ts";
-import { chipProfile, defaultSong } from "../src/lib/core.ts";
+import {
+  chipProfile,
+  defaultSong,
+  renderSfx as renderSound,
+} from "../src/lib/core.ts";
 import {
   field,
   filledRects,
@@ -607,6 +612,185 @@ describe("the sfx editor", () => {
     expect(
       await until(() => document.getElementById("aRerun") !== null, 6000)
     ).toBe(true);
+  });
+});
+
+describe("switches and the save icon", () => {
+  const css = indexHtml;
+  const rule = (selector: string) =>
+    new RegExp(`${selector.replace(/[.[\]]/g, "\\$&")}\\s*\\{([^}]*)\\}`).exec(
+      css
+    )?.[1] ?? "";
+
+  /** How much a render changed, as the size of the difference relative to the size of the first render. */
+  const changeOf = (a: Sfx, b: Sfx) => {
+    const x = renderSound(a, { sampleRate: 22_050 })
+      .channels[0] as Float32Array;
+    const y = renderSound(b, { sampleRate: 22_050 })
+      .channels[0] as Float32Array;
+    let diff = 0;
+    let level = 0;
+    for (let i = 0; i < Math.min(x.length, y.length); i += 1) {
+      diff += ((x[i] ?? 0) - (y[i] ?? 0)) ** 2;
+      level += (x[i] ?? 0) ** 2;
+    }
+    return Math.sqrt(diff / Math.max(level, 1e-12));
+  };
+  const pick = (id: string, value: string) => {
+    const el = document.getElementById(id) as HTMLSelectElement;
+    el.value = value;
+    fire(el, "change");
+  };
+
+  it("the drawn switch never covers the input, so a click on the switch itself toggles it", () => {
+    // a browser sends the click to whatever is on top; the drawn span used to sit above the invisible input
+    expect(rule(".tgl input")).toMatch(/z-index:\s*[1-9]/);
+    expect(rule(".tgl input")).toMatch(/opacity:\s*0/);
+  });
+
+  it("the Lowpass, Highpass and Bit crush switches write the sound, hand it to the engine and change what is heard", async () => {
+    await goSfx("coin");
+    const original = clone(sfxValue("coin"));
+    const switches: [string, (s: Sfx) => number | null][] = [
+      ["Lowpass", (s) => s.filter.lowpass],
+      ["Highpass", (s) => s.filter.highpass],
+      ["Bit crush", (s) => s.bitcrush.bits],
+    ];
+    const failures: string[] = [];
+    for (const chip of ["c64", "custom"]) {
+      pick("sChip", chip);
+      pick("sChip", chip);
+      const wave = field<HTMLSelectElement>(insp(), "Wave");
+      wave.value = "saw";
+      fire(wave, "change");
+      for (const [label, read] of switches) {
+        const before = clone(sfxValue("coin"));
+        const mark = sent.length;
+        const input = field(insp(), label);
+        input.click();
+        const after = clone(sfxValue("coin"));
+        if (read(before) !== null || read(after) === null) {
+          failures.push(`${chip} ${label}: document`);
+        }
+        // biome-ignore lint/performance/noAwaitInLoops: one switch at a time, each waits for the engine
+        const handed = await until(() => {
+          const sound = uploaded(mark, "coin");
+          return sound !== undefined && read(sound) !== null;
+        }, 2000);
+        if (!handed) {
+          failures.push(`${chip} ${label}: engine`);
+        }
+        if (changeOf(before, after) < 0.03) {
+          failures.push(`${chip} ${label}: sound`);
+        }
+        // the value control next to the switch shows the value the switch turned on
+        const row = input.closest(".fld")?.nextElementSibling;
+        const shown =
+          row?.querySelector<HTMLInputElement>("input[type=number]");
+        if (Number(shown?.value) !== read(after)) {
+          failures.push(`${chip} ${label}: value box`);
+        }
+        input.click();
+        if (read(sfxValue("coin")) !== null) {
+          failures.push(`${chip} ${label}: off again`);
+        }
+      }
+    }
+    restoreSfx("coin", original);
+    expect(failures).toEqual([]);
+  });
+
+  it("the filter hint names the chips that have a filter, and the Filter group works only on them", async () => {
+    await goSfx("coin");
+    const original = clone(sfxValue("coin"));
+    const hint = () =>
+      (document.getElementById("sHint") as HTMLElement).textContent;
+    for (const chip of [
+      "adlib",
+      "c64",
+      "custom",
+      "gameboy",
+      "genesis",
+      "nes",
+      "snes",
+    ] as const) {
+      pick("sChip", chip);
+      const has = chipProfile(chip).constraints.filter;
+      expect(field(insp(), "Lowpass").disabled, chip).toBe(!has);
+      expect(field(insp(), "Highpass").disabled, chip).toBe(!has);
+      if (has) {
+        expect(hint(), chip).not.toContain("no filter");
+      } else {
+        expect(hint(), chip).toMatch(
+          / has no filter\. Switch the chip to C64 or Custom to use one\./
+        );
+      }
+    }
+    expect(
+      ["c64", "custom"].every((c) => chipProfile(c as "c64").constraints.filter)
+    ).toBe(true);
+    restoreSfx("coin", original);
+  });
+
+  it("the sound editor ends in the two buttons, without the long description", async () => {
+    await goSfx("coin");
+    expect(view().querySelector("#sDesc")).toBeNull();
+    expect(view().querySelector(".ed-foot")?.textContent).not.toContain(
+      "coin sound"
+    );
+    expect(view().querySelectorAll(".ed-foot button").length).toBe(2);
+  });
+
+  it("the save icon is one fixed size icon that changes its state and words, never its shape", async () => {
+    await goSfx("coin");
+    await project().saveAll();
+    const icon = document.getElementById("saveState") as HTMLElement;
+    const doc = project().get("sfx", "coin") as never;
+    const shape = icon.innerHTML;
+    const state = () => [
+      icon.dataset.state,
+      icon.getAttribute("aria-label"),
+      icon.title,
+    ];
+    expect(icon.textContent).toBe("");
+    expect(icon.querySelectorAll("svg").length).toBe(1);
+    expect(state()).toEqual(["saved", "Saved", "Saved"]);
+    // the icon has a fixed box whatever the state, and only the colour follows the state
+    expect(rule(".savestate")).toMatch(/width:\s*24px/);
+    expect(rule(".savestate")).toMatch(/height:\s*24px/);
+    for (const s of ["unsaved", "saving", "error"]) {
+      expect(css).toContain(`.savestate[data-state="${s}"]`);
+    }
+
+    project().edit<Sfx>(doc, (d) => {
+      d.volume = d.volume === 0.5 ? 0.4 : 0.5;
+    });
+    expect(state()).toEqual([
+      "unsaved",
+      "Unsaved changes, autosave pending",
+      "Unsaved changes, autosave pending",
+    ]);
+    const saving = project().save(doc);
+    expect(state()[0]).toBe("saving");
+    expect(state()[1]).toBe("Saving");
+    await saving;
+    expect(state()).toEqual(["saved", "Saved", "Saved"]);
+
+    project().edit<Sfx>(doc, (d) => {
+      d.volume = d.volume === 0.5 ? 0.4 : 0.5;
+    });
+    vi.spyOn(project().store, "writeJson").mockResolvedValueOnce({
+      message: "disk full",
+      ok: false,
+      reason: "error",
+    });
+    await project().save(doc);
+    expect(state()[0]).toBe("error");
+    expect(state()[1]).toBe("Could not save, see the log");
+    await project().save(doc);
+    expect(state()[0]).toBe("saved");
+    expect(icon.innerHTML).toBe(shape);
+    expect(icon.textContent).toBe("");
   });
 });
 

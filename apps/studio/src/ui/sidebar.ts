@@ -12,6 +12,7 @@ import {
 } from "../render-service.ts";
 import { type Doc, type DocKind, project } from "../state/docs.ts";
 import { icon } from "./icons.ts";
+import { pickMidiFile } from "./import-midi.ts";
 import {
   createInstrument,
   createSfx,
@@ -61,6 +62,14 @@ function rowFor(doc: Doc, cur: boolean): HTMLElement {
   pl.addEventListener("click", (e) => {
     e.stopPropagation();
     playDoc(doc);
+    // a song editor showing another song would keep its own pattern under the playhead of this one
+    if (
+      doc.kind === "song" &&
+      app.route.view === "song" &&
+      app.route.id !== doc.id
+    ) {
+      app.navigate(`#/song/${encodeURIComponent(doc.id)}`);
+    }
   });
   const a = h("a", {
     class: "tl",
@@ -166,6 +175,16 @@ export function createSidebar(host: HTMLElement): {
     });
     add.innerHTML = `${icon("plus", 12)}New`;
     add.addEventListener("click", () => onAdd(sec.kind));
+    if (sec.kind === "song") {
+      const midi = h("button", {
+        "aria-label": "Import MIDI",
+        class: "btn small",
+        title: "Import a MIDI file as a song",
+      });
+      midi.innerHTML = `${icon("import", 12)}MIDI`;
+      midi.addEventListener("click", pickMidiFile);
+      return h("div", { class: "tree-h" }, tw, midi, add);
+    }
     return h("div", { class: "tree-h" }, tw, add);
   };
   const syncNav = () => {

@@ -6,6 +6,7 @@ import {
   type ChannelKind,
   type ChipId,
   deriveSeed,
+  makeInstrument,
   normalizeInstrument,
   normalizeSfx,
   normalizeSong,
@@ -18,7 +19,6 @@ import { CliError } from "../output.ts";
 import {
   DEFAULT_KIND,
   kindsForChip,
-  makeInstrument,
   makeSong,
   PRESETS,
   type Preset,

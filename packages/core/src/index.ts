@@ -22,6 +22,19 @@ export {
   type SongTimeline,
   type TimelineEvent,
 } from "./engine/timeline.ts";
+export {
+  type MidiFile,
+  type MidiImport,
+  type MidiNote,
+  type MidiTempo,
+  type MidiTimeSignature,
+  type MidiToSongOptions,
+  type MidiTrackInfo,
+  midiToSong,
+  type PartInfo,
+  parseMidi,
+  parseMidiMap,
+} from "./midi/index.ts";
 export { formatMml, mmlToTrack, parseMml, patternToMml } from "./mml/index.ts";
 export {
   formatEffect,
@@ -49,6 +62,11 @@ export {
   noteToHz,
   parseNoteName,
 } from "./notes.ts";
+export {
+  INSTRUMENT_PRESETS,
+  type InstrumentPreset,
+  makeInstrument,
+} from "./presets.ts";
 // random
 export { deriveSeed, hashString, mulberry32 } from "./prng.ts";
 export { generateSample, SAMPLE_GENERATORS } from "./samples/index.ts";

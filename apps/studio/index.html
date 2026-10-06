@@ -340,9 +340,14 @@
       height: 18px;
       cursor: pointer;
     }
+    /* The input sits above the drawn switch (z-index), so a click on the switch itself toggles it, not just a click on
+       the field's label. */
     .tgl input {
       position: absolute;
       inset: 0;
+      z-index: 1;
+      width: 100%;
+      height: 100%;
       margin: 0;
       cursor: pointer;
       opacity: 0;
@@ -531,28 +536,38 @@
       color: var(--accent);
       transition: opacity calc(240ms * var(--motion)) linear;
     }
+    /* The save state is one fixed size icon: only the colour changes, so the top bar never shifts. */
     .savestate {
+      --sc: var(--ok);
       display: flex;
-      gap: 6px;
+      flex: none;
       align-items: center;
-      font-family: var(--f-mono);
-      font-size: 11px;
-      color: var(--muted);
-      white-space: nowrap;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      color: var(--sc);
+      cursor: default;
+      transition: color calc(120ms * var(--motion)) ease-out;
     }
-    .savestate i {
-      width: 8px;
-      height: 8px;
-      background: var(--ok);
-      box-shadow: 0 0 6px var(--ok);
+    .savestate .ico {
+      filter: drop-shadow(
+        0 0 4px color-mix(in srgb, var(--sc) 60%, transparent)
+      );
     }
-    .savestate:where(.dirty) i {
-      background: var(--accent);
-      box-shadow: 0 0 6px var(--accent);
+    .savestate[data-state="unsaved"] {
+      --sc: var(--accent);
     }
-    .savestate:where(.err) i {
-      background: var(--danger);
-      box-shadow: 0 0 6px var(--danger);
+    .savestate[data-state="saving"] {
+      --sc: var(--k-pulse);
+      animation: save-pulse calc(700ms * var(--motion)) steps(2, end) infinite;
+    }
+    .savestate[data-state="error"] {
+      --sc: var(--danger);
+    }
+    @keyframes save-pulse {
+      50% {
+        opacity: 0.45;
+      }
     }
     .side,
     .insp {
@@ -1168,7 +1183,6 @@
       }
       .brand small,
       .status .chip-badge span,
-      .status .savestate span,
       .lcd .pos,
       .lcd small,
       .transport .lcd.cpu {
@@ -1936,16 +1950,11 @@
       flex-wrap: wrap;
       gap: 8px 10px;
       align-items: center;
+      justify-content: flex-start;
       padding: 8px 12px;
       background: var(--panel-a);
       border: 1px solid #000;
       box-shadow: 0 0 0 1px var(--line);
-    }
-    .ed-foot .desc {
-      flex: 1 1 260px;
-      min-width: 0;
-      font-size: 13px;
-      color: var(--muted);
     }
 
     /* ================= song editor ================= */

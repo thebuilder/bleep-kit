@@ -181,6 +181,7 @@ CLI commands, `pnpm bleepkit <command>`:
 | --- | --- |
 | `init [dir] [--chip]` | create a project folder with starter documents |
 | `new sfx\|instrument\|song <id>` | create a document (sfx from `--category`, songs from `--mml`) |
+| `import <file.mid> [--chip] [--rows-per-beat] [--map]` | turn a MIDI file into a song for a chip, and list what the chip could not play |
 | `mutate <sfx> [--count]` | write variations of an sfx |
 | `validate [ref]` | check documents, exit 1 on errors |
 | `list [sfx\|songs\|instruments]` | list documents and their renders |

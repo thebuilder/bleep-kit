@@ -12,6 +12,7 @@ export {
   formatEffect,
   generateSample,
   hashString,
+  midiToSong,
   mmlToTrack,
   normalizeInstrument,
   normalizeProject,
