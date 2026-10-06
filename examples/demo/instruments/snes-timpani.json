@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Timpani (tom, low, long)",
+  "kind": "sample",
+  "chip": "snes",
+  "volume": 1,
+  "sample": {
+    "generator": "tom",
+    "params": {
+      "pitch": 75,
+      "sweep": 0.25,
+      "decay": 0.9
+    },
+    "seed": 3,
+    "baseNote": 38,
+    "loop": false
+  },
+  "envelope": {
+    "attack": 0,
+    "decay": 0.6,
+    "sustain": 0,
+    "release": 0.3
+  },
+  "send": {
+    "echo": 0.2,
+    "reverb": 0.5
+  }
+}

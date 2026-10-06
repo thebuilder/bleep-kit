@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "name": "Thin arp pulse (12.5/25 duty, plucky)",
+  "kind": "pulse",
+  "chip": "nes",
+  "volume": 1,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.1,
+    "sustain": 0.5,
+    "release": 0.03
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        0.85,
+        0.7,
+        0.6,
+        0.5,
+        0.5
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "duty": {
+      "values": [
+        1,
+        1,
+        0,
+        0
+      ],
+      "loop": 2,
+      "release": -1
+    }
+  },
+  "pulse": {
+    "duty": 0.25
+  }
+}

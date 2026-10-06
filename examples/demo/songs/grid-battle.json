@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "rowsPerBeat": 4,
+  "tickRate": 60,
+  "patterns": {},
+  "order": [],
+  "loop": null,
+  "name": "Grid Battle (NES, A minor, 150 BPM)",
+  "chip": "nes",
+  "tempo": 150,
+  "channels": [
+    {
+      "volume": 0.87,
+      "pan": 0,
+      "muted": false,
+      "id": "pulse1",
+      "kind": "pulse",
+      "instrument": "nes-hook-lead",
+      "mml": "t150 @nes-hook-lead v13 r1 r1 o5 c8 e8 g8 >c8 e8 c8 <g8 e8 o6 e8. d8. <b8. g+8. b4 L o5 a4 e8 a16 b16 >c4 <b8 a8 | f4 c8 f16 g16 a4 g8 f8 | >c4 <g8 >c16 d16 e4 d8 c8 | <g4 d8 g16 a16 b4 >d8 <b8 | o5 a4 e8 a16 b16 >c4 e8 c8 | <f4 c8 f16 g16 a4 >c8 <a8 | >e4 c8 e16 g16 g4 e8 d8 | c8 <b8 g8 b8 >d8 e8 g8 a8 | o6 d4. c8 <a4 f4 | g4. a8 b4 >d4 | e4. d8 c4 <g4 | g+4 b4 >d4 e4 | o6 d4. c8 <a4 >c4 | <g4. a8 b4 >d4 | e4. g8 e4 c4 | e8 d8 <b8 g+8 e8 g+8 b8 >e8 | o5 f8. a8. >c8. e8. c4 | <g8. b8. >d8. g8. d4 | <a8. >c8. e8. a8. e4 o6 e8. d8. <b8. g+8. b4"
+    },
+    {
+      "volume": 0.88,
+      "pan": 0,
+      "muted": false,
+      "id": "pulse2",
+      "kind": "pulse",
+      "instrument": "nes-arp-pulse",
+      "mml": "@nes-arp-pulse v9 n69 16 n76 16 n81 16 n76 16 n72 16 n76 16 n81 16 n76 16 n69 16 n76 16 n81 16 n76 16 n72 16 n76 16 n81 16 n76 16 n65 16 n72 16 n77 16 n72 16 n69 16 n72 16 n77 16 n72 16 n65 16 n72 16 n77 16 n72 16 n69 16 n72 16 n77 16 n72 16 n72 16 n79 16 n84 16 n79 16 n76 16 n79 16 n84 16 n79 16 n72 16 n79 16 n84 16 n79 16 n76 16 n79 16 n84 16 n79 16 n64 16 n68 16 n71 16 n76 16 n71 16 n68 16 n71 16 n68 16 n64 16 n68 16 n71 16 n76 16 n71 16 n68 16 n71 16 n76 16 L n69 16 n76 16 n81 16 n76 16 n72 16 n76 16 n81 16 n76 16 n69 16 n76 16 n81 16 n76 16 n72 16 n76 16 n81 16 n76 16 n65 16 n72 16 n77 16 n72 16 n69 16 n72 16 n77 16 n72 16 n65 16 n72 16 n77 16 n72 16 n69 16 n72 16 n77 16 n72 16 n72 16 n79 16 n84 16 n79 16 n76 16 n79 16 n84 16 n79 16 n72 16 n79 16 n84 16 n79 16 n76 16 n79 16 n84 16 n79 16 n67 16 n74 16 n79 16 n74 16 n71 16 n74 16 n79 16 n74 16 n67 16 n74 16 n79 16 n74 16 n71 16 n74 16 n79 16 n74 16 n69 16 n76 16 n81 16 n76 16 n72 16 n76 16 n81 16 n76 16 n69 16 n76 16 n81 16 n76 16 n72 16 n76 16 n81 16 n76 16 n65 16 n72 16 n77 16 n72 16 n69 16 n72 16 n77 16 n72 16 n65 16 n72 16 n77 16 n72 16 n69 16 n72 16 n77 16 n72 16 n72 16 n79 16 n84 16 n79 16 n76 16 n79 16 n84 16 n79 16 n72 16 n79 16 n84 16 n79 16 n76 16 n79 16 n84 16 n79 16 n67 16 n74 16 n79 16 n74 16 n71 16 n74 16 n79 16 n74 16 n67 16 n74 16 n79 16 n74 16 n71 16 n74 16 n79 16 n74 16 @nes-chord-pulse v10 {037}n74 4 r4 {037}n74 8 r8 {037}n74 4 {047}n67 4 r4 {047}n67 8 r8 {047}n67 4 {047}n72 4 r4 {047}n72 8 r8 {047}n72 4 {047}n64 4 r4 {047}n64 8 r8 {047}n64 4 {037}n74 4 r4 {037}n74 8 r8 {037}n74 4 {047}n67 4 r4 {047}n67 8 r8 {047}n67 4 {047}n72 4 r4 {047}n72 8 r8 {047}n72 4 {047}n64 4 r4 {047}n64 8 r8 {047}n64 4 @nes-arp-pulse v9 n65 16 n69 16 n72 16 n77 16 n72 16 n69 16 n72 16 n69 16 n65 16 n69 16 n72 16 n77 16 n72 16 n69 16 n72 16 n77 16 n67 16 n71 16 n74 16 n79 16 n74 16 n71 16 n74 16 n71 16 n67 16 n71 16 n74 16 n79 16 n74 16 n71 16 n74 16 n79 16 n69 16 n72 16 n76 16 n81 16 n76 16 n72 16 n76 16 n72 16 n69 16 n72 16 n76 16 n81 16 n76 16 n72 16 n76 16 n81 16 n64 16 n68 16 n71 16 n76 16 n71 16 n68 16 n71 16 n68 16 n64 16 n68 16 n71 16 n76 16 n71 16 n68 16 n71 16 n76 16"
+    },
+    {
+      "volume": 1,
+      "pan": 0,
+      "muted": false,
+      "id": "triangle",
+      "kind": "triangle",
+      "instrument": "nes-tri-bass",
+      "mml": "@nes-tri-bass q7 n45 8 n45 8 n57 8 n45 8 n45 8 n57 8 n45 8 n52 8 n41 8 n41 8 n53 8 n41 8 n41 8 n53 8 n41 8 n48 8 n48 8 n48 8 n60 8 n48 8 n48 8 n60 8 n48 8 n55 8 n40 8 n40 8 n47 8 n40 8 n52 8 n47 8 n45 8 n43 8 L n45 8 n45 8 n57 8 n45 8 n45 8 n57 8 n45 8 n52 8 n41 8 n41 8 n53 8 n41 8 n41 8 n53 8 n41 8 n48 8 n48 8 n48 8 n60 8 n48 8 n48 8 n60 8 n48 8 n55 8 n43 8 n43 8 n55 8 n43 8 n43 8 n55 8 n43 8 n50 8 n45 8 n45 8 n57 8 n45 8 n57 8 n52 8 n45 8 n50 8 n41 8 n41 8 n53 8 n41 8 n53 8 n48 8 n41 8 n46 8 n48 8 n48 8 n60 8 n48 8 n60 8 n55 8 n48 8 n53 8 n43 8 n43 8 n55 8 n43 8 n55 8 n50 8 n43 8 n48 8 n50 8 n50 8 n62 8 n50 8 n62 8 n57 8 n50 8 n55 8 n43 8 n43 8 n55 8 n43 8 n55 8 n50 8 n43 8 n48 8 n48 8 n48 8 n60 8 n48 8 n60 8 n55 8 n48 8 n53 8 n40 8 n40 8 n52 8 n40 8 n52 8 n47 8 n40 8 n45 8 n50 8 n50 8 n62 8 n50 8 n50 8 n62 8 n50 8 n57 8 n43 8 n43 8 n55 8 n43 8 n43 8 n55 8 n43 8 n50 8 n48 8 n48 8 n60 8 n48 8 n48 8 n60 8 n48 8 n55 8 n40 8 n40 8 n52 8 n40 8 n40 8 n52 8 n40 8 n47 8 n41 8 n41 8 n48 8 n41 8 n53 8 n48 8 n46 8 n44 8 n43 8 n43 8 n50 8 n43 8 n55 8 n50 8 n48 8 n46 8 n45 8 n45 8 n52 8 n45 8 n57 8 n52 8 n50 8 n48 8 n40 8 n40 8 n47 8 n40 8 n52 8 n47 8 n45 8 n43 8"
+    },
+    {
+      "volume": 0.791,
+      "pan": 0,
+      "muted": false,
+      "id": "noise",
+      "kind": "noise",
+      "instrument": "nes-kick",
+      "mml": "v12 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 L @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-kick o2 c16 r16 @nes-snare o2 c16 r16 @nes-snare o2 c16 r16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-kick o2 c16 r16 @nes-snare o2 c16 r16 @nes-snare o2 c16 r16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 r16 @nes-kick o2 c16 r16 @nes-hat o2 c16 r16 @nes-snare o2 c16 r16 @nes-hat o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-snare o2 c16 @nes-kick o2 c16 @nes-snare o2 c16 r16"
+    }
+  ],
+  "master": {
+    "volume": 0.511,
+    "echo": null,
+    "reverb": null
+  }
+}

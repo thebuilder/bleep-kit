@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "name": "UI blip (soft FM tick)",
+  "category": "blip",
+  "chip": "genesis",
+  "seed": 15,
+  "wave": "fm",
+  "volume": 0.62,
+  "frequency": {
+    "start": 1174.7,
+    "min": 0,
+    "slide": 0,
+    "deltaSlide": 0
+  },
+  "vibrato": {
+    "depth": 0,
+    "rate": 0
+  },
+  "arpeggio": {
+    "steps": [
+      0,
+      7
+    ],
+    "rate": 24
+  },
+  "envelope": {
+    "attack": 0,
+    "sustain": 0.03,
+    "punch": 0.3,
+    "decay": 0.12
+  },
+  "duty": {
+    "start": 0.5,
+    "sweep": 0
+  },
+  "repeat": {
+    "rate": 0
+  },
+  "phaser": {
+    "offset": 0,
+    "sweep": 0
+  },
+  "filter": {
+    "lowpass": null,
+    "lowpassSweep": 0,
+    "resonance": 0,
+    "highpass": null,
+    "highpassSweep": 0
+  },
+  "bitcrush": {
+    "bits": null,
+    "rateDivide": 1
+  },
+  "noise": {
+    "mode": "long"
+  },
+  "fm": {
+    "ratio": 4,
+    "index": 1.7,
+    "indexDecay": 0.2
+  },
+  "table": null
+}

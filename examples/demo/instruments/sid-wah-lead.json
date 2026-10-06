@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "name": "Wah lead (saw through a sweeping low-pass)",
+  "kind": "sid",
+  "chip": "c64",
+  "volume": 1,
+  "envelope": {
+    "attack": 0.01,
+    "decay": 0.2,
+    "sustain": 0.85,
+    "release": 0.1
+  },
+  "macros": {
+    "pitch": {
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        3,
+        3,
+        3,
+        -3,
+        -3,
+        -3,
+        -3,
+        -3,
+        -3,
+        -3,
+        -3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "loop": 20,
+      "release": -1
+    }
+  },
+  "sid": {
+    "waveforms": [
+      "saw"
+    ],
+    "pulseWidth": 0.5,
+    "pwmRate": 0,
+    "pwmDepth": 0,
+    "ring": false,
+    "sync": false,
+    "filter": {
+      "mode": "lp",
+      "cutoff": 0.55,
+      "resonance": 0.5,
+      "sweep": 0.004
+    }
+  }
+}

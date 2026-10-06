@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "name": "Overdriven lead (2:1 FM, vibrato)",
+  "kind": "fm",
+  "chip": "adlib",
+  "volume": 0.8,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.2,
+    "sustain": 1,
+    "release": 0.1
+  },
+  "fm": {
+    "algorithm": 0,
+    "feedback": 5,
+    "lfo": {
+      "rate": 5.5,
+      "pitchDepth": 14,
+      "ampDepth": 0
+    },
+    "ops": [
+      {
+        "mult": 2,
+        "detune": 0,
+        "level": 0.34,
+        "attack": 28,
+        "decay": 6,
+        "sustainLevel": 0.6,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 1,
+        "attack": 29,
+        "decay": 3,
+        "sustainLevel": 0.85,
+        "sustainRate": 0,
+        "release": 7,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "name": "Dark organ (additive 1+2)",
+  "kind": "fm",
+  "chip": "adlib",
+  "volume": 0.6,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.2,
+    "sustain": 1,
+    "release": 0.15
+  },
+  "fm": {
+    "algorithm": 1,
+    "feedback": 3,
+    "lfo": {
+      "rate": 6,
+      "pitchDepth": 5,
+      "ampDepth": 0.05
+    },
+    "ops": [
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.8,
+        "attack": 20,
+        "decay": 0,
+        "sustainLevel": 1,
+        "sustainRate": 0,
+        "release": 7,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 2,
+        "detune": 0,
+        "level": 0.5,
+        "attack": 20,
+        "decay": 0,
+        "sustainLevel": 1,
+        "sustainRate": 0,
+        "release": 7,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "name": "Noise open hat",
+  "kind": "noise",
+  "chip": "nes",
+  "volume": 0.5,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.2,
+    "sustain": 1,
+    "release": 0.01
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        0.9,
+        0.75,
+        0.6,
+        0.5,
+        0.4,
+        0.3,
+        0.2,
+        0.1,
+        0
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggio": {
+      "values": [
+        96
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggioMode": "fixed"
+  },
+  "noise": {
+    "mode": "short"
+  }
+}

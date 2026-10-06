@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "Marching snare (tight)",
+  "kind": "sample",
+  "chip": "snes",
+  "volume": 1,
+  "sample": {
+    "generator": "snare",
+    "params": {
+      "decay": 0.12,
+      "noise": 0.7,
+      "snap": 0.6,
+      "tone": 220
+    },
+    "seed": 3,
+    "baseNote": 60,
+    "loop": false
+  },
+  "envelope": {
+    "attack": 0,
+    "decay": 0.15,
+    "sustain": 0,
+    "release": 0.05
+  },
+  "send": {
+    "echo": 0.1,
+    "reverb": 0.3
+  }
+}

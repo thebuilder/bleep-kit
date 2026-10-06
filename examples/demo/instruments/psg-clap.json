@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "name": "PSG soft clap",
+  "kind": "noise",
+  "chip": "genesis",
+  "volume": 0.7,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.1,
+    "sustain": 1,
+    "release": 0.01
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        0.2,
+        1,
+        0.7,
+        0.5,
+        0.35,
+        0.25,
+        0.15,
+        0.08,
+        0
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggio": {
+      "values": [
+        57
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggioMode": "fixed"
+  },
+  "noise": {
+    "mode": "long"
+  }
+}

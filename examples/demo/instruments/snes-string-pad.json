@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "String pad (slow bow)",
+  "kind": "sample",
+  "chip": "snes",
+  "volume": 0.6,
+  "sample": {
+    "generator": "strings",
+    "params": {
+      "attack": 0.5,
+      "bright": 0.35,
+      "detune": 0.5
+    },
+    "seed": 3,
+    "baseNote": 60,
+    "loop": true
+  },
+  "envelope": {
+    "attack": 0.45,
+    "decay": 0.3,
+    "sustain": 0.9,
+    "release": 0.7
+  },
+  "send": {
+    "echo": 0.2,
+    "reverb": 0.6
+  }
+}

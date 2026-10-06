@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "name": "PSG square kick (pitch drop)",
+  "kind": "pulse",
+  "chip": "genesis",
+  "volume": 0.9,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.1,
+    "sustain": 1,
+    "release": 0.01
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        1,
+        0.9,
+        0.75,
+        0.55,
+        0.4,
+        0.28,
+        0.16,
+        0.08,
+        0
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggio": {
+      "values": [
+        60,
+        52,
+        46,
+        42,
+        39,
+        37,
+        36,
+        35,
+        34
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggioMode": "fixed"
+  },
+  "pulse": {
+    "duty": 0.5
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "name": "Noise closed hat",
+  "kind": "noise",
+  "chip": "nes",
+  "volume": 0.5,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.05,
+    "sustain": 1,
+    "release": 0.01
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        0.6,
+        0.3,
+        0
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggio": {
+      "values": [
+        96
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggioMode": "fixed"
+  },
+  "noise": {
+    "mode": "short"
+  }
+}

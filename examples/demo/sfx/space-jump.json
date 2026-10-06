@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "name": "Hyperspace jump (rising warp shimmer)",
+  "category": "teleport",
+  "chip": "genesis",
+  "seed": 12,
+  "wave": "fm",
+  "volume": 0.62,
+  "frequency": {
+    "start": 110,
+    "min": 0,
+    "slide": 1.1,
+    "deltaSlide": 2.2
+  },
+  "vibrato": {
+    "depth": 0.25,
+    "rate": 11
+  },
+  "arpeggio": {
+    "steps": [
+      0,
+      7,
+      12,
+      19
+    ],
+    "rate": 26
+  },
+  "envelope": {
+    "attack": 0.55,
+    "sustain": 0.35,
+    "punch": 0.15,
+    "decay": 0.7
+  },
+  "duty": {
+    "start": 0.5,
+    "sweep": 0
+  },
+  "repeat": {
+    "rate": 0
+  },
+  "phaser": {
+    "offset": 0,
+    "sweep": 0
+  },
+  "filter": {
+    "lowpass": 2500,
+    "lowpassSweep": 1.2,
+    "resonance": 0,
+    "highpass": null,
+    "highpassSweep": 0
+  },
+  "bitcrush": {
+    "bits": null,
+    "rateDivide": 1
+  },
+  "noise": {
+    "mode": "long"
+  },
+  "fm": {
+    "ratio": 3,
+    "index": 3.4,
+    "indexDecay": 1.2
+  },
+  "table": null
+}

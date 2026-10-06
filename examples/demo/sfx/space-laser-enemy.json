@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "name": "Enemy laser (lower, slower, grittier)",
+  "category": "laser",
+  "chip": "genesis",
+  "seed": 16,
+  "wave": "fm",
+  "volume": 0.7,
+  "frequency": {
+    "start": 1500,
+    "min": 120,
+    "slide": -5,
+    "deltaSlide": 2
+  },
+  "vibrato": {
+    "depth": 0.5,
+    "rate": 22
+  },
+  "arpeggio": {
+    "steps": [],
+    "rate": 0
+  },
+  "envelope": {
+    "attack": 0,
+    "sustain": 0.05,
+    "punch": 0.4,
+    "decay": 0.34
+  },
+  "duty": {
+    "start": 0.5,
+    "sweep": 0
+  },
+  "repeat": {
+    "rate": 0
+  },
+  "phaser": {
+    "offset": 0,
+    "sweep": 0
+  },
+  "filter": {
+    "lowpass": null,
+    "lowpassSweep": 0,
+    "resonance": 0,
+    "highpass": null,
+    "highpassSweep": 0
+  },
+  "bitcrush": {
+    "bits": null,
+    "rateDivide": 1
+  },
+  "noise": {
+    "mode": "long"
+  },
+  "fm": {
+    "ratio": 3.3,
+    "index": 6,
+    "indexDecay": 0.25
+  },
+  "table": null
+}

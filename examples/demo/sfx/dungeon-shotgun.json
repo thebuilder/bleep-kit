@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "name": "Shotgun blast (FM noise crack, falling boom)",
+  "category": "explosion",
+  "chip": "adlib",
+  "seed": 21,
+  "wave": "fm",
+  "volume": 0.8,
+  "frequency": {
+    "start": 1300,
+    "min": 0,
+    "slide": -7,
+    "deltaSlide": 3.6
+  },
+  "vibrato": {
+    "depth": 2,
+    "rate": 29
+  },
+  "arpeggio": {
+    "steps": [],
+    "rate": 0
+  },
+  "envelope": {
+    "attack": 0,
+    "sustain": 0.02,
+    "punch": 1,
+    "decay": 0.55
+  },
+  "duty": {
+    "start": 0.5,
+    "sweep": 0
+  },
+  "repeat": {
+    "rate": 0
+  },
+  "phaser": {
+    "offset": 12,
+    "sweep": -30
+  },
+  "filter": {
+    "lowpass": 12000,
+    "lowpassSweep": -3,
+    "resonance": 0,
+    "highpass": null,
+    "highpassSweep": 0
+  },
+  "bitcrush": {
+    "bits": null,
+    "rateDivide": 1
+  },
+  "noise": {
+    "mode": "long"
+  },
+  "fm": {
+    "ratio": 10.9,
+    "index": 8,
+    "indexDecay": 0.15
+  },
+  "table": null
+}

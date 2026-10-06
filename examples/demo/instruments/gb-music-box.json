@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "name": "Music-box pluck (duty 12.5, quick decay)",
+  "kind": "pulse",
+  "chip": "gameboy",
+  "volume": 1,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.12,
+    "sustain": 0.3,
+    "release": 0.04
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        0.8,
+        0.62,
+        0.5,
+        0.4,
+        0.32,
+        0.26,
+        0.2
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "duty": {
+      "values": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "loop": 3,
+      "release": -1
+    }
+  },
+  "pulse": {
+    "duty": 0.125
+  }
+}

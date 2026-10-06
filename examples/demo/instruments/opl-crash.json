@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "name": "FM crash (long noisy wash)",
+  "kind": "fm",
+  "chip": "adlib",
+  "volume": 0.5,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.3,
+    "sustain": 1,
+    "release": 0.3
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        0.95,
+        0.9,
+        0.85,
+        0.8,
+        0.75,
+        0.7,
+        0.66,
+        0.62,
+        0.58,
+        0.54,
+        0.5,
+        0.46,
+        0.42,
+        0.38,
+        0.35,
+        0.32,
+        0.29,
+        0.26,
+        0.23,
+        0.2,
+        0.17,
+        0.14,
+        0.1,
+        0.06,
+        0.03,
+        0
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggio": {
+      "values": [
+        96
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggioMode": "fixed"
+  },
+  "fm": {
+    "algorithm": 0,
+    "feedback": 7,
+    "lfo": null,
+    "ops": [
+      {
+        "mult": 14,
+        "detune": 0,
+        "level": 1,
+        "attack": 31,
+        "decay": 0,
+        "sustainLevel": 1,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 9,
+        "detune": 0,
+        "level": 1,
+        "attack": 31,
+        "decay": 0,
+        "sustainLevel": 1,
+        "sustainRate": 0,
+        "release": 10,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      }
+    ]
+  }
+}

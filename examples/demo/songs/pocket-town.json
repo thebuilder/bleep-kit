@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "rowsPerBeat": 4,
+  "tickRate": 60,
+  "patterns": {},
+  "order": [],
+  "loop": null,
+  "name": "Pocket Town (Game Boy, G major, 120 BPM)",
+  "chip": "gameboy",
+  "tempo": 120,
+  "channels": [
+    {
+      "volume": 0.855,
+      "pan": -0.3,
+      "muted": false,
+      "id": "pulse1",
+      "kind": "pulse",
+      "instrument": "gb-sing-lead",
+      "mml": "v15 r1 r1 r1 o5 f+4 a4 >d4 e4 L o5 b4 g8 b8 >d4 <b4 | o5 b4 g8 e8 g2 | o5 e4 g8 >c8 e4 d8 c8 | o5 a4 b8 a8 f+2 | o5 b4 g8 b8 >d4 g4 | o6 e4 d8 <b8 g2 | o5 e4 g8 >c8 e4 g8 e8 | o6 d4 c8 <b8 a4 f+4 | o5 g4. e8 c4 e4 | o5 d4. g8 b2 | o5 c4. e8 a4 g4 | o5 f+4. a8 >d2 | o6 c4. <g8 e4 g4 | o5 b4 a8 g8 d2 | o5 e4 a4 f+4 a4 | o5 f+4 a4 >d4 e4"
+    },
+    {
+      "volume": 0.845,
+      "pan": 0.5,
+      "muted": false,
+      "id": "pulse2",
+      "kind": "pulse",
+      "instrument": "gb-music-box",
+      "mml": "v15 n67 8 n74 8 n71 8 n74 8 n67 8 n74 8 n71 8 n74 8 n60 8 n67 8 n64 8 n67 8 n60 8 n67 8 n64 8 n67 8 n67 8 n74 8 n71 8 n74 8 n67 8 n74 8 n71 8 n74 8 n62 8 n69 8 n74 8 n69 8 n78 8 n74 8 n69 8 n66 8 L n67 8 n74 8 n71 8 n74 8 n67 8 n74 8 n71 8 n74 8 n64 8 n71 8 n67 8 n71 8 n64 8 n71 8 n67 8 n71 8 n60 8 n67 8 n64 8 n67 8 n60 8 n67 8 n64 8 n67 8 n62 8 n69 8 n66 8 n69 8 n62 8 n69 8 n66 8 n69 8 n67 8 n74 8 n71 8 n74 8 n67 8 n74 8 n71 8 n74 8 n64 8 n71 8 n67 8 n71 8 n64 8 n71 8 n67 8 n71 8 n60 8 n67 8 n64 8 n67 8 n60 8 n67 8 n64 8 n67 8 n62 8 n69 8 n66 8 n69 8 n62 8 n69 8 n66 8 n69 8 n60 8 n64 8 n67 8 n72 8 n67 8 n64 8 n67 8 n64 8 n67 8 n71 8 n74 8 n79 8 n74 8 n71 8 n74 8 n71 8 n69 8 n72 8 n76 8 n81 8 n76 8 n72 8 n76 8 n72 8 n62 8 n66 8 n69 8 n74 8 n69 8 n66 8 n69 8 n66 8 n60 8 n67 8 n72 8 n67 8 n76 8 n72 8 n67 8 n64 8 n67 8 n74 8 n79 8 n74 8 n83 8 n79 8 n74 8 n71 8 n69 8 n76 8 n81 8 n76 8 n84 8 n81 8 n76 8 n72 8 n62 8 n69 8 n74 8 n69 8 n78 8 n74 8 n69 8 n66 8"
+    },
+    {
+      "volume": 0.645,
+      "pan": 0,
+      "muted": false,
+      "id": "wave",
+      "kind": "wave",
+      "instrument": "gb-round-bass",
+      "mml": "v15 q7 n43 1 n36 1 n43 4 n55 8 n43 8 n50 4 n43 8 n50 8 n38 4 n45 4 n50 4 n45 4 L n43 4 n55 8 n43 8 n50 4 n43 8 n50 8 n40 4 n52 8 n40 8 n47 4 n40 8 n47 8 n36 4 n48 8 n36 8 n43 4 n36 8 n43 8 n38 4 n50 8 n38 8 n45 4 n38 8 n45 8 n43 4 n55 8 n43 8 n50 4 n43 8 n50 8 n40 4 n52 8 n40 8 n47 4 n40 8 n47 8 n36 4 n48 8 n36 8 n43 4 n36 8 n43 8 n38 4 n50 8 n38 8 n45 4 n38 8 n45 8 n36 4 n43 4 n48 4 n43 4 n43 4 n50 4 n55 4 n50 4 n45 4 n52 4 n57 4 n52 4 n38 4 n45 4 n50 4 n45 4 n36 4 n43 4 n48 4 n43 4 n43 4 n50 4 n55 4 n50 4 n45 4 n52 4 n57 4 n52 4 n38 4 n45 4 n50 4 n45 4"
+    },
+    {
+      "volume": 0.22,
+      "pan": 0,
+      "muted": false,
+      "id": "noise",
+      "kind": "noise",
+      "instrument": "gb-tick-hat",
+      "mml": "v14 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 @gb-brush-snare o3 c16 L @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-soft-kick o3 c16 r16 @gb-tick-hat o3 c16 r16 @gb-brush-snare o3 c16 r16 @gb-tick-hat o3 c16 @gb-brush-snare o3 c16"
+    }
+  ],
+  "master": {
+    "volume": 1,
+    "echo": null,
+    "reverb": null
+  }
+}

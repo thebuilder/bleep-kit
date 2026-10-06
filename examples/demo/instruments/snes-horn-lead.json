@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Brass-ish lead (lead sample, soft attack)",
+  "kind": "sample",
+  "chip": "snes",
+  "volume": 0.75,
+  "sample": {
+    "generator": "lead",
+    "params": {
+      "bright": 0.45,
+      "duty": 0.3,
+      "vibrato": 0.35
+    },
+    "seed": 3,
+    "baseNote": 60,
+    "loop": true
+  },
+  "envelope": {
+    "attack": 0.05,
+    "decay": 0.2,
+    "sustain": 0.85,
+    "release": 0.25
+  },
+  "send": {
+    "echo": 0.45,
+    "reverb": 0.4
+  }
+}

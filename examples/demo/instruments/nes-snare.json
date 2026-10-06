@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "name": "Noise snare",
+  "kind": "noise",
+  "chip": "nes",
+  "volume": 0.85,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.1,
+    "sustain": 1,
+    "release": 0.01
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        1,
+        0.8,
+        0.65,
+        0.5,
+        0.4,
+        0.3,
+        0.2,
+        0.12,
+        0.06,
+        0
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggio": {
+      "values": [
+        72,
+        70,
+        68,
+        66,
+        64,
+        64
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggioMode": "fixed"
+  },
+  "noise": {
+    "mode": "long"
+  }
+}

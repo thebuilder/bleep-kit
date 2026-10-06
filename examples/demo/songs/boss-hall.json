@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "rowsPerBeat": 4,
+  "tickRate": 60,
+  "patterns": {},
+  "order": [],
+  "loop": null,
+  "name": "Boss Hall (SNES samples, D minor, 100 BPM)",
+  "chip": "snes",
+  "tempo": 100,
+  "channels": [
+    {
+      "volume": 1,
+      "pan": 0,
+      "muted": false,
+      "id": "ch1",
+      "kind": "sample",
+      "instrument": "snes-timpani",
+      "mml": "v14 n50 16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 n46 16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 n51 16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 n57 16 r16 r16 r16 r16 r16 r16 r16 n57 16 r16 n64 16 r16 n57 16 n57 16 n64 16 n64 16 L n50 16 r16 r16 r16 r16 r16 r16 r16 r16 r16 n50 16 r16 r16 r16 n45 16 r16 n46 16 r16 r16 r16 r16 r16 r16 r16 r16 r16 n46 16 r16 r16 r16 n41 16 r16 n55 16 r16 r16 r16 r16 r16 r16 r16 r16 r16 n55 16 r16 r16 r16 n50 16 r16 n57 16 r16 r16 r16 r16 r16 r16 r16 r16 r16 n57 16 r16 r16 r16 n52 16 r16 n50 16 r16 r16 r16 r16 r16 r16 r16 r16 r16 n50 16 r16 r16 r16 n45 16 r16 n46 16 r16 r16 r16 r16 r16 r16 r16 r16 r16 n46 16 r16 r16 r16 n41 16 r16 n55 16 r16 r16 r16 r16 r16 r16 r16 r16 r16 n55 16 r16 r16 r16 n50 16 r16 n57 16 r16 r16 r16 r16 r16 r16 r16 r16 r16 n57 16 r16 r16 r16 n52 16 r16 n46 16 r16 r16 r16 n53 16 r16 r16 r16 n46 16 r16 n46 16 r16 n53 16 r16 n53 16 r16 n48 16 r16 r16 r16 n55 16 r16 r16 r16 n48 16 r16 n48 16 r16 n55 16 r16 n55 16 r16 n50 16 r16 r16 r16 n57 16 r16 r16 r16 n50 16 r16 n50 16 r16 n57 16 r16 n57 16 r16 n53 16 r16 r16 r16 n60 16 r16 r16 r16 n53 16 r16 n53 16 r16 n60 16 r16 n60 16 r16 n55 16 r16 r16 r16 n62 16 r16 r16 r16 n55 16 r16 n55 16 r16 n62 16 r16 n62 16 r16 n50 16 r16 r16 r16 n57 16 r16 r16 r16 n50 16 r16 n50 16 r16 n57 16 r16 n57 16 r16 n51 16 r16 r16 r16 n58 16 r16 r16 r16 n51 16 r16 n51 16 r16 n58 16 r16 n58 16 r16 n57 16 r16 r16 r16 r16 r16 r16 r16 n57 16 r16 n64 16 r16 n57 16 n57 16 n64 16 n64 16"
+    },
+    {
+      "volume": 0.696,
+      "pan": 0.2,
+      "muted": false,
+      "id": "ch2",
+      "kind": "sample",
+      "instrument": "snes-snare-roll",
+      "mml": "v11 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 L r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 @snes-snare-roll o4 c16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 @snes-snare-roll o4 c16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 @snes-snare-roll o4 c16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 r16 @snes-snare-roll o4 c16 r16 r16 r16 r16 r16 r16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 r16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16 @snes-snare-roll o4 c16"
+    },
+    {
+      "volume": 0.854,
+      "pan": -0.3,
+      "muted": false,
+      "id": "ch3",
+      "kind": "sample",
+      "instrument": "snes-low-strings",
+      "mml": "v12 r1 r1 r1 q5 n45 8 n45 8 n52 8 n45 8 n45 8 n52 8 n45 8 n50 8 L q5 n50 8 n50 8 n57 8 n50 8 n50 8 n57 8 n50 8 n55 8 q5 n46 8 n46 8 n53 8 n46 8 n46 8 n53 8 n46 8 n51 8 q5 n43 8 n43 8 n50 8 n43 8 n43 8 n50 8 n43 8 n48 8 q5 n45 8 n45 8 n52 8 n45 8 n45 8 n52 8 n45 8 n50 8 q5 n50 8 n50 8 n57 8 n50 8 n50 8 n57 8 n50 8 n55 8 q5 n46 8 n46 8 n53 8 n46 8 n46 8 n53 8 n46 8 n51 8 q5 n43 8 n43 8 n50 8 n43 8 n43 8 n50 8 n43 8 n48 8 q5 n45 8 n45 8 n52 8 n45 8 n45 8 n52 8 n45 8 n50 8 q4 n46 16 n46 16 n46 16 n53 16 n46 16 n46 16 n53 16 n46 16 n46 16 n46 16 n46 16 n53 16 n46 16 n46 16 n53 16 n58 16 q4 n48 16 n48 16 n48 16 n55 16 n48 16 n48 16 n55 16 n48 16 n48 16 n48 16 n48 16 n55 16 n48 16 n48 16 n55 16 n60 16 q4 n50 16 n50 16 n50 16 n57 16 n50 16 n50 16 n57 16 n50 16 n50 16 n50 16 n50 16 n57 16 n50 16 n50 16 n57 16 n62 16 q4 n53 16 n53 16 n53 16 n60 16 n53 16 n53 16 n60 16 n53 16 n53 16 n53 16 n53 16 n60 16 n53 16 n53 16 n60 16 n65 16 q4 n43 16 n43 16 n43 16 n50 16 n43 16 n43 16 n50 16 n43 16 n43 16 n43 16 n43 16 n50 16 n43 16 n43 16 n50 16 n55 16 q4 n50 16 n50 16 n50 16 n57 16 n50 16 n50 16 n57 16 n50 16 n50 16 n50 16 n50 16 n57 16 n50 16 n50 16 n57 16 n62 16 q4 n51 16 n51 16 n51 16 n58 16 n51 16 n51 16 n58 16 n51 16 n51 16 n51 16 n51 16 n58 16 n51 16 n51 16 n58 16 n63 16 q4 n45 16 n45 16 n45 16 n52 16 n45 16 n45 16 n52 16 n45 16 n45 16 n45 16 n45 16 n52 16 n45 16 n45 16 n52 16 n57 16"
+    },
+    {
+      "volume": 0.78,
+      "pan": -0.2,
+      "muted": false,
+      "id": "ch4",
+      "kind": "sample",
+      "instrument": "snes-choir-pad",
+      "mml": "v11 n65 1 & n65 1 n67 1 n64 1 L n65 1 & n65 1 n67 1 n64 1 n65 1 & n65 1 n67 1 n64 1 n65 1 n64 1 n65 1 & n65 1 n67 1 n65 1 n67 1 n64 1"
+    },
+    {
+      "volume": 0.895,
+      "pan": 0.1,
+      "muted": false,
+      "id": "ch5",
+      "kind": "sample",
+      "instrument": "snes-horn-lead",
+      "mml": "v13 @snes-horn-lead r1 r1 r1 o5 a4 g4 e4 c+4 L o4 a4. >d8 f2 | o5 f4. d8 c4 <b-4 | o4 b-4. >d8 g2 | o5 e4. c+8 <a2 | o4 a4. >d8 f4 a4 | o5 f4. d8 c4 <b-4 | o4 b-4 >d4 g4 b-4 | o6 c+4. e8 a2 | o5 d2 f2 | o5 e2 g2 | o5 f2 a2 | o5 >c2. <a4 | o5 b-2 a2 | o5 a2 f2 | o5 b-2. g4 | o5 a4 g4 e4 c+4"
+    },
+    {
+      "volume": 0.938,
+      "pan": 0.3,
+      "muted": false,
+      "id": "ch6",
+      "kind": "sample",
+      "instrument": "snes-string-pad",
+      "mml": "v10 n69 1 n70 1 & n70 1 n73 1 L n69 1 n70 1 & n70 1 n73 1 n69 1 n70 1 & n70 1 n73 1 n70 1 n67 1 n69 1 & n69 1 n70 1 n69 1 n70 1 n73 1"
+    },
+    {
+      "volume": 0.619,
+      "pan": 0,
+      "muted": false,
+      "id": "ch7",
+      "kind": "sample",
+      "instrument": "snes-bass-sub",
+      "mml": "v14 n38 2 r2 n34 2 r2 n39 2 r2 q7 n45 4 n45 8 n45 8 n45 4 n52 8 n45 8 L q7 n38 4 n38 8 n38 8 n38 4 n45 8 n38 8 q7 n34 4 n34 8 n34 8 n34 4 n41 8 n34 8 q7 n43 4 n43 8 n43 8 n43 4 n50 8 n43 8 q7 n45 4 n45 8 n45 8 n45 4 n52 8 n45 8 q7 n38 4 n38 8 n38 8 n38 4 n45 8 n38 8 q7 n34 4 n34 8 n34 8 n34 4 n41 8 n34 8 q7 n43 4 n43 8 n43 8 n43 4 n50 8 n43 8 q7 n45 4 n45 8 n45 8 n45 4 n52 8 n45 8 q7 n34 8 n34 8 n46 8 n34 8 n34 8 n34 8 n46 8 n41 8 q7 n36 8 n36 8 n48 8 n36 8 n36 8 n36 8 n48 8 n43 8 q7 n38 8 n38 8 n50 8 n38 8 n38 8 n38 8 n50 8 n45 8 q7 n41 8 n41 8 n53 8 n41 8 n41 8 n41 8 n53 8 n48 8 q7 n43 8 n43 8 n55 8 n43 8 n43 8 n43 8 n55 8 n50 8 q7 n38 8 n38 8 n50 8 n38 8 n38 8 n38 8 n50 8 n45 8 q7 n39 8 n39 8 n51 8 n39 8 n39 8 n39 8 n51 8 n46 8 q7 n45 8 n45 8 n57 8 n45 8 n45 8 n45 8 n57 8 n52 8"
+    },
+    {
+      "volume": 0.911,
+      "pan": 0.4,
+      "muted": false,
+      "id": "ch8",
+      "kind": "sample",
+      "instrument": "snes-toll-bell",
+      "mml": "v10 n62 1 n58 1 n63 1 r1 L n62 1 r1 r1 r1 n62 1 r1 r1 r1 n58 1 r1 r1 r1 n67 1 r1 r1 r1"
+    }
+  ],
+  "master": {
+    "volume": 1,
+    "echo": {
+      "delay": 0.45,
+      "feedback": 0.42,
+      "level": 0.45,
+      "lowpassHz": 3800
+    },
+    "reverb": {
+      "size": 0.7,
+      "damping": 0.5,
+      "level": 0.3
+    }
+  }
+}

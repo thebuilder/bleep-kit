@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "name": "Noise kick (pitch drop)",
+  "kind": "noise",
+  "chip": "nes",
+  "volume": 1,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.1,
+    "sustain": 1,
+    "release": 0.01
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        1,
+        0.85,
+        0.7,
+        0.5,
+        0.35,
+        0.2,
+        0.1,
+        0
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggio": {
+      "values": [
+        36,
+        31,
+        27,
+        24,
+        21,
+        19,
+        17,
+        15
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggioMode": "fixed"
+  },
+  "noise": {
+    "mode": "long"
+  }
+}

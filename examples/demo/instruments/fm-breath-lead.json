@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "name": "Breathy lead (soft attack, vibrato LFO)",
+  "kind": "fm",
+  "chip": "genesis",
+  "volume": 0.95,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.2,
+    "sustain": 1,
+    "release": 0.3
+  },
+  "fm": {
+    "algorithm": 4,
+    "feedback": 1,
+    "lfo": {
+      "rate": 5.2,
+      "pitchDepth": 12,
+      "ampDepth": 0
+    },
+    "ops": [
+      {
+        "mult": 2,
+        "detune": 0,
+        "level": 0.2,
+        "attack": 17,
+        "decay": 6,
+        "sustainLevel": 0.5,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.9,
+        "attack": 20,
+        "decay": 5,
+        "sustainLevel": 0.85,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.08,
+        "attack": 22,
+        "decay": 0,
+        "sustainLevel": 1,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 1,
+        "level": 0.4,
+        "attack": 18,
+        "decay": 5,
+        "sustainLevel": 0.7,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      }
+    ]
+  }
+}

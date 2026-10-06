@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "name": "Warm pad (slow swell, chorused carriers, LFO shimmer)",
+  "kind": "fm",
+  "chip": "genesis",
+  "volume": 0.95,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.2,
+    "sustain": 1,
+    "release": 0.5
+  },
+  "fm": {
+    "algorithm": 4,
+    "feedback": 2,
+    "lfo": {
+      "rate": 4.2,
+      "pitchDepth": 7,
+      "ampDepth": 0.08
+    },
+    "ops": [
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.14,
+        "attack": 12,
+        "decay": 4,
+        "sustainLevel": 0.7,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": -2,
+        "level": 0.8,
+        "attack": 10,
+        "decay": 0,
+        "sustainLevel": 1,
+        "sustainRate": 0,
+        "release": 5,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 2,
+        "detune": 0,
+        "level": 0.1,
+        "attack": 12,
+        "decay": 4,
+        "sustainLevel": 0.6,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 3,
+        "level": 0.7,
+        "attack": 10,
+        "decay": 0,
+        "sustainLevel": 1,
+        "sustainRate": 0,
+        "release": 5,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      }
+    ]
+  }
+}

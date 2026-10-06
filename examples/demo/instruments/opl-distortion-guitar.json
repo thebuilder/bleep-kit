@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "name": "Distortion guitar (feedback 7, palm-mute friendly)",
+  "kind": "fm",
+  "chip": "adlib",
+  "volume": 1,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.2,
+    "sustain": 1,
+    "release": 0.08
+  },
+  "fm": {
+    "algorithm": 0,
+    "feedback": 7,
+    "lfo": null,
+    "ops": [
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.5,
+        "attack": 31,
+        "decay": 14,
+        "sustainLevel": 0.45,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 1,
+        "attack": 31,
+        "decay": 4,
+        "sustainLevel": 0.8,
+        "sustainRate": 1,
+        "release": 9,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      }
+    ]
+  }
+}

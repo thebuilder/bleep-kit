@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "name": "Select (crisp pulse blip)",
+  "category": "blip",
+  "chip": "nes",
+  "seed": 32,
+  "wave": "square",
+  "volume": 0.5,
+  "frequency": {
+    "start": 1318.5,
+    "min": 0,
+    "slide": 0,
+    "deltaSlide": 0
+  },
+  "vibrato": {
+    "depth": 0,
+    "rate": 0
+  },
+  "arpeggio": {
+    "steps": [
+      0,
+      12
+    ],
+    "rate": 30
+  },
+  "envelope": {
+    "attack": 0,
+    "sustain": 0.04,
+    "punch": 0.3,
+    "decay": 0.05
+  },
+  "duty": {
+    "start": 0.25,
+    "sweep": 0
+  },
+  "repeat": {
+    "rate": 0
+  },
+  "phaser": {
+    "offset": 0,
+    "sweep": 0
+  },
+  "filter": {
+    "lowpass": null,
+    "lowpassSweep": 0,
+    "resonance": 0,
+    "highpass": null,
+    "highpassSweep": 0
+  },
+  "bitcrush": {
+    "bits": null,
+    "rateDivide": 1
+  },
+  "noise": {
+    "mode": "long"
+  },
+  "fm": null,
+  "table": null
+}

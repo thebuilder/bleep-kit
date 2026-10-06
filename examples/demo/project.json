@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "name": "Bleepkit Demo",
+  "chip": "genesis",
+  "sampleRate": 48000,
+  "seed": 1,
+  "master": {
+    "volume": 1.0,
+    "limiter": true
+  },
+  "export": {
+    "dir": "export",
+    "manifest": "export/audio.ts",
+    "baseUrl": "/audio/",
+    "sfxFormat": "ogg",
+    "musicFormat": "ogg",
+    "oggQuality": 3.5,
+    "mp3Bitrate": 160,
+    "events": false,
+    "embed": false
+  }
+}

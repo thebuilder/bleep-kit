@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "name": "Growl bass (feedback 4)",
+  "kind": "fm",
+  "chip": "adlib",
+  "volume": 0.9,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.2,
+    "sustain": 1,
+    "release": 0.06
+  },
+  "fm": {
+    "algorithm": 0,
+    "feedback": 4,
+    "lfo": null,
+    "ops": [
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.38,
+        "attack": 31,
+        "decay": 10,
+        "sustainLevel": 0.4,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 1,
+        "attack": 31,
+        "decay": 6,
+        "sustainLevel": 0.85,
+        "sustainRate": 0,
+        "release": 9,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      }
+    ]
+  }
+}

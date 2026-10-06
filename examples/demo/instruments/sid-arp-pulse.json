@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "name": "Arp pulse (thin, for chord arp effects)",
+  "kind": "sid",
+  "chip": "c64",
+  "volume": 0.5,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.1,
+    "sustain": 0.7,
+    "release": 0.02
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        0.9,
+        0.8,
+        0.7,
+        0.65,
+        0.6
+      ],
+      "loop": -1,
+      "release": -1
+    }
+  },
+  "sid": {
+    "waveforms": [
+      "pulse"
+    ],
+    "pulseWidth": 0.3,
+    "pwmRate": 3,
+    "pwmDepth": 0.25,
+    "ring": false,
+    "sync": false,
+    "filter": {
+      "mode": "off",
+      "cutoff": 0.5,
+      "resonance": 0,
+      "sweep": 0
+    }
+  }
+}

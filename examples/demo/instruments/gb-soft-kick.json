@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "name": "Noise soft kick",
+  "kind": "noise",
+  "chip": "gameboy",
+  "volume": 0.9,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.1,
+    "sustain": 1,
+    "release": 0.01
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        1,
+        0.8,
+        0.6,
+        0.4,
+        0.25,
+        0.12,
+        0
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggio": {
+      "values": [
+        48,
+        40,
+        34,
+        30,
+        27,
+        25
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggioMode": "fixed"
+  },
+  "noise": {
+    "mode": "long"
+  }
+}

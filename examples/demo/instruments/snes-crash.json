@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "Orchestral crash",
+  "kind": "sample",
+  "chip": "snes",
+  "volume": 0.7,
+  "sample": {
+    "generator": "crash",
+    "params": {
+      "decay": 2.6,
+      "tone": 0.55
+    },
+    "seed": 3,
+    "baseNote": 60,
+    "loop": false
+  },
+  "envelope": {
+    "attack": 0,
+    "decay": 1.5,
+    "sustain": 0.2,
+    "release": 1.5
+  },
+  "send": {
+    "echo": 0.2,
+    "reverb": 0.6
+  }
+}

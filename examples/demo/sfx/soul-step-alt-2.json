@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "name": "Footstep on stone (low thud) soul-step-alt-2",
+  "category": "step",
+  "chip": "snes",
+  "seed": 41,
+  "wave": "noise",
+  "volume": 0.606,
+  "frequency": {
+    "start": 300,
+    "min": 0,
+    "slide": -0.5,
+    "deltaSlide": -1.113
+  },
+  "vibrato": {
+    "depth": 0,
+    "rate": 0
+  },
+  "arpeggio": {
+    "steps": [],
+    "rate": 0
+  },
+  "envelope": {
+    "attack": 0,
+    "sustain": 0.01,
+    "punch": 0.604,
+    "decay": 0.11
+  },
+  "duty": {
+    "start": 0.5,
+    "sweep": 0
+  },
+  "repeat": {
+    "rate": 0
+  },
+  "phaser": {
+    "offset": 0,
+    "sweep": 0
+  },
+  "filter": {
+    "lowpass": 976.65,
+    "lowpassSweep": -2,
+    "resonance": 0.007,
+    "highpass": 60,
+    "highpassSweep": 0
+  },
+  "bitcrush": {
+    "bits": null,
+    "rateDivide": 1
+  },
+  "noise": {
+    "mode": "long"
+  },
+  "fm": null,
+  "table": null
+}

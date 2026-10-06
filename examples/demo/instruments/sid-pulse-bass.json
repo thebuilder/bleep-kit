@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "Pulse bass (narrow, filter pluck)",
+  "kind": "sid",
+  "chip": "c64",
+  "volume": 0.8,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.12,
+    "sustain": 0.8,
+    "release": 0.04
+  },
+  "sid": {
+    "waveforms": [
+      "pulse"
+    ],
+    "pulseWidth": 0.22,
+    "pwmRate": 0.8,
+    "pwmDepth": 0.15,
+    "ring": false,
+    "sync": false,
+    "filter": {
+      "mode": "lp",
+      "cutoff": 0.34,
+      "resonance": 0.5,
+      "sweep": 0.02
+    }
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "rowsPerBeat": 4,
+  "tickRate": 60,
+  "patterns": {},
+  "order": [],
+  "loop": null,
+  "name": "Space Cruise (Genesis FM, D dorian, 72 BPM)",
+  "chip": "genesis",
+  "tempo": 72,
+  "channels": [
+    {
+      "volume": 0.416,
+      "pan": -0.6,
+      "muted": false,
+      "id": "fm1",
+      "kind": "fm",
+      "instrument": "fm-warm-pad",
+      "mml": "v12 p4 n50 1 n46 1 n50 1 n52 1 L n50 1 & n50 1 n46 1 & n46 1 n53 1 n55 1 & n55 1 n57 1 n46 1 n55 1 n50 1 n52 1"
+    },
+    {
+      "volume": 0.413,
+      "pan": 0.6,
+      "muted": false,
+      "id": "fm2",
+      "kind": "fm",
+      "instrument": "fm-warm-pad",
+      "mml": "v12 p11 n64 1 n57 1 n64 1 n62 1 L n64 1 & n64 1 n57 1 & n57 1 n60 1 n62 1 & n62 1 n64 1 n57 1 n64 1 n64 1 n62 1"
+    },
+    {
+      "volume": 1,
+      "pan": -0.4,
+      "muted": false,
+      "id": "fm3",
+      "kind": "fm",
+      "instrument": "fm-glass-bell",
+      "mml": "v11 p5 n57 16 r16 n64 16 r16 n69 16 r16 n69 16 r16 n64 16 r16 n69 16 r16 n69 16 r16 n64 16 r16 n53 16 r16 n62 16 r16 n65 16 r16 n65 16 r16 n62 16 r16 n65 16 r16 n65 16 r16 n62 16 r16 n57 16 r16 n64 16 r16 n69 16 r16 n69 16 r16 n64 16 r16 n69 16 r16 n69 16 r16 n64 16 r16 n74 16 n67 16 n69 16 n64 16 n67 16 n62 16 n64 16 n57 16 n62 16 n64 16 n67 16 n69 16 n67 16 n74 16 n69 16 n67 16 L n57 16 n64 16 n69 16 n72 16 n69 16 n64 16 n60 16 n65 16 n72 16 n69 16 n65 16 n64 16 n69 16 n60 16 n57 16 n64 16 n57 16 n60 16 n64 16 n65 16 n69 16 n72 16 n69 16 n65 16 n64 16 n65 16 n69 16 n72 16 n69 16 n65 16 n64 16 n60 16 n53 16 n62 16 n65 16 n69 16 n65 16 n62 16 n57 16 n64 16 n69 16 n65 16 n64 16 n62 16 n65 16 n57 16 n53 16 n62 16 n53 16 n57 16 n62 16 n64 16 n65 16 n69 16 n65 16 n64 16 n62 16 n64 16 n65 16 n69 16 n65 16 n64 16 n62 16 n57 16 n72 16 n65 16 n69 16 n64 16 n65 16 n60 16 n64 16 n57 16 n60 16 n64 16 n65 16 n69 16 n65 16 n72 16 n69 16 n65 16 n58 16 n65 16 n70 16 n74 16 n70 16 n65 16 n62 16 n69 16 n74 16 n70 16 n69 16 n65 16 n70 16 n62 16 n58 16 n65 16 n74 16 n69 16 n70 16 n65 16 n69 16 n62 16 n65 16 n58 16 n62 16 n65 16 n69 16 n70 16 n69 16 n74 16 n70 16 n69 16 n60 16 n67 16 n72 16 n76 16 n72 16 n67 16 n64 16 n69 16 n76 16 n72 16 n69 16 n67 16 n72 16 n64 16 n60 16 n67 16 n53 16 n57 16 n62 16 n64 16 n65 16 n69 16 n65 16 n64 16 n62 16 n64 16 n65 16 n69 16 n65 16 n64 16 n62 16 n57 16 n72 16 n67 16 n69 16 n64 16 n67 16 n62 16 n64 16 n55 16 n62 16 n64 16 n67 16 n69 16 n67 16 n72 16 n69 16 n67 16 n57 16 n60 16 n64 16 n65 16 n69 16 n72 16 n69 16 n65 16 n64 16 n65 16 n69 16 n72 16 n69 16 n65 16 n64 16 n60 16 n74 16 n67 16 n69 16 n64 16 n67 16 n62 16 n64 16 n57 16 n62 16 n64 16 n67 16 n69 16 n67 16 n74 16 n69 16 n67 16"
+    },
+    {
+      "volume": 0.766,
+      "pan": 0.5,
+      "muted": false,
+      "id": "fm6",
+      "kind": "fm",
+      "instrument": "fm-glass-bell",
+      "mml": "v7 p12 r16 r16 r16 n57 16 r16 n64 16 r16 n69 16 r16 n69 16 r16 n64 16 r16 n69 16 r16 n69 16 r16 n64 16 r16 n53 16 r16 n62 16 r16 n65 16 r16 n65 16 r16 n62 16 r16 n65 16 r16 n65 16 r16 n62 16 r16 n57 16 r16 n64 16 r16 n69 16 r16 n69 16 r16 n64 16 r16 n69 16 r16 n69 16 r16 n64 16 r16 n74 16 n67 16 n69 16 n64 16 n67 16 n62 16 n64 16 n57 16 n62 16 n64 16 n67 16 n69 16 n67 16 L n74 16 n69 16 n67 16 n57 16 n64 16 n69 16 n72 16 n69 16 n64 16 n60 16 n65 16 n72 16 n69 16 n65 16 n64 16 n69 16 n60 16 n57 16 n64 16 n57 16 n60 16 n64 16 n65 16 n69 16 n72 16 n69 16 n65 16 n64 16 n65 16 n69 16 n72 16 n69 16 n65 16 n64 16 n60 16 n53 16 n62 16 n65 16 n69 16 n65 16 n62 16 n57 16 n64 16 n69 16 n65 16 n64 16 n62 16 n65 16 n57 16 n53 16 n62 16 n53 16 n57 16 n62 16 n64 16 n65 16 n69 16 n65 16 n64 16 n62 16 n64 16 n65 16 n69 16 n65 16 n64 16 n62 16 n57 16 n72 16 n65 16 n69 16 n64 16 n65 16 n60 16 n64 16 n57 16 n60 16 n64 16 n65 16 n69 16 n65 16 n72 16 n69 16 n65 16 n58 16 n65 16 n70 16 n74 16 n70 16 n65 16 n62 16 n69 16 n74 16 n70 16 n69 16 n65 16 n70 16 n62 16 n58 16 n65 16 n74 16 n69 16 n70 16 n65 16 n69 16 n62 16 n65 16 n58 16 n62 16 n65 16 n69 16 n70 16 n69 16 n74 16 n70 16 n69 16 n60 16 n67 16 n72 16 n76 16 n72 16 n67 16 n64 16 n69 16 n76 16 n72 16 n69 16 n67 16 n72 16 n64 16 n60 16 n67 16 n53 16 n57 16 n62 16 n64 16 n65 16 n69 16 n65 16 n64 16 n62 16 n64 16 n65 16 n69 16 n65 16 n64 16 n62 16 n57 16 n72 16 n67 16 n69 16 n64 16 n67 16 n62 16 n64 16 n55 16 n62 16 n64 16 n67 16 n69 16 n67 16 n72 16 n69 16 n67 16 n57 16 n60 16 n64 16 n65 16 n69 16 n72 16 n69 16 n65 16 n64 16 n65 16 n69 16 n72 16 n69 16 n65 16 n64 16 n60 16 n74 16 n67 16 n69 16 n64 16 n67 16 n62 16 n64 16 n57 16 n62 16 n64 16 n67 16 n69 16 n67 16"
+    },
+    {
+      "volume": 0.845,
+      "pan": 0,
+      "muted": false,
+      "id": "fm4",
+      "kind": "fm",
+      "instrument": "fm-deep-bass",
+      "mml": "v13 n38 1 n34 1 n38 1 n45 4 r8 n45 8 n52 4 n57 4 L n38 2& n38 4 n50 4 n38 1 n34 4 r8 n34 8 n41 4 n46 4 n34 2& n34 4 n46 4 n41 1 n43 2& n43 4 n55 4 n43 4 r8 n43 8 n50 4 n55 4 n45 1 n34 2& n34 4 n46 4 n36 4 r8 n36 8 n43 4 n48 4 n38 1 n45 4 r8 n45 8 n52 4 n57 4"
+    },
+    {
+      "volume": 0.695,
+      "pan": 0,
+      "muted": false,
+      "id": "fm5",
+      "kind": "fm",
+      "instrument": "fm-breath-lead",
+      "mml": "v12 r1 | r1 | r1 | o5 g2 e2 L o4 a2 >e2 | o5 f2. e4 | o5 d2. f4 | o5 e1 | o5 c4 f4 a4 >c4 | <b-2 a2 | o5 g2. d4 | o5 e4 g4 a2 | o5 a2. >d4 | o6 e2 d2 | o6 c2. <a4 | o5 g2 e2"
+    },
+    {
+      "volume": 0.75,
+      "pan": 0,
+      "muted": false,
+      "id": "psg1",
+      "kind": "pulse",
+      "instrument": "psg-twinkle",
+      "mml": "v8 n84 16 r16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 n84 16 r16 r16 r16 r16 r16 r16 n77 16 r16 r16 r16 r16 n76 16 r16 r16 r16 r16 r16 n81 16 r16 r16 n84 16 r16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 n84 16 r16 r16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 n79 16 r16 r16 r16 r16 r16 n86 16 r16 r16 L n84 16 r16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 n84 16 r16 r16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 n77 16 r16 r16 r16 r16 r16 n84 16 r16 r16 n81 16 r16 r16 r16 r16 r16 n77 16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 r16 r16 n77 16 r16 r16 r16 r16 n76 16 r16 r16 r16 r16 r16 n81 16 r16 r16 n84 16 r16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 n84 16 r16 r16 r16 r16 r16 r16 n82 16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 r16 n86 16 r16 r16 n86 16 r16 r16 r16 r16 r16 n82 16 r16 r16 r16 r16 n86 16 r16 r16 r16 r16 r16 r16 n84 16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 r16 n88 16 r16 r16 n81 16 r16 r16 r16 r16 r16 n77 16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 n79 16 r16 r16 r16 r16 r16 n84 16 r16 r16 n84 16 r16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 n84 16 r16 r16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 n79 16 r16 r16 r16 r16 r16 n86 16 r16 r16"
+    },
+    {
+      "volume": 0.853,
+      "pan": 0,
+      "muted": false,
+      "id": "psg2",
+      "kind": "pulse",
+      "instrument": "psg-twinkle",
+      "mml": "v7 r1 r1 r1 r1 L r1 r1 r1 r1 r1 r1 r1 r1 r16 r16 n77 16 r16 r16 r16 r16 n76 16 r16 r16 r16 r16 r16 n81 16 r16 r16 n84 16 r16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 n84 16 r16 r16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 n77 16 r16 r16 r16 r16 r16 n84 16 r16 r16 n86 16 r16 r16 r16 r16 r16 n81 16 r16 r16 r16 r16 n86 16 r16 r16 r16 r16"
+    },
+    {
+      "volume": 0.499,
+      "pan": 0,
+      "muted": false,
+      "id": "psg3",
+      "kind": "pulse",
+      "instrument": "psg-kick",
+      "mml": "v12 n36 4 r4 r4 r4 n36 4 r4 n36 8 r8 r4 n36 4 r4 r4 r4 n36 4 r4 n36 8 r8 r4 L n36 4 r4 r4 r4 n36 4 r4 n36 8 r8 r4 n36 4 r4 r4 r4 n36 4 r4 n36 8 r8 r4 n36 4 r4 r4 r4 n36 4 r4 n36 8 r8 r4 n36 4 r4 r4 r4 n36 4 r4 n36 8 r8 r4 n36 4 r4 r4 r4 n36 4 r4 n36 8 r8 r4 n36 4 r4 r4 r4 n36 4 r4 n36 8 r8 r4"
+    },
+    {
+      "volume": 0.459,
+      "pan": 0,
+      "muted": false,
+      "id": "psgNoise",
+      "kind": "noise",
+      "instrument": "psg-hat",
+      "mml": "v10 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 L r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 r16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16 @psg-clap o2 c16 r16 r16 r16 @psg-hat o2 c16 r16 r16 r16"
+    }
+  ],
+  "master": {
+    "volume": 1,
+    "echo": null,
+    "reverb": null
+  }
+}

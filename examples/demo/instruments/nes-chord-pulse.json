@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "name": "Chord pulse (50% duty, for arp effects)",
+  "kind": "pulse",
+  "chip": "nes",
+  "volume": 1,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.15,
+    "sustain": 0.7,
+    "release": 0.04
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        1,
+        0.9,
+        0.8,
+        0.7
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "duty": {
+      "values": [
+        1,
+        1,
+        2,
+        2
+      ],
+      "loop": 2,
+      "release": -1
+    }
+  },
+  "pulse": {
+    "duty": 0.5
+  }
+}

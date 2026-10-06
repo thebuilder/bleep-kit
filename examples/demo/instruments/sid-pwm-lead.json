@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "name": "PWM lead (pulse width wobble, late vibrato)",
+  "kind": "sid",
+  "chip": "c64",
+  "volume": 0.7,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.15,
+    "sustain": 0.85,
+    "release": 0.05
+  },
+  "macros": {
+    "pitch": {
+      "values": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        4,
+        4,
+        4,
+        4,
+        -4,
+        -4,
+        -4,
+        -4,
+        -4,
+        -4,
+        -4,
+        -4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "loop": 14,
+      "release": -1
+    }
+  },
+  "sid": {
+    "waveforms": [
+      "pulse"
+    ],
+    "pulseWidth": 0.5,
+    "pwmRate": 2.2,
+    "pwmDepth": 0.4,
+    "ring": false,
+    "sync": false,
+    "filter": {
+      "mode": "off",
+      "cutoff": 0.5,
+      "resonance": 0,
+      "sweep": 0
+    }
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "name": "FM kick (pitch drop)",
+  "kind": "fm",
+  "chip": "adlib",
+  "volume": 1,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.1,
+    "sustain": 1,
+    "release": 0.03
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        1,
+        0.95,
+        0.85,
+        0.7,
+        0.55,
+        0.4,
+        0.25,
+        0.1,
+        0
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggio": {
+      "values": [
+        66,
+        55,
+        48,
+        44,
+        41,
+        39,
+        38,
+        37,
+        36
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggioMode": "fixed"
+  },
+  "fm": {
+    "algorithm": 0,
+    "feedback": 2,
+    "lfo": null,
+    "ops": [
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.3,
+        "attack": 31,
+        "decay": 22,
+        "sustainLevel": 0,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 1,
+        "attack": 31,
+        "decay": 0,
+        "sustainLevel": 1,
+        "sustainRate": 0,
+        "release": 15,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      }
+    ]
+  }
+}

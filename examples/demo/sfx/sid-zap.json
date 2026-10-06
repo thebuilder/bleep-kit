@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "name": "SID zap (falling saw)",
+  "category": "zap",
+  "chip": "c64",
+  "seed": 61,
+  "wave": "saw",
+  "volume": 0.5,
+  "frequency": {
+    "start": 2200,
+    "min": 0,
+    "slide": -5,
+    "deltaSlide": 3
+  },
+  "vibrato": {
+    "depth": 0.4,
+    "rate": 28
+  },
+  "arpeggio": {
+    "steps": [],
+    "rate": 0
+  },
+  "envelope": {
+    "attack": 0,
+    "sustain": 0.02,
+    "punch": 0.4,
+    "decay": 0.2
+  },
+  "duty": {
+    "start": 0.5,
+    "sweep": 0
+  },
+  "repeat": {
+    "rate": 0
+  },
+  "phaser": {
+    "offset": 0,
+    "sweep": 0
+  },
+  "filter": {
+    "lowpass": 6000,
+    "lowpassSweep": -2,
+    "resonance": 0,
+    "highpass": null,
+    "highpassSweep": 0
+  },
+  "bitcrush": {
+    "bits": null,
+    "rateDivide": 1
+  },
+  "noise": {
+    "mode": "long"
+  },
+  "fm": null,
+  "table": null
+}

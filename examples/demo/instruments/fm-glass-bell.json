@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "name": "Glass bell arp (1:3 FM, fast brightness decay)",
+  "kind": "fm",
+  "chip": "genesis",
+  "volume": 1,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.2,
+    "sustain": 1,
+    "release": 0.2
+  },
+  "fm": {
+    "algorithm": 4,
+    "feedback": 0,
+    "lfo": null,
+    "ops": [
+      {
+        "mult": 3,
+        "detune": 0,
+        "level": 0.22,
+        "attack": 31,
+        "decay": 15,
+        "sustainLevel": 0.02,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.9,
+        "attack": 31,
+        "decay": 8,
+        "sustainLevel": 0.25,
+        "sustainRate": 5,
+        "release": 5,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.12,
+        "attack": 31,
+        "decay": 12,
+        "sustainLevel": 0.02,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 2,
+        "detune": 2,
+        "level": 0.45,
+        "attack": 31,
+        "decay": 9,
+        "sustainLevel": 0.15,
+        "sustainRate": 6,
+        "release": 5,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      }
+    ]
+  }
+}

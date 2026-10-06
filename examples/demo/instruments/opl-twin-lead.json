@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "name": "Harmony lead (softer, square-ish carrier)",
+  "kind": "fm",
+  "chip": "adlib",
+  "volume": 0.6,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.2,
+    "sustain": 1,
+    "release": 0.1
+  },
+  "fm": {
+    "algorithm": 0,
+    "feedback": 3,
+    "lfo": {
+      "rate": 5.5,
+      "pitchDepth": 14,
+      "ampDepth": 0
+    },
+    "ops": [
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.25,
+        "attack": 31,
+        "decay": 6,
+        "sustainLevel": 0.6,
+        "sustainRate": 0,
+        "release": 6,
+        "keyScale": 0,
+        "waveform": 0,
+        "fixedHz": null
+      },
+      {
+        "mult": 1,
+        "detune": 0,
+        "level": 0.9,
+        "attack": 29,
+        "decay": 0,
+        "sustainLevel": 1,
+        "sustainRate": 0,
+        "release": 7,
+        "keyScale": 0,
+        "waveform": 1,
+        "fixedHz": null
+      }
+    ]
+  }
+}

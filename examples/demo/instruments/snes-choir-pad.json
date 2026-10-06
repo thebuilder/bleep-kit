@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Choir pad (slow swell)",
+  "kind": "sample",
+  "chip": "snes",
+  "volume": 0.7,
+  "sample": {
+    "generator": "choir",
+    "params": {
+      "breath": 0.2,
+      "vibrato": 0.35,
+      "vowel": 0.15
+    },
+    "seed": 3,
+    "baseNote": 60,
+    "loop": true
+  },
+  "envelope": {
+    "attack": 0.6,
+    "decay": 0.3,
+    "sustain": 0.9,
+    "release": 0.8
+  },
+  "send": {
+    "echo": 0.35,
+    "reverb": 0.7
+  }
+}

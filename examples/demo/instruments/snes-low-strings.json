@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Low strings (staccato ostinato)",
+  "kind": "sample",
+  "chip": "snes",
+  "volume": 0.8,
+  "sample": {
+    "generator": "strings",
+    "params": {
+      "attack": 0,
+      "bright": 0.45,
+      "detune": 0.35
+    },
+    "seed": 3,
+    "baseNote": 48,
+    "loop": true
+  },
+  "envelope": {
+    "attack": 0.005,
+    "decay": 0.1,
+    "sustain": 0.8,
+    "release": 0.06
+  },
+  "send": {
+    "echo": 0.05,
+    "reverb": 0.25
+  }
+}

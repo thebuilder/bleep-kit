@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "name": "SID snare (noise burst)",
+  "kind": "sid",
+  "chip": "c64",
+  "volume": 0.7,
+  "envelope": {
+    "attack": 0,
+    "decay": 0.1,
+    "sustain": 1,
+    "release": 0.01
+  },
+  "macros": {
+    "volume": {
+      "values": [
+        1,
+        1,
+        0.8,
+        0.6,
+        0.45,
+        0.3,
+        0.2,
+        0.1,
+        0
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggio": {
+      "values": [
+        88,
+        84,
+        80,
+        76
+      ],
+      "loop": -1,
+      "release": -1
+    },
+    "arpeggioMode": "fixed"
+  },
+  "sid": {
+    "waveforms": [
+      "noise"
+    ],
+    "pulseWidth": 0.5,
+    "pwmRate": 0,
+    "pwmDepth": 0,
+    "ring": false,
+    "sync": false,
+    "filter": {
+      "mode": "off",
+      "cutoff": 0.5,
+      "resonance": 0,
+      "sweep": 0
+    }
+  }
+}
