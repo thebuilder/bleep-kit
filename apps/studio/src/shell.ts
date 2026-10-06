@@ -33,6 +33,7 @@ import {
 } from "./ui/pickers.ts";
 import { createSidebar } from "./ui/sidebar.ts";
 import { mountAnalysis } from "./views/analysis.ts";
+import { mountExamples } from "./views/examples.ts";
 import { mountInstrument } from "./views/instrument.ts";
 import { mountPads } from "./views/pads.ts";
 import { mountProject } from "./views/project.ts";
@@ -70,6 +71,7 @@ function titleOf(r: Route): string {
     [
       [r.view === "pads", "Pads"],
       [r.view === "project", "Project"],
+      [r.view === "examples", "Examples"],
       ["id" in r, "id" in r ? r.id : ""],
     ],
     "Analysis"
@@ -422,6 +424,13 @@ export async function boot(root: HTMLElement): Promise<void> {
       },
       {
         group: "Go",
+        icon: "headphones",
+        id: "examples",
+        run: () => app.navigate("#/examples"),
+        title: "Open examples",
+      },
+      {
+        group: "Go",
         icon: "chart",
         id: "analysis",
         keys: "Ctrl Shift A",
@@ -686,6 +695,9 @@ export async function boot(root: HTMLElement): Promise<void> {
         break;
       case "project":
         hooks = mountProject(ctx);
+        break;
+      case "examples":
+        hooks = mountExamples(ctx);
         break;
       default:
         hooks = mountPads(ctx);

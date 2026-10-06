@@ -42,6 +42,8 @@ describe("parseRoute and routeHash", () => {
     expect(parseRoute("#/analysis")).toEqual({ ref: "", view: "analysis" });
     expect(routeHash({ ref: "", view: "analysis" })).toBe("#/analysis");
     expect(parseRoute("#/project")).toEqual({ view: "project" });
+    expect(parseRoute("#/examples")).toEqual({ view: "examples" });
+    expect(routeHash({ view: "examples" })).toBe("#/examples");
     expect(parseRoute("#/project?export=1")).toEqual({
       export: true,
       view: "project",

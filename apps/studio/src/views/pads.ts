@@ -39,13 +39,16 @@ import {
 } from "../ui/fields.ts";
 import { icon } from "../ui/icons.ts";
 import { createSfx, pickCategory } from "../ui/pickers.ts";
-import { hexToRgb, rgba, surface } from "../visuals/canvas.ts";
 import { addVisual } from "../visuals/loop.ts";
+import {
+  createBurstLayer,
+  drawThumb,
+  THUMB_H,
+  THUMB_W,
+} from "../visuals/pad-fx.ts";
 import { peaks } from "../visuals/waveform.ts";
 
 const KEYS = "1234567890QWERTYUIOP";
-const THUMB_W = 48;
-const THUMB_H = 22;
 
 /** Pads are ordered by category (coin first), then id, so the first ten keys are the classics. */
 function orderedSfx(): Doc[] {
@@ -75,51 +78,6 @@ function padKeysHint(count: number): string {
   return `Tap a pad to play it. ${n === 1 ? "Key" : "Keys"} ${ranges} play${n === 1 ? "s" : ""} ${what}.`;
 }
 
-function drawThumb(
-  canvas: HTMLCanvasElement,
-  data: Float32Array | null,
-  color: string
-): void {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    return;
-  }
-  ctx.clearRect(0, 0, THUMB_W, THUMB_H);
-  const mid = THUMB_H / 2;
-  ctx.fillStyle = rgba(color, 0.22);
-  ctx.fillRect(0, Math.floor(mid), THUMB_W, 1);
-  if (!data) {
-    return;
-  }
-  for (let x = 0; x < THUMB_W; x += 1) {
-    const lo = data[x * 2] ?? 0;
-    const hi = data[x * 2 + 1] ?? 0;
-    const top = Math.round(mid - Math.min(1, hi * 1.6) * (mid - 1));
-    const bot = Math.round(mid - Math.max(-1, lo * 1.6) * (mid - 1));
-    ctx.fillStyle = color;
-    ctx.fillRect(x, top, 1, Math.max(1, bot - top));
-    ctx.fillStyle = "rgba(255,255,255,0.35)";
-    ctx.fillRect(x, top, 1, 1);
-  }
-}
-
-interface Burst {
-  at: number;
-  big: boolean;
-  color: string;
-  rect: { x: number; y: number; w: number; h: number };
-  seed: number;
-}
-const BURST_MS = 380;
-
-/** The playhead that sweeps across a pad's waveform thumbnail while its sound plays. */
-interface Sweep {
-  at: number;
-  color: string;
-  ms: number;
-  rect: { x: number; y: number; w: number; h: number };
-}
-
 export function mountPads(ctx: ViewCtx): ViewHooks {
   const { host, insp } = ctx;
   host.innerHTML = `
@@ -133,7 +91,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
   const grid = host.querySelector("#padGrid") as HTMLElement;
   const wrap = host.querySelector("#padsWrap") as HTMLElement;
   const burstCanvas = host.querySelector("#padBursts") as HTMLCanvasElement;
-  const burstSurface = surface(burstCanvas);
+  const fx = createBurstLayer(wrap, burstCanvas);
   const padEls = new Map<string, HTMLElement>();
   const targets = new Map<string, HTMLElement>();
   const thumbs = new Map<string, number>();
@@ -145,9 +103,6 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
     variants: Sfx[];
     el: HTMLElement;
   } | null = null;
-  const bursts: Burst[] = [];
-  const sweeps: Sweep[] = [];
-  const litUntil = new Map<string, number>();
 
   /** The tile's length label: what the last render measured, blank until there is one. */
   function setLength(tile: HTMLElement, sfx: Sfx): void {
@@ -209,11 +164,10 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
     el.classList.remove("hit");
     reflow(el);
     el.classList.add("hit");
-    litUntil.set(
-      doc.id,
+    fx.light(
+      el,
       performance.now() + Math.max(160, playLength(doc.value as Sfx) * 1000)
     );
-    el.classList.add("lit");
   }
 
   function randomize(doc: Doc): void {
@@ -470,50 +424,29 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
   });
 
   /* ----- visuals: bursts and pad lighting ----- */
-  const rectIn = (el: Element, wr: DOMRect) => {
-    const r = el.getBoundingClientRect();
-    return { h: r.height, w: r.width, x: r.left - wr.left, y: r.top - wr.top };
-  };
-
   /** Without the burst (reduced motion, or the pad is off screen) the pad just lights for a moment. */
   function lightPad(id: string, now: number): void {
     const pe = padEls.get(id);
     if (pe && id) {
-      litUntil.set(id, now + 200);
-      pe.classList.add("lit");
+      fx.light(pe, now + 200);
     }
   }
 
   /** A burst around the pad and a sweep across its thumbnail as long as the sound plays; the pad stays lit that long. */
   function launch(id: string, el: HTMLElement, now: number): void {
-    const wr = wrap.getBoundingClientRect();
     const sfx = project.get<Sfx>("sfx", id)?.value;
     const color = sfx ? colorsOf(sfx).color : "#f3b24a";
-    bursts.push({
-      at: now,
-      big: sfx?.category === "explosion",
-      color,
-      rect: rectIn(el, wr),
-      seed: Math.floor(now) % 97,
-    });
+    fx.burst(el, color, sfx?.category === "explosion", now);
     const thumb = el.querySelector(".thumb");
     if (thumb && sfx) {
-      sweeps.push({
-        at: now,
-        color,
-        ms: Math.max(120, playLength(sfx) * 1000),
-        rect: rectIn(thumb, wr),
-      });
+      fx.sweep(thumb, color, Math.max(120, playLength(sfx) * 1000), now);
     }
     const pe = padEls.get(id);
     if (pe) {
       pe.classList.remove("hit");
       reflow(pe);
-      pe.classList.add("hit", "lit");
-      litUntil.set(
-        id,
-        now + Math.max(160, (sfx ? playLength(sfx) : 0.2) * 1000)
-      );
+      pe.classList.add("hit");
+      fx.light(pe, now + Math.max(160, (sfx ? playLength(sfx) : 0.2) * 1000));
     }
   }
 
@@ -529,83 +462,8 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
         lightPad(e.id, f.time);
       }
     }
-    for (const [id, until] of litUntil) {
-      if (f.time > until) {
-        padEls.get(id)?.classList.remove("lit");
-        litUntil.delete(id);
-      }
-    }
-    drawBursts(f.time);
+    fx.draw(f.time);
   });
-
-  function drawBursts(now: number): void {
-    const { ctx: c } = burstSurface;
-    if (wrap.scrollHeight !== burstCanvas.clientHeight) {
-      burstCanvas.style.height = `${wrap.scrollHeight}px`;
-      burstSurface.fit();
-    }
-    c.clearRect(0, 0, burstSurface.w, burstSurface.h);
-    for (let i = sweeps.length - 1; i >= 0; i -= 1) {
-      const sw = sweeps[i] as Sweep;
-      const p = (now - sw.at) / sw.ms;
-      if (p > 1) {
-        sweeps.splice(i, 1);
-        continue;
-      }
-      // the part already played brightens, a hard 2 px playhead leads it
-      const x = Math.round(sw.rect.x + p * sw.rect.w);
-      c.fillStyle = "rgba(255,255,255,0.16)";
-      c.fillRect(sw.rect.x, sw.rect.y, x - sw.rect.x, sw.rect.h);
-      c.fillStyle = rgba(sw.color, 0.35);
-      c.fillRect(x - 4, sw.rect.y, 4, sw.rect.h);
-      c.fillStyle = "#fff";
-      c.fillRect(x - 1, sw.rect.y - 2, 2, sw.rect.h + 4);
-    }
-    for (let i = bursts.length - 1; i >= 0; i -= 1) {
-      const b = bursts[i] as Burst;
-      const age = now - b.at;
-      if (age > BURST_MS) {
-        bursts.splice(i, 1);
-        continue;
-      }
-      const t = age / BURST_MS;
-      const cx = b.rect.x + b.rect.w / 2;
-      const cy = b.rect.y + b.rect.h / 2;
-      // a flash of the whole pad, then rings leaving it
-      if (t < 0.4) {
-        c.fillStyle = rgba(b.color, (1 - t / 0.4) ** 2 * 0.35);
-        c.fillRect(b.rect.x, b.rect.y, b.rect.w, b.rect.h);
-      }
-      const ring = (grow: number, alpha: number, thick: number) => {
-        const half = (b.rect.w / 2) * (0.55 + t * grow);
-        const step = 4;
-        const sx = Math.round((cx - half) / step) * step;
-        const sy = Math.round((cy - half) / step) * step;
-        const size = Math.round((half * 2) / step) * step;
-        c.fillStyle = rgba(b.color, alpha);
-        c.fillRect(sx, sy, size, thick);
-        c.fillRect(sx, sy + size - thick, size, thick);
-        c.fillRect(sx, sy, thick, size);
-        c.fillRect(sx + size - thick, sy, thick, size);
-      };
-      ring(1.1, (1 - t) * 1, t < 0.5 ? 6 : 3);
-      if (t > 0.12) {
-        ring(0.85, (1 - t) * 0.5, 3);
-      }
-      // pixel particles
-      const n = b.big ? 18 : 12;
-      const [r, g, bl] = hexToRgb(b.color);
-      for (let k = 0; k < n; k += 1) {
-        const ang = ((k + (b.seed % 5) * 0.13) / n) * Math.PI * 2;
-        const dist = (b.rect.w * 0.3 + (k % 3) * 10) * (0.5 + t * 1.7);
-        const px = Math.round((cx + Math.cos(ang) * dist) / 3) * 3;
-        const py = Math.round((cy + Math.sin(ang) * dist + t * t * 22) / 3) * 3;
-        c.fillStyle = `rgba(${r},${g},${bl},${Math.min(1, (1 - t) * 1.3)})`;
-        const sz = k % 2 ? 4 : 8;
-        c.fillRect(px, py, sz, sz);
-      }
-    }
-  }
 
   /* ----- inspector ----- */
   function renderInspector(): void {
@@ -791,9 +649,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
     unsub();
     refreshAllThumbs.cancel();
     removeEventListener("resize", onResize);
-    burstSurface.dispose();
-    bursts.length = 0;
-    sweeps.length = 0;
+    fx.dispose();
   });
   ctx.setChip(project.project.chip);
 

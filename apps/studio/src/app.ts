@@ -11,6 +11,7 @@ export type Route =
   | { view: "song"; id: string }
   | { view: "instrument"; id: string }
   | { view: "analysis"; ref: string }
+  | { view: "examples" }
   | { view: "project"; export?: boolean };
 
 export function parseRoute(hash: string): Route {
@@ -35,6 +36,9 @@ export function parseRoute(hash: string): Route {
     const ref = [a, b].filter(Boolean).join("/");
     return { ref, view: "analysis" };
   }
+  if (v === "examples") {
+    return { view: "examples" };
+  }
   if (v === "project") {
     return new URLSearchParams(query).get("export")
       ? { export: true, view: "project" }
@@ -53,6 +57,8 @@ export function routeHash(r: Route): string {
       return r.ref ? `#/analysis/${r.ref}` : "#/analysis";
     case "project":
       return "#/project";
+    case "examples":
+      return "#/examples";
     default:
       return "#/pads";
   }

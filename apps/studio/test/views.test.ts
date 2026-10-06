@@ -2764,3 +2764,116 @@ describe("the project view", () => {
     expect(toast()).toBe("Back to the starter kit");
   });
 });
+
+describe("the examples view", () => {
+  const card = (id: string) =>
+    document.querySelector<HTMLElement>(
+      `.xcard[data-id="${id}"]`
+    ) as HTMLElement;
+  const tile = (id: string) =>
+    document.querySelector<HTMLElement>(
+      `.xpad[data-id="${id}"]`
+    ) as HTMLElement;
+  const goExamples = () =>
+    go("#/examples", () => document.querySelectorAll(".xcard").length > 0);
+  // the 22 thumbnails are rendered on the main thread here (no Worker); they are not what these tests are about
+  let thumbs: { mockRestore: () => void };
+  beforeAll(async () => {
+    const renders = await import("../src/render-service.ts");
+    thumbs = vi.spyOn(renders, "renderSfxAsync").mockResolvedValue({
+      channels: [new Float32Array(64)],
+      frames: 64,
+      sampleRate: 22_050,
+    } as never);
+  });
+  // the fake engine renders a whole song when it is told to play it (38 s of audio): that message is recorded only
+  const node = () =>
+    engineMod.engine.node as { send: (m: { type: string }) => void };
+  let send: (m: { type: string }) => void;
+  beforeAll(() => {
+    ({ send } = node());
+    node().send = (m) => {
+      if (m.type === "play") {
+        sent.push(m as never);
+      } else {
+        send(m);
+      }
+    };
+  });
+  afterAll(() => {
+    thumbs.mockRestore();
+    node().send = send;
+  });
+
+  it("lists the demo songs and sounds, and plays one through the engine without touching the project", async () => {
+    await goExamples();
+    expect(document.querySelectorAll(".xcard")).toHaveLength(6);
+    expect(document.querySelectorAll(".xpad")).toHaveLength(22);
+    expect(card("grid-battle").textContent).toContain("150 bpm");
+    expect(document.querySelector(".nav a.cur")?.textContent).toContain(
+      "Examples"
+    );
+    const docs = project().docs.size;
+    const mark = sent.length;
+    press(card("grid-battle").querySelector("[data-act=play]"));
+    pointerDown(tile("dungeon-shotgun"));
+    const loaded = sentSince(mark, "loadSong");
+    expect(loaded).toHaveLength(1);
+    const [first] = loaded;
+    expect((first?.song as Song | undefined)?.name).toContain("Grid Battle");
+    expect(sentSince(mark, "play")).toHaveLength(1);
+    expect(triggers(mark)).toEqual(["example:dungeon-shotgun"]);
+    expect(uploaded(mark, "example:dungeon-shotgun")?.category).toBe(
+      "explosion"
+    );
+    expect(project().docs.size).toBe(docs);
+    press(card("grid-battle").querySelector("[data-act=play]"));
+    expect(sentSince(mark, "stop")).toHaveLength(1);
+  });
+
+  it("adds a song with the instruments it uses, opens it in the song editor and remaps a clashing instrument id", async () => {
+    await goExamples();
+    // the starter kit has an snes-bass of its own
+    const own = JSON.stringify(instValue("snes-bass"));
+    press(card("boss-hall").querySelector("[data-act=add]"));
+    expect(await until(() => appMod.app.route.view === "song", 6000)).toBe(
+      true
+    );
+    expect(appMod.app.route).toEqual({ id: "boss-hall", view: "song" });
+    expect(
+      await until(() => document.querySelectorAll(".trow").length >= 8, 6000)
+    ).toBe(true);
+    expect(JSON.stringify(instValue("snes-bass"))).toBe(own);
+    expect(instValue("snes-bass-2")).toBeDefined();
+    expect(
+      songValue("boss-hall").channels.some(
+        (c) => c.instrument === "snes-bass-2"
+      )
+    ).toBe(true);
+    expect(toast()).toContain("Added boss-hall");
+  });
+
+  it("adds a sound effect and the whole demo", async () => {
+    await goExamples();
+    press(tile("sid-zap").querySelector("[data-act=add]"));
+    expect(
+      await until(() => project().get("sfx", "sid-zap") !== undefined)
+    ).toBe(true);
+    expect(location.hash).toBe("#/examples");
+    press(document.getElementById("exAll"));
+    expect(
+      await until(
+        () => project().get("song", "dungeon-march") !== undefined,
+        6000
+      )
+    ).toBe(true);
+    expect(
+      await until(() => project().get("sfx", "sid-zap-2") !== undefined, 6000)
+    ).toBe(true);
+    expect(
+      project()
+        .list("song")
+        .map((d) => d.id)
+    ).toContain("space-cruise");
+  });
+});

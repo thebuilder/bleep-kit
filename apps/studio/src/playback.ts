@@ -32,6 +32,25 @@ export function loadSongDoc(doc: Doc): readonly string[] {
   return ids;
 }
 
+/**
+ * Play a song that is not a project document (an example) with the instruments it brings. `id` names it for the engine
+ * (`engine.hasSong(id)`); it must not collide with a document id. The project is not touched.
+ */
+export function playSongValue(
+  id: string,
+  song: Song,
+  instruments: Record<string, Instrument>
+): void {
+  unlockAudio();
+  engine.loadSong(
+    song,
+    instruments,
+    chipChannels(song).map((c) => c.id),
+    id
+  );
+  engine.playSong({});
+}
+
 export function playSongDoc(
   doc: Doc,
   from?: { order?: number; row?: number }

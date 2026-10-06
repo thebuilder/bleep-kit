@@ -701,9 +701,10 @@
       left: 8px;
       color: var(--muted);
     }
+    /* five entries: Pads, Analysis and Project on one row, Examples and Find (side by side, wider) under them */
     .nav {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(6, 1fr);
       gap: 4px;
     }
     .nav a {
@@ -720,6 +721,16 @@
       text-decoration: none;
       background: transparent;
       border: 1px solid transparent;
+    }
+    .nav a {
+      grid-column: span 2;
+    }
+    .nav a:nth-child(n + 4) {
+      flex-direction: row;
+      grid-column: span 3;
+      gap: 8px;
+      justify-content: center;
+      padding: 7px 2px 6px;
     }
     .nav a:hover {
       color: var(--fg);
@@ -1759,6 +1770,179 @@
       color: var(--fg);
       border-color: var(--accent);
       box-shadow: 0 0 22px rgba(243, 178, 74, 0.25);
+    }
+    /* ================= examples ================= */
+    .ex-head-r {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .ex-sec {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .ex-h {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2px 14px;
+      align-items: baseline;
+      padding: 0 2px 6px;
+      margin: 0;
+      font-weight: 400;
+      border-bottom: 1px solid var(--line);
+    }
+    .ex-h .muted {
+      font-size: 12px;
+    }
+    .ex-view .pads-head .muted {
+      max-width: 64ch;
+    }
+    .ex-set-t {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      color: var(--accent);
+    }
+    .ex-set-t .pxh {
+      color: var(--fg);
+    }
+    .ex-songs {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+    }
+    .xcard {
+      --kc: var(--muted);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+      padding: 12px 14px;
+      cursor: default;
+      background:
+        linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--kc) 20%, transparent),
+          transparent 70%
+        ),
+        var(--panel);
+      border: 1px solid #000;
+      border-top: 4px solid var(--kc);
+      box-shadow:
+        inset 2px 2px 0 var(--bevel-hi),
+        inset -3px -3px 0 var(--bevel-lo),
+        0 0 0 1px color-mix(in srgb, var(--kc) 45%, var(--line)),
+        5px 5px 0 rgba(0, 0, 0, 0.35);
+      transition: box-shadow var(--t) ease-out;
+    }
+    .xcard.sel {
+      box-shadow:
+        inset 2px 2px 0 var(--bevel-hi),
+        inset -3px -3px 0 var(--bevel-lo),
+        0 0 0 2px var(--fg),
+        0 0 0 4px #000,
+        5px 5px 0 rgba(0, 0, 0, 0.35);
+    }
+    .xcard.lit {
+      background:
+        linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--kc) 48%, transparent),
+          color-mix(in srgb, var(--kc) 10%, transparent) 85%
+        ),
+        var(--panel);
+      box-shadow:
+        inset 2px 2px 0 rgba(255, 255, 255, 0.18),
+        inset -3px -3px 0 var(--bevel-lo),
+        0 0 0 2px var(--kc),
+        0 0 30px color-mix(in srgb, var(--kc) 70%, transparent),
+        5px 5px 0 rgba(0, 0, 0, 0.35);
+    }
+    .xcard-h {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      min-width: 0;
+    }
+    .xcard-h .ci {
+      flex: none;
+      color: var(--kc);
+      filter: drop-shadow(
+        0 0 5px color-mix(in srgb, var(--kc) 70%, transparent)
+      );
+    }
+    .xcard-h .nm {
+      flex: 1;
+      min-width: 0;
+      margin: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 15px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .xcard-h .chip-badge {
+      flex: none;
+      height: 22px;
+      padding: 0 8px 0 6px;
+      font-size: 9px;
+    }
+    .xdetail {
+      min-height: 1.4em;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .xmeta {
+      display: grid;
+      grid-template-columns: auto auto minmax(0, 1fr);
+      gap: 4px 18px;
+      margin: 0;
+      font-size: 12px;
+    }
+    .xmeta dt {
+      font-family: var(--f-display);
+      font-size: 8px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .xmeta dd {
+      margin: 2px 0 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .xfoot {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: auto;
+    }
+    .ex-pads {
+      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    }
+    .xpad {
+      gap: 6px;
+      aspect-ratio: auto;
+      padding: 8px 10px 10px;
+    }
+    .xpad .thumb {
+      margin-top: 0;
+    }
+    .xpad .nm {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      min-height: 2.3em;
+      -webkit-line-clamp: 2;
+      white-space: normal;
+    }
+    .xbtns {
+      display: flex;
+      gap: 6px;
+      margin-top: 2px;
     }
     .bursts {
       position: absolute;

@@ -6,6 +6,7 @@ export {
   type ChordMode,
   chipChannels,
   chipProfile,
+  compileSong,
   defaultInstrument,
   defaultProject,
   defaultSfx,

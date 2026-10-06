@@ -100,6 +100,7 @@ export function createSidebar(host: HTMLElement): {
     ["#/pads", "pads", "Pads"],
     ["#/analysis", "chart", "Analysis"],
     ["#/project", "folder", "Project"],
+    ["#/examples", "headphones", "Examples"],
   ];
   for (const [href, ic, label] of links) {
     const a = h("a", { "data-nav": ic, href });
@@ -200,6 +201,7 @@ export function createSidebar(host: HTMLElement): {
       const on =
         (route.view === "pads" && target === "#/pads") ||
         (route.view === "project" && target === "#/project") ||
+        (route.view === "examples" && target === "#/examples") ||
         (route.view === "analysis" && target.startsWith("#/analysis"));
       a.classList.toggle("cur", on);
     }
