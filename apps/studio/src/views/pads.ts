@@ -6,12 +6,7 @@ import type { Command, ViewHooks } from "../app.ts";
 import { app } from "../app.ts";
 import { CHIP_THEME, categoryColor, categoryRing } from "../lib/chips.ts";
 import { SFX_CATEGORIES, type Sfx } from "../lib/contract.ts";
-import {
-  deriveSeed,
-  describeSfx,
-  mutateMany,
-  randomizeSfx,
-} from "../lib/core.ts";
+import { deriveSeed, mutateMany, randomizeSfx } from "../lib/core.ts";
 import {
   choose,
   debounce,
@@ -30,6 +25,7 @@ import {
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
 import { deleteDocument } from "../ui/delete-doc.ts";
+import { emptyCard } from "../ui/empty-state.ts";
 import {
   group,
   inspectorTitle,
@@ -68,7 +64,7 @@ const keyRange = (keys: string) =>
 function padKeysHint(count: number): string {
   const n = Math.min(count, KEYS.length);
   if (n === 0) {
-    return "Tap New SFX to make your first sound.";
+    return "Make your first sound with New SFX.";
   }
   const ranges = [KEYS.slice(0, n).slice(0, 10), KEYS.slice(10, n)]
     .filter(Boolean)
@@ -338,15 +334,24 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
       grid.append(el);
       refreshThumb(el, d.value as Sfx, colorsOf(d.value as Sfx).color);
     }
-    const add = h("button", {
-      "aria-label": "New sound effect",
-      class: "pad pad-new",
-    });
-    add.innerHTML = `<span class="plus">${icon("plus", 32)}</span><span class="nm">New SFX</span><span class="du">pick a flavor</span>`;
-    add.addEventListener("click", () =>
-      pickCategory((c) => fire(createSfx(c)))
-    );
-    grid.append(add);
+    if (docs.length === 0) {
+      grid.append(
+        emptyCard(
+          "A clean slate",
+          "No sound effects yet. Make one, write a song, bring in a MIDI file, or look at the examples first."
+        )
+      );
+    } else {
+      const add = h("button", {
+        "aria-label": "New sound effect",
+        class: "pad pad-new",
+      });
+      add.innerHTML = `<span class="plus">${icon("plus", 32)}</span><span class="nm">New SFX</span><span class="du">pick a flavor</span>`;
+      add.addEventListener("click", () =>
+        pickCategory((c) => fire(createSfx(c)))
+      );
+      grid.append(add);
+    }
     (host.querySelector("#padCount") as HTMLElement).textContent =
       `${docs.length} sound${docs.length === 1 ? "" : "s"}`;
     (host.querySelector("#padHint") as HTMLElement).innerHTML = padKeysHint(
@@ -476,7 +481,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
         h(
           "div",
           { class: "hint" },
-          "Pick a pad to see its details here. Use the New SFX pad to make your first sound."
+          "Pick a pad to see its details here. A new sound shows up as a pad."
         )
       );
       return;
@@ -493,7 +498,6 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
     );
     title.append(open);
     inner.append(title);
-    inner.append(h("div", { class: "hint desc" }, describeSfx(sfx)));
     const g = group("This pad", { key: "pad-insp" });
     textField(g.body, {
       label: "Name",

@@ -13,7 +13,6 @@ import {
 import { addToProject, type CopyPick } from "../examples/copy.ts";
 import { categoryColor, categoryRing, chipTheme } from "../lib/chips.ts";
 import type { ChipId } from "../lib/contract.ts";
-import { describeSfx } from "../lib/core.ts";
 import { fire, h, reflow } from "../lib/dom.ts";
 import { playSfxValue, playSongValue, stopEverything } from "../playback.ts";
 import {
@@ -505,7 +504,6 @@ export function mountExamples(ctx: ViewCtx): ViewHooks {
     );
     return [
       title,
-      h("div", { class: "hint desc" }, describeSfx(ex.sfx)),
       h(
         "div",
         { class: "hint btn-row" },

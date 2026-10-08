@@ -4,11 +4,7 @@
 import type { Command, ViewHooks } from "../app.ts";
 import { app } from "../app.ts";
 import { engine } from "../engine/engine.ts";
-import {
-  download,
-  type ExportResult,
-  exportInBrowser,
-} from "../export-local.ts";
+import type { ExportResult } from "../export-local.ts";
 import {
   type Manifest,
   manifestTs,
@@ -24,10 +20,17 @@ import {
   type Song,
 } from "../lib/contract.ts";
 import { choose, debounce, fire, h, prefs } from "../lib/dom.ts";
+import {
+  audioExportBusy,
+  exportAudio,
+  exportProjectZip,
+  importFiles,
+  startOver,
+} from "../project-actions.ts";
 import type { ViewCtx } from "../shell.ts";
 import { project } from "../state/docs.ts";
-import type { LocalStore } from "../store/local.ts";
 import type { FileEntry } from "../store/store.ts";
+import { nextSteps } from "../ui/empty-state.ts";
 import {
   inspectorTitle,
   rangeField,
@@ -36,11 +39,9 @@ import {
   toggleField,
 } from "../ui/fields.ts";
 import { icon } from "../ui/icons.ts";
-import { confirmDialog } from "../ui/modal.ts";
 
 const EVENTS_EXT = /\.events$/;
 const LAST_EXT = /\.[^.]+$/;
-const NON_ALNUM = /[^a-z0-9]+/g;
 const LEADING_DOTDOT = /^(\.\.\/)+/;
 
 const esc = (s: string) =>
@@ -155,10 +156,6 @@ function staleChip(s: Stale): HTMLElement {
 const kb = (bytes: number, digits = 1) =>
   `${(bytes / 1024).toFixed(digits)} kB`;
 
-/** The project name as a file name stem. */
-const slug = () =>
-  project.project.name.toLowerCase().replace(NON_ALNUM, "-") || "bleepkit";
-
 /** What the zip export in the browser produced: the file list, then its notes. */
 function browserResultNodes(res: ExportResult): HTMLElement[] {
   const list = h("ul", { class: "files" });
@@ -226,7 +223,6 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
   const { store } = project;
   const local = store.mode === "local";
   let files: FileEntry[] = [];
-  let exporting = false;
   const exportedKey = `exported:${project.root}`;
   const exported = () => prefs.get<Record<string, string>>(exportedKey, {});
 
@@ -450,6 +446,22 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
     box.replaceChildren();
     const list = staleList({ files, local, seen: exported() });
     const total = project.list("sfx").length + project.list("song").length;
+    if (total === 0) {
+      box.append(
+        h(
+          "div",
+          { class: "stale-h" },
+          h("b", { class: "pxh" }, "Nothing to export yet")
+        ),
+        h(
+          "p",
+          { class: "muted" },
+          "This project has no sound effects or songs. Add something, then export it for your game."
+        ),
+        nextSteps()
+      );
+      return;
+    }
     const head = h("div", { class: "stale-h" });
     head.innerHTML = `<b class="pxh"></b><span class="muted"></span>`;
     (head.querySelector("b") as HTMLElement).textContent = list.length
@@ -477,54 +489,38 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
   const bar = q("#pBar");
   const progLabel = q("#pLabel");
   const outBox = q("#pOut");
-  /** The studio server renders and writes the files itself. */
-  async function serverExport(
-    exportAll: (dryRun: boolean) => Promise<unknown>
-  ): Promise<void> {
-    prog.classList.add("indeterminate");
-    progLabel.textContent = "The studio server is rendering";
-    const res = await exportAll(false);
-    bar.style.width = "100%";
-    outBox.append(...serverResultNodes(res));
-  }
-  /** The browser renders, encodes and zips; remember what was exported so the stale list can compare. */
-  async function browserExport(): Promise<void> {
-    const res = await exportInBrowser((done, total, label) => {
-      bar.style.width = `${Math.round((done / Math.max(1, total)) * 100)}%`;
-      progLabel.textContent = `${label}  ${done}/${total}`;
-    });
-    bar.style.width = "100%";
-    progLabel.textContent = "done";
-    const seen: Record<string, string> = {};
-    for (const d of [...project.list("sfx"), ...project.list("song")]) {
-      if (d.etag) {
-        seen[d.path] = d.etag;
-      }
-    }
-    prefs.set(exportedKey, seen);
-    outBox.append(...browserResultNodes(res));
-    download(`${slug()}-audio.zip`, res.zip);
-  }
   async function runExport(): Promise<void> {
-    if (exporting) {
+    if (audioExportBusy()) {
       return;
     }
-    exporting = true;
     go.disabled = true;
     outBox.replaceChildren();
     prog.hidden = false;
     prog.classList.remove("indeterminate");
     bar.style.width = "0%";
-    await project.saveAll();
     try {
-      const exportAll = store.exportAll?.bind(store);
-      await (!local && exportAll ? serverExport(exportAll) : browserExport());
+      const out = await exportAudio({
+        progress: (done, total, label) => {
+          bar.style.width = `${Math.round((done / Math.max(1, total)) * 100)}%`;
+          progLabel.textContent = `${label}  ${done}/${total}`;
+        },
+        serverStarted: () => {
+          prog.classList.add("indeterminate");
+          progLabel.textContent = "The studio server is rendering";
+        },
+      });
+      bar.style.width = "100%";
+      if (out.mode === "browser") {
+        progLabel.textContent = "done";
+        outBox.append(...browserResultNodes(out.res));
+      } else {
+        outBox.append(...serverResultNodes(out.res));
+      }
     } catch (err) {
       outBox.append(
         h("p", { class: "bad" }, `Export failed: ${(err as Error).message}`)
       );
     } finally {
-      exporting = false;
       go.disabled = false;
       setTimeout(() => {
         prog.hidden = true;
@@ -534,46 +530,16 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
   }
   go.addEventListener("click", () => fire(runExport()));
 
-  /* ----- local-only actions ----- */
+  /* ----- local-only actions (the project menu in the top bar has the same ones) ----- */
   if (local) {
-    const ls = store as LocalStore;
-    q("#pZipOut").addEventListener("click", async () => {
-      await project.saveAll();
-      download(`${slug()}-project.zip`, await ls.exportZip());
-    });
-    q<HTMLInputElement>("#pZipIn").addEventListener("change", async (e) => {
+    q("#pZipOut").addEventListener("click", () => fire(exportProjectZip()));
+    q<HTMLInputElement>("#pZipIn").addEventListener("change", (e) => {
       const input = e.target as HTMLInputElement;
-      let n = 0;
-      for (const f of Array.from(input.files ?? [])) {
-        if (f.name.endsWith(".zip")) {
-          // biome-ignore lint/performance/noAwaitInLoops: files are imported in the order they were dropped, so a later file with the same id wins
-          n += await ls.importZip(new Uint8Array(await f.arrayBuffer()), false);
-        } else if ((await ls.importDocument(f.name, await f.text())) !== null) {
-          n += 1;
-        }
-      }
+      const picked = Array.from(input.files ?? []);
       input.value = "";
-      await project.load(store);
-      app.toast(
-        n
-          ? `Imported ${n} files`
-          : "Nothing in that file looked like a Bleepkit document"
-      );
-      app.navigate("#/project");
+      fire(importFiles(picked, "#/project"));
     });
-    q("#pReset").addEventListener("click", async () => {
-      const yes = await confirmDialog(
-        "Replace everything in this browser with the starter kit? Your own sounds and songs here will be gone.",
-        "Replace everything"
-      );
-      if (!yes) {
-        return;
-      }
-      await ls.resetToStarter();
-      await project.load(store);
-      app.toast("Back to the starter kit");
-      app.navigate("#/pads");
-    });
+    q("#pReset").addEventListener("click", () => fire(startOver()));
   }
 
   /* ----- inspector ----- */

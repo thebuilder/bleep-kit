@@ -114,6 +114,11 @@ class ProjectState {
 
   async load(store: ProjectStore): Promise<void> {
     this.off?.();
+    // a save scheduled for a document of the project being replaced must not write it back
+    for (const t of this.timers.values()) {
+      clearTimeout(t);
+    }
+    this.timers.clear();
     this.store = store;
     this.docs.clear();
     const info = await store.open();

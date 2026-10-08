@@ -15,6 +15,7 @@ import { chipTheme } from "./lib/chips.ts";
 import type { ChipId } from "./lib/contract.ts";
 import { choose, fire, formatTime, h, prefs } from "./lib/dom.ts";
 import { playRef, stopEverything } from "./playback.ts";
+import { markPristineIfSeeded, projectCommands } from "./project-actions.ts";
 import { type Doc, project } from "./state/docs.ts";
 import { LocalStore } from "./store/local.ts";
 import { probeServer, ServerStore } from "./store/server.ts";
@@ -31,6 +32,7 @@ import {
   pickCategory,
   pickKind,
 } from "./ui/pickers.ts";
+import { createProjectMenu } from "./ui/project-menu.ts";
 import { createSidebar } from "./ui/sidebar.ts";
 import { mountAnalysis } from "./views/analysis.ts";
 import { mountExamples } from "./views/examples.ts";
@@ -96,6 +98,7 @@ export async function boot(root: HTMLElement): Promise<void> {
       <header class="top">
         <button class="btn icon ghost menu-btn" id="menuBtn" aria-label="Project tree">${icon("menu", 16)}</button>
         <a class="brand" href="#/pads">${LOGO}<span>BLEEPKIT</span><small>studio</small></a>
+        <div class="pmenu" id="projMenu"></div>
         <div class="transport">
           <button class="btn icon" id="tStop" title="Stop (Esc)" aria-label="Stop">${icon("stop", 16)}</button>
           <button class="btn icon primary" id="tPlay" title="Play (Space)" aria-label="Play">${icon("play", 16)}</button>
@@ -127,6 +130,7 @@ export async function boot(root: HTMLElement): Promise<void> {
   const backdrop: Backdrop = createBackdrop(q<HTMLCanvasElement>("backdrop"));
   const strip: Strip = createStrip(q("strip"));
   const sidebar = createSidebar(q("side"));
+  createProjectMenu(q("projMenu"));
   app.openPalette = () => openPalette(allCommands());
   app.openHelp = openHelp;
   app.openMenu = (on) => document.body.classList.toggle("menu-open", on);
@@ -152,6 +156,7 @@ export async function boot(root: HTMLElement): Promise<void> {
   } catch (err) {
     app.toast(`Could not open the project: ${(err as Error).message}`);
   }
+  markPristineIfSeeded();
   backdrop.setChip(project.project.chip);
   strip.setChip(project.project.chip);
 
@@ -443,7 +448,7 @@ export async function boot(root: HTMLElement): Promise<void> {
         id: "export",
         keys: "Ctrl E",
         run: () => app.navigate("#/project?export=1"),
-        title: "Export the project",
+        title: "Show the export settings",
       },
       {
         group: "Go",
@@ -554,7 +559,7 @@ export async function boot(root: HTMLElement): Promise<void> {
         });
       }
     }
-    return [...cmds, ...(app.hooks.commands?.() ?? [])];
+    return [...cmds, ...projectCommands(), ...(app.hooks.commands?.() ?? [])];
   }
 
   /* ----- keyboard ----- */

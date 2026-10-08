@@ -17,6 +17,7 @@ import { playDoc, stopEverything } from "../playback.ts";
 import { analyzeAsync } from "../render-service.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
+import { emptyCard } from "../ui/empty-state.ts";
 import { group, inspectorTitle } from "../ui/fields.ts";
 import { icon } from "../ui/icons.ts";
 import { surface } from "../visuals/canvas.ts";
@@ -105,8 +106,10 @@ function mountPicker(host: HTMLElement): ViewHooks {
   }
   if (sections.every(([, docs]) => docs.length === 0)) {
     wrap.append(
-      h("p", { class: "muted" }, "There are no sounds in the project yet."),
-      h("a", { class: "btn", href: "#/pads" }, "Back to the pads")
+      emptyCard(
+        "Nothing to analyse yet",
+        "There are no sounds in the project yet. Make one, then come back to measure it."
+      )
     );
   }
   host.replaceChildren(wrap);

@@ -618,13 +618,14 @@
       grid-template-rows: minmax(0, 1fr);
       grid-template-columns: 150px minmax(0, 1fr) 64px;
       gap: 0;
-      height: 72px;
+      height: 60px;
       overflow: hidden;
-      background: #08070d;
+      /* see-through: the pixel scene shows behind the scope and the bars */
+      background: rgba(8, 7, 13, 0.5);
       border: 1px solid #000;
       box-shadow:
         0 0 0 1px var(--line),
-        0 0 0 3px #08070d,
+        0 0 0 3px rgba(8, 7, 13, 0.5),
         0 0 0 4px var(--line),
         0 8px 0 4px rgba(0, 0, 0, 0.22);
     }
@@ -646,10 +647,10 @@
       background:
         repeating-linear-gradient(
           0deg,
-          rgba(0, 0, 0, 0.22) 0 1px,
+          rgba(0, 0, 0, 0.16) 0 1px,
           transparent 1px 3px
         ),
-        radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, 0.45));
+        radial-gradient(ellipse at center, transparent 60%, rgba(0, 0, 0, 0.3));
     }
     .strip .tag {
       position: absolute;
@@ -863,6 +864,19 @@
       padding: 6px 14px;
       font-size: 12px;
       color: var(--muted);
+    }
+    .linkish {
+      padding: 0;
+      font-size: inherit;
+      color: var(--accent);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer;
+      background: none;
+      border: 0;
+    }
+    .linkish:hover {
+      color: #ffc460;
     }
 
     /* ================= inspector ================= */
@@ -1104,6 +1118,124 @@
       border-bottom: 1px solid var(--line);
       box-shadow: none;
     }
+    /* the project menu in the top bar */
+    .pmenu {
+      position: relative;
+      flex: none;
+      min-width: 0;
+    }
+    .pmenu-btn {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      max-width: 220px;
+      height: 32px;
+      padding: 0 10px 0 8px;
+      font-size: 13px;
+      font-weight: 700;
+      background: var(--raised);
+      border: 1px solid #000;
+      border-radius: var(--r);
+      box-shadow:
+        inset 1px 1px 0 var(--bevel-hi),
+        inset -2px -2px 0 var(--bevel-lo),
+        0 0 0 1px var(--line);
+      transition: background var(--t) ease-out;
+    }
+    .pmenu-btn:hover,
+    .pmenu-btn[aria-expanded="true"] {
+      background: #2d2c3f;
+      box-shadow:
+        inset 2px 2px 0 rgba(255, 255, 255, 0.11),
+        inset -2px -2px 0 var(--bevel-lo),
+        0 0 0 1px var(--muted);
+    }
+    .pmenu-btn .ico:first-child {
+      flex: none;
+      color: var(--accent);
+    }
+    .pmenu-btn .pn {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pmenu-list {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      z-index: 40;
+      display: grid;
+      width: 268px;
+      padding: 4px 0;
+      background: var(--panel);
+      border: 1px solid #000;
+      box-shadow:
+        0 0 0 1px var(--line),
+        6px 6px 0 rgba(0, 0, 0, 0.5);
+    }
+    .pmenu-list[hidden] {
+      display: none;
+    }
+    .pmenu-h {
+      display: grid;
+      gap: 2px;
+      padding: 8px 14px 9px;
+      border-bottom: 1px solid var(--line);
+    }
+    .pmenu-h b {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: var(--f-display);
+      font-size: 11px;
+      font-weight: 400;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+    }
+    .pmenu-h small {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .pmenu-item {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      width: 100%;
+      padding: 8px 14px;
+      font-size: 13px;
+      text-align: left;
+      background: transparent;
+      border: 0;
+      border-left: 3px solid transparent;
+    }
+    .pmenu-item.sep {
+      padding-top: 11px;
+      margin-top: 4px;
+      border-top: 1px solid var(--line);
+    }
+    .pmenu-item .ico {
+      flex: none;
+      color: var(--muted);
+    }
+    .pmenu-item:hover,
+    .pmenu-item:focus-visible {
+      outline: none;
+      background: var(--raised);
+      border-left-color: var(--accent);
+    }
+    .pmenu-item.off {
+      color: var(--muted);
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+    .pmenu-item.off:hover {
+      background: transparent;
+      border-left-color: transparent;
+    }
     .cmd {
       display: flex;
       gap: 10px;
@@ -1158,6 +1290,20 @@
     }
 
     /* ================= narrow screens ================= */
+    @media (max-width: 1240px) {
+      .brand small,
+      .transport .lcd.cpu {
+        display: none;
+      }
+      .pmenu-btn {
+        max-width: 160px;
+      }
+    }
+    @media (max-width: 1080px) {
+      .lcd .pos {
+        display: none;
+      }
+    }
     @media (max-width: 1080px) {
       .app {
         grid-template-areas: "top top" "side stage";
@@ -1196,6 +1342,13 @@
       .brand {
         font-size: 15px;
       }
+      /* the project button takes the brand's place on a phone */
+      .pmenu-btn {
+        gap: 5px;
+        padding: 0 6px;
+      }
+      .brand,
+      .pmenu-btn .pn,
       .brand small,
       .status .chip-badge span,
       .lcd .pos,
@@ -1249,7 +1402,7 @@
       }
       .strip {
         grid-template-columns: 76px minmax(0, 1fr) 40px;
-        height: 56px;
+        height: 48px;
       }
       #view {
         min-height: 50vh;
@@ -2089,8 +2242,8 @@
     /* ================= sfx editor ================= */
     .wavebox {
       position: relative;
-      flex: 1 1 220px;
-      min-height: 200px;
+      flex: none;
+      height: 184px;
       overflow: hidden;
       background: #0e0d14;
       border: 1px solid #000;
@@ -2358,7 +2511,7 @@
       font-family: var(--f-mono);
       font-size: 13px;
       outline: none;
-      background: #0b0a10;
+      background: rgba(11, 10, 16, 0.86);
       border: 1px solid #000;
       box-shadow:
         0 0 0 1px var(--line),
@@ -3427,7 +3580,7 @@
         flex: 1;
       }
       .wavebox {
-        min-height: 150px;
+        height: 132px;
       }
       .tracker {
         flex-basis: 360px;
@@ -3451,6 +3604,78 @@
       .cat-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+    }
+    /* the new project and start over dialog */
+    .choices {
+      display: grid;
+      gap: 8px;
+    }
+    .choice {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 9px 11px;
+      cursor: pointer;
+      background: var(--raised);
+      border: 1px solid #000;
+      box-shadow: 0 0 0 1px var(--line);
+    }
+    .choice:has(input:checked) {
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    .choice .choice-in {
+      flex: none;
+      margin-top: 3px;
+      accent-color: var(--accent);
+    }
+    .choice span {
+      display: grid;
+      gap: 2px;
+    }
+    .choice small {
+      font-size: 12px;
+      line-height: 1.4;
+      color: var(--muted);
+    }
+    .choice-fields {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 110px;
+      gap: 8px;
+    }
+    .choice-fields[hidden],
+    .choice-check[hidden] {
+      display: none;
+    }
+    .choice-fields .sel {
+      display: grid;
+      gap: 3px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .choice-check {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-size: 13px;
+    }
+    .choice-check .choice-in {
+      accent-color: var(--accent);
+    }
+    .empty-card {
+      grid-column: 1 / -1;
+      max-width: 640px;
+    }
+    .empty-card .card-b {
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+    }
+    .empty-card p {
+      margin: 0;
+      line-height: 1.5;
+    }
+    .stale p.muted {
+      margin: 4px 0 12px;
     }
     </style>
   </head>

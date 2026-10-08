@@ -45,7 +45,6 @@ export {
   waveformImage,
 } from "@bleepkit/core/tools";
 export {
-  describeSfx,
   generateSfx,
   mutateMany,
   mutateSfx,

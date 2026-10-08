@@ -1,6 +1,7 @@
 /* Standalone mode: the project lives in IndexedDB (database "bleepkit-studio", object store "files" keyed by path),
    with the same shapes the server returns. Without IndexedDB (a private window, tests) it falls back to memory. */
 
+import type { ChipId } from "../lib/contract.ts";
 import { defaultProject, normalizeProject } from "../lib/core.ts";
 import { readZip, writeZip } from "../zip.ts";
 import { starterFiles } from "./seed.ts";
@@ -131,6 +132,8 @@ export class LocalStore implements ProjectStore {
   readonly label = "this browser";
   private readonly listeners = new Set<(m: ServerMessage) => void>();
   private readonly backend: FileBackend;
+  /** True when the last `open` found no project and filled it with the starter kit. */
+  seeded = false;
 
   constructor(backend: FileBackend) {
     this.backend = backend;
@@ -170,8 +173,10 @@ export class LocalStore implements ProjectStore {
   }
 
   async open(): Promise<ProjectInfo> {
+    this.seeded = false;
     if (!(await this.backend.get("project.json"))) {
       await this.seed(true);
+      this.seeded = true;
     }
     const files = await this.list();
     const row = await this.backend.get("project.json");
@@ -307,8 +312,48 @@ export class LocalStore implements ProjectStore {
     return path;
   }
 
+  /** One file of a dropped or picked folder, by its path inside it ("my-game/sfx/coin.json" or "sfx/coin.json"): a
+   *  document keeps its place, anything else goes by the shape of its content. Returns false for what is not ours. */
+  async importEntry(relPath: string, text: string): Promise<boolean> {
+    const path = relPath.replace(ZIP_ROOT_FOLDER, "");
+    if (
+      path.endsWith(".json") &&
+      kindOfPath(path) &&
+      !path.startsWith("out/")
+    ) {
+      let json: unknown;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        return false;
+      }
+      await this.backend.put({
+        mtime: Date.now(),
+        path,
+        text: stringify(json),
+      });
+      return true;
+    }
+    return (
+      (await this.importDocument(relPath.split("/").pop() ?? "", text)) !== null
+    );
+  }
+
   async resetToStarter(): Promise<void> {
     await this.backend.clear();
     await this.seed(true);
+  }
+
+  /** Replace everything with a clean project: no sounds, songs or instruments, only project.json with a name and a
+   *  chip. */
+  async resetToEmpty(name: string, chip: ChipId): Promise<void> {
+    await this.backend.clear();
+    const base = defaultProject(name.trim() || "Untitled");
+    const json = normalizeProject({ ...base, chip }).value;
+    await this.backend.put({
+      mtime: Date.now(),
+      path: "project.json",
+      text: stringify(json),
+    });
   }
 }

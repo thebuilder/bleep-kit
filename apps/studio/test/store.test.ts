@@ -87,6 +87,47 @@ describe("LocalStore documents", () => {
   });
 });
 
+describe("LocalStore clean project and folder import", () => {
+  it("makes a project of only project.json with the name and chip", async () => {
+    const store = new LocalStore(memoryBackend());
+    await store.open();
+    await store.resetToEmpty("  Space Blaster ", "gameboy");
+    expect((await store.list()).map((f) => f.path)).toEqual(["project.json"]);
+    const { project } = await store.open();
+    expect(project.name).toBe("Space Blaster");
+    expect(project.chip).toBe("gameboy");
+    expect(store.seeded).toBe(false);
+  });
+
+  it("says when it filled a new store with the starter kit", async () => {
+    const store = new LocalStore(memoryBackend());
+    await store.open();
+    expect(store.seeded).toBe(true);
+    await store.open();
+    expect(store.seeded).toBe(false);
+  });
+
+  it("files the documents of a picked folder by their path, whatever the folder is called", async () => {
+    const store = new LocalStore(memoryBackend());
+    await store.open();
+    await store.resetToEmpty("x", "nes");
+    const doc = JSON.stringify({ envelope: {}, frequency: {} });
+    expect(await store.importEntry("my-game/sfx/boom.json", doc)).toBe(true);
+    expect(await store.importEntry("loose.json", doc)).toBe(true);
+    expect(
+      await store.importEntry("my-game/package.json", '{"name":"x"}')
+    ).toBe(false);
+    expect(await store.importEntry("my-game/sfx/bad.json", "not json")).toBe(
+      false
+    );
+    expect((await store.list()).map((f) => f.path).sort()).toEqual([
+      "project.json",
+      "sfx/boom.json",
+      "sfx/loose.json",
+    ]);
+  });
+});
+
 describe("probeServer", () => {
   it("answers with the health body when a studio server is there", async () => {
     const fetched: string[] = [];

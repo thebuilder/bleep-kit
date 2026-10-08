@@ -33,6 +33,13 @@ const SECTIONS: { kind: DocKind; title: string; ic: string; empty: string }[] =
     },
   ];
 
+/** The next step an empty section offers, as the words of its link. */
+const EMPTY_STEP: Record<DocKind, string> = {
+  instrument: "Add an instrument",
+  sfx: "Make a sound effect",
+  song: "Write a song",
+};
+
 function rowFor(doc: Doc, cur: boolean): HTMLElement {
   let ic = "song";
   let color = "#9a95ad";
@@ -207,6 +214,31 @@ export function createSidebar(host: HTMLElement): {
     }
   };
 
+  /** The line under an empty section: what is missing and, when nothing is being searched, the way to add it. */
+  function emptyNote(sec: (typeof SECTIONS)[number], q: string): HTMLElement {
+    const msg = h(
+      "div",
+      { class: "tree-empty" },
+      q ? "Nothing matches." : sec.empty
+    );
+    if (!q) {
+      msg.append(
+        " ",
+        h(
+          "button",
+          {
+            class: "linkish",
+            "data-empty": sec.kind,
+            onclick: () => onAdd(sec.kind),
+            type: "button",
+          },
+          EMPTY_STEP[sec.kind]
+        )
+      );
+    }
+    return msg;
+  }
+
   function render(): void {
     queued = false;
     const q = input.value.trim().toLowerCase();
@@ -221,19 +253,24 @@ export function createSidebar(host: HTMLElement): {
       );
       if (!closed) {
         if (docs.length === 0) {
-          secEl.append(
-            h(
-              "div",
-              { class: "tree-empty" },
-              q ? "Nothing matches." : sec.empty
-            )
-          );
+          secEl.append(emptyNote(sec, q));
         }
         for (const d of docs) {
           secEl.append(rowFor(d, isCurrent(sec.kind, d.id)));
         }
       }
       out.push(secEl);
+    }
+    if (!q && SECTIONS.every((sec) => project.list(sec.kind).length === 0)) {
+      out.push(
+        h(
+          "div",
+          { class: "tree-empty" },
+          "Or look at the ",
+          h("a", { class: "linkish", href: "#/examples" }, "examples"),
+          " first."
+        )
+      );
     }
     tree.replaceChildren(...out);
     syncNav();
