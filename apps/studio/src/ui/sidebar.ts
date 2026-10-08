@@ -121,16 +121,6 @@ export function createSidebar(host: HTMLElement): {
     }
     nav.append(a);
   }
-  const palBtn = h("a", {
-    "data-nav": "search",
-    href: "#",
-    onclick: (e: Event) => {
-      e.preventDefault();
-      app.openPalette();
-    },
-  });
-  palBtn.innerHTML = `${icon("search", 20)}<span>Find</span>`;
-  nav.append(palBtn);
 
   const input = h("input", {
     "aria-label": "Search the project",

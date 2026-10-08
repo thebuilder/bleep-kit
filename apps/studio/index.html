@@ -703,9 +703,10 @@
       color: var(--muted);
     }
     /* five entries: Pads, Analysis and Project on one row, Examples and Find (side by side, wider) under them */
+    /* four equal tabs in one row; the command palette lives in the top bar and the search box below */
     .nav {
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 4px;
     }
     .nav a {
@@ -722,16 +723,6 @@
       text-decoration: none;
       background: transparent;
       border: 1px solid transparent;
-    }
-    .nav a {
-      grid-column: span 2;
-    }
-    .nav a:nth-child(n + 4) {
-      flex-direction: row;
-      grid-column: span 3;
-      gap: 8px;
-      justify-content: center;
-      padding: 7px 2px 6px;
     }
     .nav a:hover {
       color: var(--fg);
