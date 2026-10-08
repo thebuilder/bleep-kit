@@ -61,7 +61,7 @@ export const bleepPulse = defineGenerator("bleep-pulse", {
     color: param.color("Color", "#7d97dc"),
     flash: param.color("Strike color", "#dfe8ff"),
     gain: param.range("Reactivity", 0, 4, 1.6, { step: 0.05 }),
-    ground: param.range("Ground line", 0, 1, 0.9, { step: 0.01 }),
+    ground: param.range("Ground line", 0, 1, 1, { step: 0.01 }),
     radius: param.range("Radius", 8, 220, 80),
     x: param.range("Position X", 0, 1, 0.5),
     y: param.range("Position Y", 0, 1, 0.55),
@@ -93,7 +93,7 @@ export const bleepPulse = defineGenerator("bleep-pulse", {
         }
       }
     }
-    // rings on every fourth row, rising from the ground line
+    // rings on every fourth row, rising from the ground line (the bottom edge unless a scene has a ground to stand on)
     const gy = p.ground * H;
     for (const at of reactive.rings) {
       const age = t - at;
