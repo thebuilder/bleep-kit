@@ -103,8 +103,8 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
           <input class="nm-in" id="sName" aria-label="Sound name" maxlength="60" spellcheck="false">
         </div>
         <div class="ed-sel">
-          <label class="sel"><span>Chip</span><select id="sChip" aria-label="Chip"></select></label>
-          <label class="sel"><span>Type</span><select id="sCat" aria-label="Category"></select></label>
+          <label class="fsel"><span>Chip</span><select id="sChip" aria-label="Chip"></select></label>
+          <label class="fsel"><span>Type</span><select id="sCat" aria-label="Category"></select></label>
         </div>
         <div class="ed-actions">
           <button class="btn primary big" id="sPlay" title="Play (Space)">${icon("play", 16)}<span>Play</span></button>

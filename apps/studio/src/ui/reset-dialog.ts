@@ -82,8 +82,8 @@ export function resetDialog(o: ResetOptions): Promise<ResetAnswer | null> {
     const fields = h(
       "div",
       { class: "choice-fields" },
-      h("label", { class: "sel" }, h("span", {}, "Name"), name),
-      h("label", { class: "sel" }, h("span", {}, "Chip"), chip)
+      h("label", { class: "fsel" }, h("span", {}, "Name"), name),
+      h("label", { class: "fsel" }, h("span", {}, "Chip"), chip)
     );
     const backupBox = h("input", {
       "aria-label": "Download the current project first",

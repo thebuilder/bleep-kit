@@ -108,7 +108,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
         </div>
         <div class="ed-sel"><span class="kind-badge" id="iKind"></span></div>
         <div class="ed-actions test-row">
-          <label class="sel"><span>Test note</span><select id="iNote" aria-label="Test note"></select></label>
+          <label class="fsel"><span>Test note</span><select id="iNote" aria-label="Test note"></select></label>
           <label class="sel num"><span>Seconds</span><input type="number" id="iDur" min="0.1" max="8" step="0.1" aria-label="Test note length"></label>
           <button class="btn primary big" id="iPlay" title="Play the test note (Space)">${icon("play", 16)}<span>Play</span></button>
           <label class="tgl-row" title="Play the test note after each change"><span class="tgl"><input type="checkbox" id="iAuto"><span></span></span><small>Play on every change</small></label>
