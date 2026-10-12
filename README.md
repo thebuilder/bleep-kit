@@ -2,18 +2,19 @@
 
 Chiptune sound effects and music for your browser game, made from plain JSON and a few lines of MML. No samples to hunt down, no DAW to learn. Pick a chip, describe a sound, and Bleepkit renders it, measures it, and exports it as OGG files plus a typed `audio.ts` for your game.
 
-It speaks six sound chips: NES, Game Boy, C64 SID, Sega Genesis, AdLib OPL2 and SNES. Everything is deterministic (same document, same seed, same sound), so the audio lives in git next to your code and shows up in diffs.
+It speaks seven sound chips: NES, Game Boy, C64 SID, Sega Genesis, AdLib OPL2, SNES and the Amiga's Paula. Everything is deterministic (same document, same seed, same sound), so the audio lives in git next to your code and shows up in diffs.
 
 What you get:
 
 - **Sound effects**: an sfxr-style generator with categories (coin, laser, explosion, powerup, hit, jump, blip, door, alarm, teleport, step, zap), a `mutate` command for variations, and an FM mode.
 - **Music**: tracker patterns or one line of MML per channel, instrument macros (arpeggios, duty sweeps, vibrato), FM patches, SID filter sweeps, SNES echo, loop points that are gapless in OGG.
+- **Your own samples**: import a WAV, MP3 or OGG into the sample editor (trim, loop, tune, bit depth), play it from a sample instrument on the Amiga, SNES, custom chip or the Genesis DAC, and import or export ProTracker `.mod` modules.
 - **A studio**: a browser editor with scopes, spectrogram and piano roll that edits the real files on disk and reloads on every change.
 - **An assistant in the studio** (bring your own key): ask in plain words for a sound, a song or a change, and an Anthropic or OpenAI model builds it with the same documents, measures it and shows you what it saw. The browser calls the provider directly with your key, and it is billed to your account. See [The studio assistant](#the-studio-assistant).
 - **A CLI built for agents and for people without speakers**: every command has `--json`, and `render --analyze --images` reports peak, loudness, pitch, clipping, loop seam and writes spectrogram PNGs, so you can judge a sound without hearing it.
 - **A player**: `@bleepkit/player` plays the exported files (or synthesizes the documents live) with buses, fades and loops.
 
-There is a finished example in [`examples/demo`](examples/demo): six songs (one per chip) and 22 sound effects, with the OGG export committed in `examples/demo/export`.
+There is a finished example in [`examples/demo`](examples/demo): seven songs (one per chip) and 22 sound effects, with the OGG export committed in `examples/demo/export`.
 
 ## Quick start
 
@@ -139,6 +140,7 @@ Try "Make a coin sound for the NES", "Write a 16-bar Game Boy town theme" or, wi
 | `genesis` | 6 four-operator FM voices, 3 PSG squares, PSG noise | Glassy bells, slap bass, warm FM pads and electric pianos, plus the thin PSG square for sparkle and drums. |
 | `adlib` | 9 two-operator FM voices (OPL2 waveforms) | The PC game sound: buzzy "distortion guitar" and organ, hard metallic leads, a crisp DOS-shooter drum kit. |
 | `snes` | 8 sample channels, echo and reverb on the master | Soft, orchestral, a little muffled: strings, choir, bell, timpani, pluck bass, with a long echo tail that glues it together. |
+| `amiga` | 4 eight-bit sample channels (Paula), hard panned, period-register pitch, A500 lowpass and LED filter | Tracker music: chunky 8-bit samples, bass and arps from single-cycle waves, crisp drum hits, the ProTracker `.mod` import and export. |
 | `custom` | any kind on any channel | No chip limits and free pan. For when you want to break the rules. |
 
 Sound effects pick their chip too (`new sfx hit --category hit --chip genesis`), so the same category sounds different on each one.
@@ -152,7 +154,7 @@ packages/agent    @bleepkit/agent: tools, system prompt, provider adapters and l
 packages/player   @bleepkit/player: the Web Audio player and AudioWorklet for games
 packages/cli      the bleepkit command
 apps/studio       the studio (Vite app), talks to the CLI's studio server or runs standalone
-examples/demo     a finished project: 6 songs, 22 sfx, committed OGG export
+examples/demo     a finished project: 7 songs, 22 sfx, committed OGG export
 docs/             architecture.md: documents, engine, CLI and manifest in detail
 scripts/          check-packages.ts: packs the packages and runs them in a scratch project
 ```
@@ -163,6 +165,7 @@ A Bleepkit project is a folder of JSON documents:
 project.json      chip, sample rate, seed, export settings
 sfx/*.json        sound effects
 instruments/*.json instruments (pulse, wave, SID, FM, sample)
+samples/*.json    your recordings (mono PCM as base64) that sample instruments play
 songs/*.json      songs (tracker patterns or MML per channel)
 out/              renders and analysis (gitignored)
 ```
@@ -195,6 +198,8 @@ CLI commands, `pnpm bleepkit <command>`:
 | `init [dir] [--chip]` | create a project folder with starter documents |
 | `new sfx\|instrument\|song <id>` | create a document (sfx from `--category`, songs from `--mml`) |
 | `import <file.mid> [--chip] [--rows-per-beat] [--map] [--chords]` | turn a MIDI file into a song for a chip: chords are spread over free channels or become `0xy` arpeggios (`--chords auto\|spread\|arpeggio\|top`), and the report lists what was converted apart from what the chip could not play |
+| `import <file.mod>` / `import sample <file.wav>` | turn a ProTracker module into an amiga song with its samples, or a WAV into a user sample for the chip (`--base-note`) |
+| `resample <ref>` | render an sfx, song or instrument note and store it as a user sample (`--bits 8 --rate 11025` for the sampler crunch) |
 | `mutate <sfx> [--count]` | write variations of an sfx |
 | `validate [ref]` | check documents, exit 1 on errors |
 | `list [sfx\|songs\|instruments]` | list documents and their renders |
@@ -202,6 +207,7 @@ CLI commands, `pnpm bleepkit <command>`:
 | `analyze <ref\|file.wav>` | peak, loudness, pitch, loop seam, envelope |
 | `describe <ref>` | explain a document in words and numbers |
 | `play <ref>` | play a document in a running studio tab |
+| `export mod <song>` | write an amiga song as a 4 channel ProTracker `.mod` |
 | `export` | encode everything, write the audio folder and `audio.ts` (`--embed`, `--clean`, `--dry-run`) |
 | `studio [dir]` | start the studio server (`--port`, `--no-open`, `--api-only`) |
 | `help formats\|workflow` | the format reference and the no-ears workflow |

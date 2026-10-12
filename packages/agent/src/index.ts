@@ -12,6 +12,7 @@ export {
 } from "./author.ts";
 export {
   describeInstrument,
+  describeSample,
   describeSong,
   fmtSeconds,
   songFacts,

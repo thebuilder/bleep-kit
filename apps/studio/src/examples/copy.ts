@@ -45,7 +45,7 @@ export function freeId(base: string, taken: (id: string) => boolean): string {
 }
 
 /** A copy of `inst` that plays the user sample under its new id. */
-export function remapInstrument(
+function remapInstrument(
   inst: Instrument,
   ids: ReadonlyMap<string, string>
 ): Instrument {

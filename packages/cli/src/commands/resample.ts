@@ -1,13 +1,15 @@
 // `bleepkit resample <ref>`: record what an sfx, a song or an instrument note sounds like as a user sample
 // (samples/<id>.json), converted for a chip. The same core code as the studio's Resample button and the assistant's
 // resample tool.
+
+import fs from "node:fs";
+import path from "node:path";
 import {
   CHIP_IDS,
   type ChipId,
   type Instrument,
-  noteName,
   normalizeSample,
-  parseNoteName,
+  noteName,
   renderInstrumentNote,
   renderSfx,
   renderSong,
@@ -28,28 +30,10 @@ import {
   samplesFor,
   writeDoc,
 } from "../project.ts";
-import { idFromName } from "./import-audio.ts";
+import { idFromName, noteFlag } from "./import-shared.ts";
 import type { CommandSpec } from "./types.ts";
-import fs from "node:fs";
-import path from "node:path";
 
-const DIGITS_RE = /^\d+$/;
 const CHIPS = CHIP_IDS.filter((c) => c !== "custom");
-
-function noteOf(text: string | undefined): number | undefined {
-  if (text === undefined) {
-    return undefined;
-  }
-  const n = DIGITS_RE.test(text) ? Number(text) : parseNoteName(text);
-  if (n === null || n < 0 || n > 127) {
-    throw new CliError(
-      "usage",
-      `--note must be a note name like C-4 or A#3, or 0 to 127 (was "${text}")`,
-      { hint: "Example: --note C-3" }
-    );
-  }
-  return n;
-}
 
 function bitsOf(text: number | undefined): 8 | 16 | undefined {
   if (text === undefined) {
@@ -152,7 +136,7 @@ export const resampleCommand: CommandSpec = {
       });
     }
     const chip = chipFlag === "custom" ? null : (chipFlag as ChipId);
-    const note = noteOf(args.str("note"));
+    const note = noteFlag(args.str("note"), "note", "Example: --note C-3");
     const bits = bitsOf(args.num("bits"));
     const rate = args.num("rate");
     const doc = loadDoc(pc, r.kind, r.id);

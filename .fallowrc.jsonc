@@ -62,7 +62,6 @@
       {
         "files": ["packages/core/src/dsp/**"],
         "functions": [
-          "colorChannel",
           "process",
           "opStep",
           "renderNoise",
@@ -71,7 +70,14 @@
         ],
         "maxCognitive": 52,
         "maxCyclomatic": 26,
-        "reason": "Per-sample DSP loops: chip coloring, FM operators, the limiter, LFSR noise, the reverb comb filters and the SID voice group."
+        "reason": "Per-sample DSP loops: FM operators, the limiter, LFSR noise, the reverb comb filters and the SID voice group."
+      },
+      {
+        "files": ["packages/core/src/dsp/color.ts"],
+        "functions": ["colorChannel"],
+        "maxCognitive": 56,
+        "maxCyclomatic": 31,
+        "reason": "One chip's output color per sample: the DAC curve, the sample and hold (or Gaussian) stage, the bit crush, the one pole lowpass, the Amiga LED biquad and the DC blocker, in signal order."
       },
       {
         "files": ["packages/core/src/engine/voice.ts"],

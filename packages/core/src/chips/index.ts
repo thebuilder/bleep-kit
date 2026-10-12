@@ -35,7 +35,7 @@ export function hardwareChannels(
   chip: ChipId,
   master?: { genesis?: { dac: boolean } }
 ): readonly ChipChannel[] {
-  const channels = CHIPS[chip].channels;
+  const { channels } = CHIPS[chip];
   if (chip !== "genesis" || !master?.genesis?.dac) {
     return channels;
   }
@@ -49,7 +49,9 @@ export function hardwareChannels(
 /** The channels a song runs on: the profile's channels (in profile order, so a channel index is stable per chip),
     or the song's own declared channels for "custom". */
 export function chipChannels(
-  song: Pick<Song, "chip" | "channels"> & { master?: { genesis?: { dac: boolean } } }
+  song: Pick<Song, "chip" | "channels"> & {
+    master?: { genesis?: { dac: boolean } };
+  }
 ): readonly ChipChannel[] {
   if (song.chip !== "custom") {
     return hardwareChannels(song.chip, song.master);

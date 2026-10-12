@@ -1263,53 +1263,30 @@ export class Voice {
 
   /** Whether this voice is the Genesis DAC: a sample source on the YM2612's sixth channel in PCM mode. */
   isDac(): boolean {
-    return this.chipIdx === CI_GENESIS && this.src === SRC_SAMPLE && !this.isSfx;
+    return (
+      this.chipIdx === CI_GENESIS && this.src === SRC_SAMPLE && !this.isSfx
+    );
   }
 
-  /** Paula and the YM2612 DAC: each output frame takes the sample under the read position, no interpolation (the
-      aliasing is the sound). */
-  private renderSampleNearest(s: SampleRt, x: Float32Array, n: number): void {
-    const data = s.data;
-    const len = data.length;
-    let pos = this.samplePos;
-    const step = this.sampleStep;
-    for (let i = 0; i < n; i += 1) {
-      if (s.loops && pos >= s.loopEnd) {
-        pos = s.loopStart + (pos - s.loopEnd);
-      }
-      if (pos >= len) {
-        x[i] = 0;
-        pos += step;
-        if (!s.loops && this.sampleEndAt < 0) {
-          this.sampleEndAt = i;
-        }
-        continue;
-      }
-      x[i] = data[pos | 0] ?? 0;
-      pos += step;
-    }
-    this.samplePos = pos;
-  }
-
+  /** Play the sample into x. Paula and the YM2612 DAC take the sample under the read position, no interpolation (the
+      aliasing is the sound); the other chips interpolate linearly between two neighbours. */
   private renderSample(x: Float32Array, n: number): void {
     const s = this.sample;
     if (!s) {
       x.fill(0, 0, n);
       return;
     }
-    if (this.chipIdx === CI_AMIGA || this.chipIdx === CI_GENESIS) {
-      this.renderSampleNearest(s, x, n);
-      return;
-    }
-    const data = s.data;
-    const len = data.length;
+    const stepped = this.chipIdx === CI_AMIGA || this.chipIdx === CI_GENESIS;
+    const { data } = s;
+    // the last position that still has what the read needs: the frame itself, or its neighbour as well
+    const end = stepped ? data.length : data.length - 1;
     let pos = this.samplePos;
     const step = this.sampleStep;
     for (let i = 0; i < n; i += 1) {
       if (s.loops && pos >= s.loopEnd) {
         pos = s.loopStart + (pos - s.loopEnd);
       }
-      if (pos >= len - 1) {
+      if (pos >= end) {
         x[i] = 0;
         pos += step;
         if (!s.loops && this.sampleEndAt < 0) {
@@ -1317,11 +1294,13 @@ export class Voice {
         }
         continue;
       }
-      const k = Math.floor(pos);
-      const fr = pos - k;
-      const a = data[k] ?? 0;
-      const b = data[k + 1] ?? 0;
-      x[i] = a + (b - a) * fr;
+      if (stepped) {
+        x[i] = data[pos | 0] ?? 0;
+      } else {
+        const k = Math.floor(pos);
+        const a = data[k] ?? 0;
+        x[i] = a + ((data[k + 1] ?? 0) - a) * (pos - k);
+      }
       pos += step;
     }
     this.samplePos = pos;

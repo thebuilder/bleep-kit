@@ -8,7 +8,13 @@ import { choose } from "../lib/dom.ts";
 const DOC_PATH = /^(sfx|instruments|songs|samples)\/[^/]+\.json$/;
 const JSON_EXT = /\.json$/;
 
-export type FileKind = "project" | "sfx" | "instrument" | "song" | "sample" | "render";
+export type FileKind =
+  | "project"
+  | "sfx"
+  | "instrument"
+  | "song"
+  | "sample"
+  | "render";
 
 export interface FileEntry {
   etag: string;
@@ -102,8 +108,7 @@ const DIR_OF = {
 export const pathFor = (
   kind: "sfx" | "instrument" | "song" | "sample",
   id: string
-) =>
-  `${DIR_OF[kind]}/${id}.json`;
+) => `${DIR_OF[kind]}/${id}.json`;
 export const idOfPath = (path: string) =>
   (path.split("/").pop() ?? "").replace(JSON_EXT, "");
 

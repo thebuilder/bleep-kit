@@ -39,7 +39,6 @@ import { type Doc, project } from "../state/docs.ts";
 import { changeSongChip } from "../ui/change-chip.ts";
 import { deleteButton } from "../ui/delete-doc.ts";
 import { amigaFields } from "../ui/export-mod.ts";
-import { genesisFields } from "../ui/genesis-fields.ts";
 import {
   type Group,
   group,
@@ -48,6 +47,7 @@ import {
   textField,
   toggleField,
 } from "../ui/fields.ts";
+import { genesisFields } from "../ui/genesis-fields.ts";
 import { icon } from "../ui/icons.ts";
 import { showIssues } from "../ui/issues.ts";
 import { createPiano, keyToOffset } from "../ui/piano.ts";

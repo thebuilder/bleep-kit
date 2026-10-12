@@ -15,6 +15,7 @@ import {
   type Sfx,
   type Song,
   type UserSample,
+  usedSamples,
 } from "@bleepkit/core";
 import { CliError, type Ctx, closest } from "./output.ts";
 
@@ -641,14 +642,5 @@ export function samplesFor(
   pc: ProjectCtx,
   instruments: Record<string, Instrument>
 ): Record<string, UserSample> {
-  const all = pc.samples();
-  const out: Record<string, UserSample> = {};
-  for (const inst of Object.values(instruments)) {
-    const id = inst.sample?.userSample;
-    const sample = id === undefined ? undefined : all[id];
-    if (id !== undefined && sample) {
-      out[id] = sample;
-    }
-  }
-  return out;
+  return usedSamples(instruments, pc.samples());
 }

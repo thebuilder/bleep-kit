@@ -6,9 +6,9 @@ import type { Command, ViewHooks } from "../app.ts";
 import { app } from "../app.ts";
 import { engine } from "../engine/engine.ts";
 import { KIND_HEX } from "../lib/chips.ts";
-import type { EngineEvent, Instrument, UserSample } from "../lib/contract.ts";
+import type { Instrument, UserSample } from "../lib/contract.ts";
 import { chipProfile, noteName } from "../lib/core.ts";
-import { clamp, fire, h, prefs } from "../lib/dom.ts";
+import { clamp, fire, h } from "../lib/dom.ts";
 import {
   describeSample,
   floatsOf,
@@ -26,6 +26,7 @@ import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
 import { deleteButton } from "../ui/delete-doc.ts";
 import {
+  bindName,
   group,
   note,
   rangeField,
@@ -35,9 +36,9 @@ import {
 } from "../ui/fields.ts";
 import { icon } from "../ui/icons.ts";
 import { showIssues } from "../ui/issues.ts";
-import { createPiano, keyToOffset, LOWER_KEYS, UPPER_KEYS } from "../ui/piano.ts";
+import { createKeyboard } from "../ui/keyboard.ts";
 import { rgba, surface } from "../visuals/canvas.ts";
-import { addVisual, type Frame } from "../visuals/loop.ts";
+import { addVisual } from "../visuals/loop.ts";
 
 const HIT = 7;
 const LOOP_START = "#74c08f";
@@ -54,10 +55,8 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
     project.get<UserSample>("sample", id) as Doc<UserSample>;
   const sample = () => doc().value;
   const hex = KIND_HEX.sample;
-  let octave = prefs.get("kb-octave", 3);
   let sel: { a: number; b: number } | null = null;
   let drag: Drag | null = null;
-  const heldKeys = new Map<string, number>();
   const heldNotes = new Map<number, number>();
   /** The note being played, for the playhead on the waveform. */
   const playing = { note: -1, since: 0, until: 0 };
@@ -110,7 +109,11 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
 
   /* ----- the waveform ----- */
   const frameAt = (x: number): number =>
-    clamp(Math.round((x / Math.max(1, wave.w)) * framesOf(sample())), 0, framesOf(sample()));
+    clamp(
+      Math.round((x / Math.max(1, wave.w)) * framesOf(sample())),
+      0,
+      framesOf(sample())
+    );
   const xOf = (frame: number): number =>
     (frame / Math.max(1, framesOf(sample()))) * wave.w;
 
@@ -186,7 +189,7 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
 
   /* ----- pointer: select a part, drag the loop markers ----- */
   function hitMarker(x: number): "loopStart" | "loopEnd" | null {
-    const loop = sample().loop;
+    const { loop } = sample();
     if (!loop) {
       return null;
     }
@@ -307,12 +310,12 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
 
   function noteDown(n: number): void {
     heldNotes.set(n, startNote(n));
-    piano.light(n, hex, true);
+    kb.piano.light(n, hex, true);
     fire(engine.unlock());
   }
   function noteUp(n: number): void {
     stopNote(n);
-    piano.release(n);
+    kb.piano.release(n);
   }
 
   let playTimer: ReturnType<typeof setTimeout> | undefined;
@@ -322,51 +325,22 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
     noteUp(n);
     noteDown(n);
     clearTimeout(playTimer);
-    const seconds = Math.min(4, Math.max(0.3, s.loop ? 1.5 : framesOf(s) / s.rate));
+    const seconds = Math.min(
+      4,
+      Math.max(0.3, s.loop ? 1.5 : framesOf(s) / s.rate)
+    );
     playTimer = setTimeout(() => noteUp(n), seconds * 1000);
   }
 
   /* ----- keyboard ----- */
-  const labels = new Map<number, string>();
-  const relabel = () => {
-    labels.clear();
-    const lo = (octave + 1) * 12;
-    for (const [i, c] of (LOWER_KEYS + UPPER_KEYS).split("").entries()) {
-      labels.set(lo + i, c.toUpperCase());
-    }
-  };
-  relabel();
-  const kbCanvas = q<HTMLCanvasElement>("#sKeys");
-  const octEl = q("#sOct");
-  function makePiano() {
-    const lo = (octave + 1) * 12;
-    return createPiano(kbCanvas, {
-      hi: lo + 23,
-      label: (n) => labels.get(n) ?? null,
-      lo,
-      onDown: (n) => noteDown(n),
-      onUp: (n) => noteUp(n),
-    });
-  }
-  let piano = makePiano();
-  function setOctave(o: number): void {
-    octave = clamp(o, 1, 6);
-    prefs.set("kb-octave", octave);
-    octEl.textContent = String(octave);
-    piano.dispose();
-    relabel();
-    piano = makePiano();
-    piano.draw();
-  }
-  octEl.textContent = String(octave);
-  const onKeyUp = (e: KeyboardEvent) => {
-    const n = heldKeys.get(e.key.toLowerCase());
-    if (n !== undefined) {
-      heldKeys.delete(e.key.toLowerCase());
-      noteUp(n);
-    }
-  };
-  document.addEventListener("keyup", onKeyUp);
+  const kb = createKeyboard({
+    canvas: q<HTMLCanvasElement>("#sKeys"),
+    color: () => hex,
+    noteDown: (n) => noteDown(n),
+    noteUp: (n) => noteUp(n),
+    octaveLabel: q("#sOct"),
+    owns: (previewId) => previewId.startsWith("sample-preview:"),
+  });
 
   /* ----- the inspector ----- */
   const chipOf = () => project.project.chip;
@@ -405,7 +379,8 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
         showNote();
       },
       step: 1,
-      title: "Cents the sample sounds sharp (positive) or flat at its base note",
+      title:
+        "Cents the sample sounds sharp (positive) or flat at its base note",
       value: s.finetune,
     });
     const detect = h("button", {
@@ -417,7 +392,9 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
     detect.addEventListener("click", () => {
       const p = pitchOf(sample());
       if (!p) {
-        app.toast("No clear pitch found: noise and drums have none. Set the base note by hand.");
+        app.toast(
+          "No clear pitch found: noise and drums have none. Set the base note by hand."
+        );
         return;
       }
       edit((d) => {
@@ -503,9 +480,15 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
           value: s.loop.end,
         })
       );
-      note(g.body, "Frames. The part between the markers repeats while a note is held.");
+      note(
+        g.body,
+        "Frames. The part between the markers repeats while a note is held."
+      );
     } else {
-      note(g.body, "Off: the sample plays once. Select a part first to loop just that part.");
+      note(
+        g.body,
+        "Off: the sample plays once. Select a part first to loop just that part."
+      );
     }
     return g.el;
   }
@@ -580,7 +563,10 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
             {},
             h(
               "a",
-              { class: "linkish", href: `#/instrument/${encodeURIComponent(d.id)}` },
+              {
+                class: "linkish",
+                href: `#/instrument/${encodeURIComponent(d.id)}`,
+              },
               (d.value as Instrument).name || d.id
             )
           )
@@ -603,10 +589,8 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
       project.uniqueId("instrument", sample().name || id),
       inst
     );
-    app.toast(
-      `Made instrument ${created.id}`,
-      "Open",
-      () => app.navigate(`#/instrument/${encodeURIComponent(created.id)}`)
+    app.toast(`Made instrument ${created.id}`, "Open", () =>
+      app.navigate(`#/instrument/${encodeURIComponent(created.id)}`)
     );
     buildUsed();
   }
@@ -633,12 +617,11 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
   /* ----- wiring ----- */
   q("#sPlay").addEventListener("click", play);
   q("#sMake").addEventListener("click", () => fire(makeInstrument()));
-  q("#sOctDn").addEventListener("click", () => setOctave(octave - 1));
-  q("#sOctUp").addEventListener("click", () => setOctave(octave + 1));
-  nameIn.addEventListener("keydown", (e) => e.stopPropagation());
-  nameIn.addEventListener("input", () =>
+  q("#sOctDn").addEventListener("click", () => kb.shift(-1));
+  q("#sOctUp").addEventListener("click", () => kb.shift(1));
+  bindName(nameIn, (name) =>
     edit((d) => {
-      d.name = nameIn.value;
+      d.name = name;
     }, "name")
   );
 
@@ -666,34 +649,8 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
   });
 
   /* ----- visuals ----- */
-  const litOn = new Map<number, Set<number>>();
-  function lightKeys(f: Frame): void {
-    const lo = (octave + 1) * 12;
-    for (const ev of f.events as readonly EngineEvent[]) {
-      if (ev.channel < 0) {
-        continue;
-      }
-      if (ev.type === "noteOff") {
-        for (const n of litOn.get(ev.channel) ?? []) {
-          piano.release(n, f.time);
-        }
-        litOn.delete(ev.channel);
-      } else if (ev.type === "noteOn" && ev.id.startsWith("sample-preview:")) {
-        const n = Math.round(ev.note);
-        if (n >= lo && n < lo + 24) {
-          piano.light(n, hex, true, f.time);
-          const keys = litOn.get(ev.channel) ?? new Set<number>();
-          keys.add(n);
-          litOn.set(ev.channel, keys);
-        }
-      }
-    }
-  }
   const offVisual = addVisual((f) => {
-    lightKeys(f);
-    if (piano.busy(f.time) || f.reduced) {
-      piano.draw(f.time);
-    }
+    kb.frame(f);
     if (playing.note >= 0) {
       draw();
       drawPlayhead(performance.now());
@@ -705,14 +662,13 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
   });
 
   rebuild();
-  piano.draw();
+  kb.piano.draw();
   ctx.cleanup(() => {
     offVisual();
     unsub();
     clearTimeout(playTimer);
     wave.dispose();
-    document.removeEventListener("keyup", onKeyUp);
-    piano.dispose();
+    kb.dispose();
     for (const n of [...heldNotes.keys()]) {
       stopNote(n);
     }
@@ -741,31 +697,7 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
     chip: () => chipOf(),
     commands,
     doc: () => doc(),
-    onKey(e) {
-      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) {
-        return false;
-      }
-      if (e.key === "-") {
-        setOctave(octave - 1);
-        return true;
-      }
-      if (e.key === "=" || e.key === "+") {
-        setOctave(octave + 1);
-        return true;
-      }
-      const off = keyToOffset(e.key);
-      if (off === null || e.key.length !== 1 || off >= 24) {
-        return false;
-      }
-      const lower = e.key.toLowerCase();
-      if (heldKeys.has(lower)) {
-        return true;
-      }
-      const n = (octave + 1) * 12 + off;
-      heldKeys.set(lower, n);
-      noteDown(n);
-      return true;
-    },
+    onKey: kb.onKey,
     play,
     stop: stopEverything,
   };

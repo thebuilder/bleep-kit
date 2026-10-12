@@ -9,11 +9,7 @@ import type {
   Sfx,
   Song,
 } from "../lib/contract.ts";
-import {
-  captureSample,
-  noteName,
-  renderInstrumentNote,
-} from "../lib/core.ts";
+import { captureSample, noteName, renderInstrumentNote } from "../lib/core.ts";
 import { fire, h } from "../lib/dom.ts";
 import { renderSfxAsync, renderSongAsync } from "../render-service.ts";
 import { type Doc, project } from "../state/docs.ts";
@@ -45,7 +41,7 @@ const chipFor = (chip: ChipId): ChipId | null =>
   chip === "custom" ? null : chip;
 
 /** Render a document the way the studio plays it. */
-export function renderForResample(
+function renderForResample(
   doc: Doc,
   opts: ResampleOpts
 ): Promise<RenderResult> {
@@ -121,7 +117,7 @@ export function openResample(
     { id: "rsRate" },
     ...RATES.map((r) => h("option", { value: r.value }, r.label))
   ) as HTMLSelectElement;
-  const chip = project.project.chip;
+  const { chip } = project.project;
   const hint =
     chip === "amiga" || chip === "genesis"
       ? "This chip stores samples at 8 bit already."

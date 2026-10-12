@@ -1,9 +1,9 @@
-/* User samples (architecture.md section 2.9): the PCM inside samples/<id>.json is base64 text, because the engine runs in
+/* User samples (architecture.md section 2.10): the PCM inside samples/<id>.json is base64 text, because the engine runs in
    an AudioWorklet where there is no atob or Buffer. Everything here is pure: base64, PCM conversion, resampling, the
    small edits the studio's sample editor makes (trim, normalize, 8 bit) and the import rates per chip. */
 
 import { GENESIS_DAC_RATE } from "../chips/genesis.ts";
-import type { ChipId, UserSample } from "../types.ts";
+import type { ChipId, Instrument, UserSample } from "../types.ts";
 import { FORMAT_VERSION, SAMPLE_MAX_BYTES } from "../types.ts";
 
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -12,35 +12,54 @@ for (let i = 0; i < B64.length; i += 1) {
   B64_LOOKUP[B64.charCodeAt(i)] = i;
 }
 
+const sextet = (n: number, shift: number): string =>
+  B64[(n >> shift) & 63] ?? "";
+
+/** The base64 text of bytes [from, to): whole groups of three, then the padded tail. */
+function encodeRun(bytes: Uint8Array, from: number, to: number): string {
+  let s = "";
+  let i = from;
+  for (; i + 2 < to; i += 3) {
+    const n =
+      ((bytes[i] ?? 0) << 16) |
+      ((bytes[i + 1] ?? 0) << 8) |
+      (bytes[i + 2] ?? 0);
+    s += sextet(n, 18) + sextet(n, 12) + sextet(n, 6) + sextet(n, 0);
+  }
+  if (to - i === 1) {
+    const n = (bytes[i] ?? 0) << 16;
+    s += `${sextet(n, 18)}${sextet(n, 12)}==`;
+  } else if (to - i === 2) {
+    const n = ((bytes[i] ?? 0) << 16) | ((bytes[i + 1] ?? 0) << 8);
+    s += `${sextet(n, 18)}${sextet(n, 12)}${sextet(n, 6)}=`;
+  }
+  return s;
+}
+
 /** Standard base64 with padding. */
 export function bytesToBase64(bytes: Uint8Array): string {
   const parts: string[] = [];
   const chunk = 3 * 8192;
   for (let o = 0; o < bytes.length; o += chunk) {
-    const end = Math.min(bytes.length, o + chunk);
-    let s = "";
-    let i = o;
-    for (; i + 2 < end; i += 3) {
-      const n =
-        ((bytes[i] ?? 0) << 16) |
-        ((bytes[i + 1] ?? 0) << 8) |
-        (bytes[i + 2] ?? 0);
-      s +=
-        (B64[(n >> 18) & 63] ?? "") +
-        (B64[(n >> 12) & 63] ?? "") +
-        (B64[(n >> 6) & 63] ?? "") +
-        (B64[n & 63] ?? "");
-    }
-    if (end - i === 1) {
-      const n = (bytes[i] ?? 0) << 16;
-      s += `${B64[(n >> 18) & 63] ?? ""}${B64[(n >> 12) & 63] ?? ""}==`;
-    } else if (end - i === 2) {
-      const n = ((bytes[i] ?? 0) << 16) | ((bytes[i + 1] ?? 0) << 8);
-      s += `${B64[(n >> 18) & 63] ?? ""}${B64[(n >> 12) & 63] ?? ""}${B64[(n >> 6) & 63] ?? ""}=`;
-    }
-    parts.push(s);
+    parts.push(encodeRun(bytes, o, Math.min(bytes.length, o + chunk)));
   }
   return parts.join("");
+}
+
+/** The user samples some sample instrument of the set plays, by id: what a render or an export needs of `all`. */
+export function usedSamples(
+  instruments: Record<string, Instrument>,
+  all: Record<string, UserSample>
+): Record<string, UserSample> {
+  const out: Record<string, UserSample> = {};
+  for (const inst of Object.values(instruments)) {
+    const id = inst.sample?.userSample;
+    const sample = id === undefined ? undefined : all[id];
+    if (id !== undefined && sample) {
+      out[id] = sample;
+    }
+  }
+  return out;
 }
 
 const B64_SHAPE = /^[A-Za-z0-9+/]*={0,2}$/;

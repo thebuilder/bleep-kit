@@ -44,9 +44,9 @@ describe("the bundled examples", () => {
     expect(Object.keys(catalog.instruments).sort()).toEqual(
       idsIn("instruments")
     );
-    // six songs, one per chip, and the 22 sound effects the demo documents
-    expect(catalog.songs).toHaveLength(6);
-    expect(new Set(catalog.songs.map((s) => s.chip)).size).toBe(6);
+    // seven songs, one per chip, and the 22 sound effects the demo documents
+    expect(catalog.songs).toHaveLength(7);
+    expect(new Set(catalog.songs.map((s) => s.chip)).size).toBe(7);
     expect(catalog.sfx).toHaveLength(22);
   });
 
@@ -214,7 +214,12 @@ describe("copying with clashing ids", () => {
       Object.keys(catalog.instruments).length
     );
     expect(all.docs.filter((d) => d.kind === "sfx")).toHaveLength(22);
-    expect(all.docs.filter((d) => d.kind === "song")).toHaveLength(6);
+    expect(all.docs.filter((d) => d.kind === "song")).toHaveLength(7);
+    // the Amiga song's own recordings travel with it
+    expect(all.docs.filter((d) => d.kind === "sample")).toHaveLength(
+      Object.keys(catalog.samples).length
+    );
+    expect(Object.keys(catalog.samples).length).toBeGreaterThan(0);
   });
 });
 

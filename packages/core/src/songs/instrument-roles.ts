@@ -52,7 +52,7 @@ export function roleHint(id: string, name: string): Role | null {
 }
 
 /** The sample generators that make drums, in the order the kit is listed. */
-export const DRUM_GENERATORS = [
+const DRUM_GENERATORS = [
   "kick",
   "snare",
   "hat",

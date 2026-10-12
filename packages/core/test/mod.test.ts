@@ -1,9 +1,10 @@
-/* ProTracker MOD reading, import and export (architecture.md section 2.10), from a module built byte by byte. */
+/* ProTracker MOD reading, import and export (architecture.md section 2.11), from a module built byte by byte. */
 
 import { describe, expect, it } from "vitest";
 import {
   AMIGA_CLOCK_HZ,
   base64ToBytes,
+  compileSong,
   modToSong,
   parseMod,
   renderSong,
@@ -321,6 +322,85 @@ describe("songToMod", () => {
     const ch1 =
       again.song.patterns[again.song.order[0] ?? ""]?.tracks.ch1 ?? [];
     expect(ch1.map((r) => r.note).filter((n) => n !== null)).toEqual([36, 41]);
+  });
+
+  it("says when an instrument's attack or decay envelope cannot be held by a MOD, and stays quiet for a flat one", () => {
+    const imp = modToSong(build(SIMPLE), { id: "hand" });
+    const [id] = Object.keys(imp.instruments);
+    const flat = songToMod(imp.song, imp.instruments, imp.samples);
+    expect(flat.issues.some((i) => i.message.includes("envelope"))).toBe(false);
+    const inst = imp.instruments[id ?? ""];
+    expect(inst).toBeDefined();
+    if (inst) {
+      inst.envelope = { ...inst.envelope, attack: 0, decay: 0.3, sustain: 0.5 };
+    }
+    const shaped = songToMod(imp.song, imp.instruments, imp.samples);
+    expect(
+      shaped.issues.find((i) => i.message.includes("envelope"))?.severity
+    ).toBe("warning");
+  });
+
+  it("keeps the length of a song with speed and tempo changes, and writes both again where a loop restarts", () => {
+    const first = modToSong(
+      build({
+        cells: [
+          [
+            {
+              channel: 0,
+              effect: 15,
+              param: 3,
+              period: 428,
+              row: 0,
+              sample: 1,
+            },
+            { channel: 1, effect: 15, param: 150, row: 0 },
+            {
+              channel: 0,
+              effect: 15,
+              param: 6,
+              period: 428,
+              row: 16,
+              sample: 1,
+            },
+            { channel: 1, effect: 15, param: 100, row: 24 },
+            { channel: 2, effect: 13, param: 0x32, row: 40 },
+          ],
+          [{ channel: 0, period: 214, row: 0, sample: 1 }],
+        ],
+        order: [0, 1],
+        restart: 0,
+      }),
+      { id: "tempi" }
+    );
+    const seconds = (
+      song: typeof first.song,
+      ins: typeof first.instruments
+    ) => {
+      const tl = compileSong(song, ins);
+      let at = 0;
+      let total = 0;
+      let bpm = tl.tempos[0]?.[1] ?? song.tempo;
+      for (const [pulse, next] of [
+        ...tl.tempos.slice(1),
+        [tl.totalPulses, 0],
+      ] as [number, number][]) {
+        total += ((pulse - at) / 96) * (60 / bpm);
+        at = pulse;
+        bpm = next || bpm;
+      }
+      return total;
+    };
+    const out = songToMod(first.song, first.instruments, first.samples);
+    expect(out.bytes).not.toBeNull();
+    const back = modToSong(out.bytes ?? new Uint8Array(0), { id: "tempi" });
+    const want = seconds(first.song, first.instruments);
+    expect(
+      Math.abs(seconds(back.song, back.instruments) - want) / want
+    ).toBeLessThan(0.002);
+    // the song starts (and so restarts) with its own speed and BPM, in two cells of the first row
+    const { file } = parseMod(out.bytes ?? new Uint8Array(0));
+    const row0 = file?.patterns[file.order[0] ?? 0]?.[0] ?? [];
+    expect(row0.filter((c) => c.effect === 15).length).toBe(2);
   });
 
   it("refuses songs of other chips with a message", () => {

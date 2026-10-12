@@ -6,7 +6,6 @@ export {
   modToSong,
 } from "./import.ts";
 export {
-  channelsOfTag,
   type ModCell,
   type ModFile,
   type ModParse,

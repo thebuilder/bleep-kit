@@ -13,6 +13,12 @@ import type {
   UserSample,
 } from "../lib/contract.ts";
 import { fire } from "../lib/dom.ts";
+import { EventQueue } from "./event-queue.ts";
+import {
+  type RebuildReason,
+  type Recovery,
+  watchRecovery,
+} from "./recovery.ts";
 import type { EngineNodeLike } from "./types.ts";
 
 /* The worklet bundle is built by `pnpm --filter @bleepkit/player build:worklet`; until it exists the glob is empty. */
@@ -52,7 +58,7 @@ class Engine {
   position: SongPosition | null = null;
   /** Engine frame the playing song counted from (for the time display), and the song's tempo. */
   private readonly listeners = new Set<() => void>();
-  private readonly queue: EngineEvent[] = [];
+  private readonly queue = new EventQueue();
   private readonly local: EngineEvent[] = [];
   private readonly sfxKeys = new Map<string, string>();
   private readonly instKeys = new Map<string, string>();
@@ -71,27 +77,77 @@ class Engine {
   private handle = 0;
   private offNode: (() => void) | null = null;
   private tempo = 120;
+  /** The page is hidden: nobody draws, so events are not collected (see recovery.ts). */
+  private hidden = false as boolean;
+  private recovery: Recovery | null = null;
+  /** What the worklet was told besides documents, so a rebuilt engine can be told again. */
+  private loadedSong: {
+    instruments: Record<string, Instrument>;
+    song: Song;
+  } | null = null;
+  private playOpts: { loop?: boolean } = {};
+  private masterOpts: { volume?: number; limiter?: boolean } = {};
+  private readonly channelOpts = new Map<
+    number,
+    { muted?: boolean; solo?: boolean; volume?: number; pan?: number }
+  >();
+  /** How often the context and engine were rebuilt because they could not be trusted any more, and the last reason. */
+  rebuilds = 0;
+  lastRebuild: RebuildReason | null = null;
 
   /** Create the context and the engine node. Safe to call once; the context stays suspended until a gesture. */
   async init(opts: { fake?: boolean } = {}): Promise<void> {
     const wantFake =
       opts.fake ??
       new URLSearchParams(location.search).get("engine") === "fake";
+    await this.open(wantFake);
+    if (!this.fake && typeof document !== "undefined") {
+      this.recovery = watchRecovery(
+        {
+          contextRate: () => this.ctx?.sampleRate ?? this.sampleRate,
+          contextState: () => this.contextState(),
+          hide: () => this.hide(),
+          probeRate: () => this.probeRate(),
+          rebuild: (reason) => this.rebuild(reason),
+          show: () => this.show(),
+        },
+        {
+          devices:
+            typeof navigator === "undefined"
+              ? null
+              : (navigator.mediaDevices ?? null),
+          doc: document,
+          now: () => performance.now(),
+          win: window,
+        }
+      );
+      this.recovery.reset(this.contextState());
+    }
+  }
+
+  private contextState(): string {
+    return this.ctx?.state ?? "closed";
+  }
+
+  /** Make the context and the engine node. Also what a rebuild runs, so it must start from nothing. */
+  private async open(wantFake: boolean): Promise<void> {
     const Ctor = typeof AudioContext === "undefined" ? null : AudioContext;
     try {
       this.ctx = Ctor ? new Ctor({ latencyHint: "interactive" }) : null;
     } catch {
       this.ctx = null;
     }
-    this.sampleRate = this.ctx?.sampleRate ?? 48_000;
-    if (!wantFake && this.ctx && WORKLET_URL) {
+    const { ctx } = this;
+    this.sampleRate = ctx?.sampleRate ?? 48_000;
+    this.node = null;
+    if (!wantFake && ctx && WORKLET_URL) {
       try {
-        const real = await createEngineNode(this.ctx, {
+        const real = await createEngineNode(ctx, {
           workletUrl: WORKLET_URL,
         });
         // createEngineNode leaves routing to the caller (the game player goes through its volume buses), so the
         // studio wires the engine straight to the speakers
-        real.node.connect(this.ctx.destination);
+        real.node.connect(ctx.destination);
         this.node = real;
         this.fake = false;
       } catch (err) {
@@ -100,12 +156,139 @@ class Engine {
       }
     }
     if (!this.node) {
-      this.node = createFakeEngine(this.ctx);
+      this.node = createFakeEngine(ctx);
       this.fake = true;
     }
     this.offNode = this.node.on((msg) => this.onMessage(msg));
-    this.ctx?.addEventListener("statechange", () => this.syncStatus());
+    ctx?.addEventListener("statechange", () => {
+      if (ctx === this.ctx) {
+        this.syncStatus();
+        this.recovery?.onContextState(ctx.state);
+      }
+    });
+    if (this.hidden) {
+      this.node.setActive?.(false);
+    }
     this.syncStatus();
+  }
+
+  /* ----- a page that is hidden, and a context that cannot be trusted ----- */
+
+  /** The page is hidden: the visuals loop is not running, so nothing would take events out. Stop collecting them and
+   *  tell the worklet to stop posting them (it keeps a slow clock going). */
+  private hide(): void {
+    this.hidden = true;
+    this.queue.clear();
+    this.local.length = 0;
+    this.node?.setActive?.(false);
+  }
+
+  /** The page is visible again: what piled up while it was away is stale, and the clock has to be fetched afresh. */
+  private show(): void {
+    this.hidden = false;
+    this.queue.clear();
+    this.local.length = 0;
+    this.node?.setActive?.(true);
+  }
+
+  /** The sample rate a context made now would run at: the speakers' own, which can differ from this one's after the
+   *  output device changed under a page that stayed open. */
+  private async probeRate(): Promise<number | null> {
+    if (typeof AudioContext === "undefined") {
+      return null;
+    }
+    try {
+      const probe = new AudioContext({ latencyHint: "interactive" });
+      const { sampleRate } = probe;
+      await probe.close();
+      return sampleRate;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Throw the context and the engine node away and make new ones, then give the new engine what the old one held: the
+   * loaded song with its samples, the master and channel settings, and the song position if it was playing. Sounds and
+   * instruments are uploaded again the next time they are used (their keys are forgotten). What cannot be carried
+   * over is a held note.
+   */
+  async rebuild(reason: RebuildReason): Promise<void> {
+    if (this.fake) {
+      return;
+    }
+    const kept = {
+      loop: this.playOpts.loop,
+      playing: this.playing,
+      position: this.position,
+      song: this.loadedSong,
+      songId: this.songId,
+    };
+    this.offNode?.();
+    this.offNode = null;
+    const old = this.ctx;
+    this.node?.dispose();
+    this.node = null;
+    this.ctx = null;
+    if (old) {
+      fire(old.close());
+    }
+    this.songKey = "";
+    this.songFresh = false;
+    this.playing = false;
+    this.position = null;
+    this.queue.clear();
+    this.local.length = 0;
+    this.sfxKeys.clear();
+    this.instKeys.clear();
+    this.sampleRefs.clear();
+    this.error = "";
+    await this.open(false);
+    this.recovery?.reset(this.contextState());
+    this.restore(kept);
+    this.rebuilds += 1;
+    this.lastRebuild = reason;
+    this.emit();
+  }
+
+  /** Tell a new engine what the old one held (see `rebuild`). */
+  private restore(kept: {
+    loop: boolean | undefined;
+    playing: boolean;
+    position: SongPosition | null;
+    song: { instruments: Record<string, Instrument>; song: Song } | null;
+    songId: string;
+  }): void {
+    const { node } = this;
+    if (!node) {
+      return;
+    }
+    if (kept.song) {
+      this.songId = kept.songId;
+      this.ensureSamplesOf(Object.values(kept.song.instruments));
+      this.pushSong(kept.song.song, kept.song.instruments);
+      this.songFresh = false;
+      if (this.tempo !== kept.song.song.tempo) {
+        node.send({ tempo: this.tempo, type: "setTempo" });
+      }
+    }
+    if (Object.keys(this.masterOpts).length > 0) {
+      node.send({ type: "setMaster", ...this.masterOpts });
+    }
+    for (const [channel, opts] of this.channelOpts) {
+      node.send({ channel, type: "setChannel", ...opts });
+    }
+    if (!kept.song) {
+      return;
+    }
+    if (kept.playing) {
+      this.playSong({
+        ...(kept.loop === undefined ? {} : { loop: kept.loop }),
+        ...(kept.position
+          ? { order: kept.position.order, row: kept.position.row }
+          : {}),
+      });
+    }
   }
 
   private syncStatus(): void {
@@ -134,14 +317,10 @@ class Engine {
   private onMessage(msg: import("../lib/contract.ts").FromWorklet): void {
     switch (msg.type) {
       case "events":
-        for (const e of msg.events) {
-          // sounds the studio triggers announce themselves at once (see triggerSfx), so the engine's copy is dropped
-          if (e.type !== "trigger") {
-            this.queue.push({ ...e });
-          }
-        }
-        if (this.queue.length > 4000) {
-          this.queue.splice(0, this.queue.length - 2000);
+        // sounds the studio triggers announce themselves at once (see triggerSfx), so the engine's copy is dropped;
+        // while the page is hidden nothing would ever take the events out
+        if (!this.hidden) {
+          this.queue.push(msg.events.filter((e) => e.type !== "trigger"));
         }
         break;
       case "clock": {
@@ -255,20 +434,16 @@ class Engine {
       out.push(...this.local.splice(0));
     }
     if (this.queue.length) {
-      const now = this.nowFrame();
-      let n = 0;
-      while (n < this.queue.length && (this.queue[n]?.frame ?? 0) <= now) {
-        n += 1;
-      }
-      if (n) {
-        out.push(...this.queue.splice(0, n));
-      }
+      out.push(...this.queue.takeDue(this.nowFrame()));
     }
     return out;
   }
 
   /** Announce an event to the visuals right now (a pad press does not wait for the worklet). */
   announce(e: Partial<EngineEvent> & { type: EngineEvent["type"] }): void {
+    if (this.hidden) {
+      return;
+    }
     this.local.push({
       channel: -1,
       channelId: "",
@@ -334,8 +509,8 @@ class Engine {
     this.tempo = song.tempo;
     this.songId = songId;
     if (key !== this.songKey) {
-      this.songKey = key;
-      this.node.send({ instruments, song, type: "loadSong" });
+      this.channelOpts.clear();
+      this.pushSong(song, instruments, key);
       // a new song starts stopped at its top, whatever the last one was doing
       this.songFresh = true;
       this.position = null;
@@ -343,11 +518,22 @@ class Engine {
         this.playing = false;
         this.emit();
       }
-      // the worklet drops every instrument it held and keeps exactly the ones the song came with
-      this.instKeys.clear();
-      for (const [id, inst] of Object.entries(instruments)) {
-        this.instKeys.set(id, JSON.stringify(inst));
-      }
+    }
+  }
+
+  /** Send a song to the worklet and remember it (a rebuilt engine is given it again). */
+  private pushSong(
+    song: Song,
+    instruments: Record<string, Instrument>,
+    key = JSON.stringify([song, instruments])
+  ): void {
+    this.songKey = key;
+    this.loadedSong = { instruments, song };
+    this.node?.send({ instruments, song, type: "loadSong" });
+    // the worklet drops every instrument it held and keeps exactly the ones the song came with
+    this.instKeys.clear();
+    for (const [id, inst] of Object.entries(instruments)) {
+      this.instKeys.set(id, JSON.stringify(inst));
     }
   }
 
@@ -364,11 +550,14 @@ class Engine {
     this.node?.send({ type: "unloadSong" });
     this.songKey = "";
     this.songId = "";
+    this.loadedSong = null;
+    this.channelOpts.clear();
     this.instKeys.clear();
   }
 
   playSong(opts: { order?: number; row?: number; loop?: boolean } = {}): void {
     this.songFresh = false;
+    this.playOpts = opts.loop === undefined ? {} : { loop: opts.loop };
     this.node?.send({ type: "play", ...opts });
     this.playing = true;
     this.emit();
@@ -400,10 +589,15 @@ class Engine {
     channel: number,
     opts: { muted?: boolean; solo?: boolean; volume?: number; pan?: number }
   ): void {
+    this.channelOpts.set(channel, {
+      ...this.channelOpts.get(channel),
+      ...opts,
+    });
     this.node?.send({ channel, type: "setChannel", ...opts });
   }
 
   setMaster(opts: { volume?: number; limiter?: boolean }): void {
+    this.masterOpts = { ...this.masterOpts, ...opts };
     this.node?.send({ type: "setMaster", ...opts });
   }
 
@@ -485,6 +679,7 @@ class Engine {
   }
 
   dispose(): void {
+    this.recovery?.dispose();
     this.offNode?.();
     this.node?.dispose();
     if (this.ctx) {

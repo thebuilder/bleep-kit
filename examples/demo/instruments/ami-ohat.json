@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "name": "Amiga hat (909, open)",
+  "kind": "sample",
+  "chip": "amiga",
+  "volume": 1.0,
+  "sample": {
+    "generator": "hat909",
+    "params": {
+      "open": 0.55
+    },
+    "seed": 8,
+    "baseNote": 60,
+    "loop": false
+  },
+  "envelope": {
+    "attack": 0,
+    "decay": 0,
+    "sustain": 1,
+    "release": 0.01
+  }
+}

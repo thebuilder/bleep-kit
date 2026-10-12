@@ -112,7 +112,7 @@ const instrument = `INSTRUMENT  instruments/<id>.json
     "params": {}, "seed": 3, "baseNote": 60, "loop": false }
   user sample: "sample": { ..., "userSample": "<id of samples/<id>.json>" } plays the person's own recording (the
     generator fields are then ignored; the sample's base note, loop, finetune and volume apply). Sample instruments play
-    on amiga, snes and custom. You never see the audio: list_samples / read_sample show the metadata and
+    on amiga, snes and custom, and on fm6 of a genesis song with master.genesis.dac. You never see the audio: list_samples / read_sample show the metadata and
     set_instrument_sample points an instrument at a sample. The person imports samples in the studio (WAV, MP3, OGG) or with
     \`bleepkit import sample file.wav\` (WAV only).
   sid patch: { "waveforms": ["tri"|"saw"|"pulse"|"noise", ...], "pulseWidth": 0..1, "pwmRate": 0..20, "pwmDepth": 0..1,
@@ -136,6 +136,9 @@ const song = `SONG  songs/<id>.json
   patterns: length 1..256 rows; tracks are sparse row lists per channel id, sorted by row.
   order: pattern ids in play order. loop: order index to loop back to after the last one, or null to play once.
   A song with every channel in MML may have "patterns": {} and "order": [].
+  master (chip specific): amiga songs: "amiga": { "separation": 0..1 (1 hard left/right, 0 mono), "model": "a500"|"a1200" (a500 has
+    the fixed 4.4 kHz lowpass), "led": false (the LED filter at the start; Exx switches it) }; genesis songs: "genesis": { "dac": true }
+    makes fm6 play sample instruments (8 bit PCM, 8 to 26 kHz) instead of FM.
 Start with \`bleepkit new song <id> --mml 'pulse1=o4 l8 cdefgab>c'\` and edit.`;
 
 const rows = `ROWS  pattern rows in a song (compact string form or typed object)
@@ -228,5 +231,6 @@ Have a ProTracker module? bleepkit import song.mod   makes songs/song.json for a
 sample instrument per used sample and samples/<id>.json for each; the report lists effects that were converted and ones
 that could not be. An amiga song goes back out with bleepkit export mod song/<id> (what does not fit is reported).
 Have a recording? bleepkit import sample hit.wav --base-note C-4   makes samples/hit.json (resampled and 8 bit for amiga),
-then point a sample instrument at it. MP3 and OGG are imported in the studio.
+then point a sample instrument at it. MP3 and OGG are imported in the studio. bleepkit resample sfx/<id> --chip amiga
+records any sfx, song or instrument note as a sample (--bits 8 --rate 11025 for the old sampler crunch).
 Every command has an example: bleepkit <command> --help.`;

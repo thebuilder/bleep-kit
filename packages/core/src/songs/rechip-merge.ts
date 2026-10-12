@@ -14,7 +14,7 @@ export const FULL_VOLUME = 15;
 const MAX_FX = 4;
 
 /** Every note row gets its instrument and volume written out, so rows of two channels can be mixed without inheriting wrong. */
-export function bakeState(
+function bakeState(
   rows: readonly Row[],
   entry: PlayState
 ): { exit: PlayState; rows: Row[] } {
@@ -33,7 +33,7 @@ export function bakeState(
 }
 
 /** The state each pattern starts in, following the order (the first time a pattern is reached decides). */
-export function entryStates(
+function entryStates(
   order: readonly string[],
   tracks: ReadonlyMap<string, readonly Row[]>,
   start: PlayState
@@ -92,7 +92,7 @@ function writeAdded(
 }
 
 /** The rows of one pattern with the part's notes written into the host's rests. */
-export function fillIn(
+function fillIn(
   host: readonly Row[],
   part: readonly Row[],
   length: number

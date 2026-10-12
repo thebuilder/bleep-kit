@@ -1,4 +1,4 @@
-/* MOD import (architecture.md section 2.10): a ProTracker module becomes an amiga song, one sample instrument per
+/* MOD import (architecture.md section 2.11): a ProTracker module becomes an amiga song, one sample instrument per
    used sample and the samples themselves. Timing is converted so the song lasts as long as the module does: a row of
    `speed` ticks at `BPM` lasts speed * 2.5 / BPM seconds, a Bleepkit row 60 / (tempo * rowsPerBeat). Effects are
    mapped to Bleepkit's table with their units converted; what has no counterpart is counted in a warning. */

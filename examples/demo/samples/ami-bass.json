@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "name": "Amiga bass (saw, 128 frames)",
+  "rate": 8287,
+  "baseNote": 36,
+  "finetune": -18,
+  "volume": 1.0,
+  "loop": {
+    "start": 0,
+    "end": 128
+  },
+  "bits": 8,
+  "data": "ZGNiYWBfXVxbWllYV1ZVVFJRUE9OTUxLSklIRkVEQ0JBQD8+PTw6OTg3NjU0MzIxMC4tLCsqKSgnJiUjIiEgH+Lh4N/e3dva2djX1tXU09LQz87NzMvKycjHxsTDwsHAv769vLu6uLe2tbSzsrGwr66sq6qpqKempaSjoaCfnp0="
+}

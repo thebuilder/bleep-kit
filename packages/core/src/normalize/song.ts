@@ -134,7 +134,11 @@ function fixedKindCheck(
 }
 
 /** What to say when the Genesis DAC switch is why an instrument does not fit fm6. */
-function dacHint(chip: ChipId, channel: ChannelInfo, kind: ChannelKind): string {
+function dacHint(
+  chip: ChipId,
+  channel: ChannelInfo,
+  kind: ChannelKind
+): string {
   if (chip !== "genesis" || channel.id !== "fm6") {
     return "";
   }
@@ -152,7 +156,10 @@ interface ChannelList {
 }
 
 /** The chip's default channels, used when the document has none that survive validation. */
-function defaultChannels(chip: ChipId, hw: readonly ChipChannel[]): ChannelList {
+function defaultChannels(
+  chip: ChipId,
+  hw: readonly ChipChannel[]
+): ChannelList {
   const channels: SongChannel[] = [];
   const infos: ChannelInfo[] = [];
   for (const [i, c] of defaultSong(chip).channels.entries()) {
@@ -299,15 +306,7 @@ function readChannels(
     if (id === null) {
       continue;
     }
-    const kind = resolveChannelKind(
-      ctx,
-      c,
-      id,
-      p,
-      chip,
-      hw,
-      channels.length
-    );
+    const kind = resolveChannelKind(ctx, c, id, p, chip, hw, channels.length);
     if (kind === null) {
       continue;
     }
@@ -1028,7 +1027,11 @@ function readGenesis(ctx: Ctx, doc: Rec, chip: ChipId): GenesisSettings | null {
   dropUnknown(ctx, g, "/master/genesis", ["dac"]);
   const { dac } = g;
   if (dac !== undefined && typeof dac !== "boolean") {
-    error(ctx, "/master/genesis/dac", `must be true or false (was ${show(dac)})`);
+    error(
+      ctx,
+      "/master/genesis/dac",
+      `must be true or false (was ${show(dac)})`
+    );
   }
   return dac === true ? { dac: true } : null;
 }
@@ -1373,11 +1376,6 @@ type Measure = (
 const notePeriod: Measure = (inst, ref, note) =>
   exactPeriod(noteRate(inst, ref, note));
 
-/**
- * Paula plays periods 113 to 856 (ProTracker's three octaves). The engine plays one octave more each way, so a note
- * outside the standard range is allowed, with one warning per instrument that says how far it goes. Only instruments
- * whose sample is known (generated ones, and user samples when `samples` is given) can be checked.
- */
 /** Track the lowest and highest period each instrument plays on one channel's rows. */
 function trackSpans(
   spans: Map<string, PeriodSpan>,
@@ -1409,6 +1407,46 @@ function trackSpans(
   }
 }
 
+/** The lowest and highest value `measure` gives each instrument over the tracks of `only` (every track when null). */
+function collectSpans(
+  from: {
+    channels: SongChannel[];
+    instruments: Record<string, Instrument>;
+    only: string | null;
+    patterns: Record<string, Pattern>;
+    samples: Record<string, SampleMeta> | undefined;
+  },
+  measure: Measure,
+  generatedRate: number
+): Map<string, PeriodSpan> {
+  const spans = new Map<string, PeriodSpan>();
+  for (const [pid, pat] of Object.entries(from.patterns)) {
+    for (const [chId, rows] of Object.entries(pat.tracks)) {
+      if (from.only !== null && chId !== from.only) {
+        continue;
+      }
+      const first =
+        from.channels.find((c) => c.id === chId)?.instrument ?? null;
+      trackSpans(
+        spans,
+        { chId, pid },
+        rows,
+        first,
+        from.instruments,
+        from.samples,
+        measure,
+        generatedRate
+      );
+    }
+  }
+  return spans;
+}
+
+/**
+ * Paula plays periods 113 to 856 (ProTracker's three octaves). The engine plays one octave more each way, so a note
+ * outside the standard range is allowed, with one warning per instrument that says how far it goes. Only instruments
+ * whose sample is known (generated ones, and user samples when `samples` is given) can be checked.
+ */
 function amigaRangeWarnings(
   ctx: Ctx,
   channels: SongChannel[],
@@ -1419,22 +1457,11 @@ function amigaRangeWarnings(
   if (!instruments) {
     return;
   }
-  const spans = new Map<string, PeriodSpan>();
-  for (const [pid, pat] of Object.entries(patterns)) {
-    for (const [chId, rows] of Object.entries(pat.tracks)) {
-      const first = channels.find((c) => c.id === chId)?.instrument ?? null;
-      trackSpans(
-        spans,
-        { chId, pid },
-        rows,
-        first,
-        instruments,
-        samples,
-        notePeriod,
-        CHIPS.amiga.sampleRate ?? 11_084
-      );
-    }
-  }
+  const spans = collectSpans(
+    { channels, instruments, only: null, patterns, samples },
+    notePeriod,
+    CHIPS.amiga.sampleRate ?? 11_084
+  );
   for (const [id, span] of spans) {
     const low = Math.round(span.lowest);
     const high = Math.round(span.highest);
@@ -1464,23 +1491,11 @@ function dacRangeWarnings(
   if (!instruments) {
     return;
   }
-  const spans = new Map<string, PeriodSpan>();
-  for (const [pid, pat] of Object.entries(patterns)) {
-    const track = pat.tracks.fm6;
-    if (track) {
-      const first = channels.find((c) => c.id === "fm6")?.instrument ?? null;
-      trackSpans(
-        spans,
-        { chId: "fm6", pid },
-        track,
-        first,
-        instruments,
-        samples,
-        noteRate,
-        CHIPS.genesis.sampleRate ?? 12_969
-      );
-    }
-  }
+  const spans = collectSpans(
+    { channels, instruments, only: "fm6", patterns, samples },
+    noteRate,
+    CHIPS.genesis.sampleRate ?? 12_969
+  );
   for (const [id, span] of spans) {
     const low = Math.round(span.lowest);
     const high = Math.round(span.highest);

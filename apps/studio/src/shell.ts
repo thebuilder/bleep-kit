@@ -23,9 +23,9 @@ import { LocalStore } from "./store/local.ts";
 import { probeServer, ServerStore } from "./store/server.ts";
 import type { ProjectStore } from "./store/store.ts";
 import { installDropdowns } from "./ui/dropdown.ts";
+import { exportMod } from "./ui/export-mod.ts";
 import { openHelp } from "./ui/help.ts";
 import { icon } from "./ui/icons.ts";
-import { exportMod } from "./ui/export-mod.ts";
 import { installImportDrop, pickSongFile } from "./ui/import-midi.ts";
 import { modalOpen } from "./ui/modal.ts";
 import { openPalette } from "./ui/palette.ts";
@@ -41,9 +41,9 @@ import { createSidebar } from "./ui/sidebar.ts";
 import { mountAnalysis } from "./views/analysis.ts";
 import { mountExamples } from "./views/examples.ts";
 import { mountInstrument } from "./views/instrument.ts";
-import { mountSample } from "./views/sample.ts";
 import { mountPads } from "./views/pads.ts";
 import { mountProject } from "./views/project.ts";
+import { mountSample } from "./views/sample.ts";
 import { mountSfx } from "./views/sfx.ts";
 import { mountSong } from "./views/song.ts";
 import { addVisual, startLoop, tickOnce } from "./visuals/loop.ts";
@@ -158,7 +158,10 @@ export async function boot(root: HTMLElement): Promise<void> {
   // user samples reach the worklet when an instrument that plays one is loaded, and again after every edit or delete
   engine.useSamples((id) => project.get<UserSample>("sample", id)?.value);
   project.subscribe((e) => {
-    if (e.type === "list" || (e.type === "doc" && e.path.startsWith("samples/"))) {
+    if (
+      e.type === "list" ||
+      (e.type === "doc" && e.path.startsWith("samples/"))
+    ) {
       engine.syncSamples();
     }
   });

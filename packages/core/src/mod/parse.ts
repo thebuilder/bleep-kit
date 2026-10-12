@@ -1,4 +1,4 @@
-/* ProTracker MOD reader (architecture.md section 2.10). Pure, dependency free, never throws: a file it cannot read gives
+/* ProTracker MOD reader (architecture.md section 2.11). Pure, dependency free, never throws: a file it cannot read gives
    `file: null` and an error issue. It reads what the format holds (title, 31 samples with finetune, volume and loop,
    the order list with its restart byte, the patterns as period, sample number, effect and parameter) and nothing more. */
 
@@ -56,7 +56,7 @@ const XXCH = /^(\d\d)CH$/;
 const XCHN = /^(\d)CHN$/;
 
 /** Channels a tag stands for, or null when it is not a MOD tag this reader knows. */
-export function channelsOfTag(tag: string): number | null {
+function channelsOfTag(tag: string): number | null {
   if (FOUR.has(tag)) {
     return 4;
   }

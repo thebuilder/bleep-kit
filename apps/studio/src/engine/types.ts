@@ -17,4 +17,6 @@ export interface EngineNodeLike {
   on: (handler: (msg: FromWorklet) => void) => () => void;
   scopes: ScopeReaderLike;
   send: (msg: ToWorklet) => void;
+  /** Whether events and scopes are wanted (false while the page is hidden). The fake engine has no backlog to avoid. */
+  setActive?: (active: boolean) => void;
 }

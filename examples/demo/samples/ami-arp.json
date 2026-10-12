@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "name": "Amiga arp (pulse 25%, 24 frames)",
+  "rate": 8287,
+  "baseNote": 65,
+  "finetune": -20,
+  "volume": 0.64,
+  "loop": {
+    "start": 0,
+    "end": 24
+  },
+  "bits": 8,
+  "data": "WlpaWlpapqampqampqampqampqampqam"
+}

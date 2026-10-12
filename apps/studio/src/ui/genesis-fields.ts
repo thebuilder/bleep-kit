@@ -7,12 +7,17 @@ import { note, toggleField } from "./fields.ts";
 
 const DAC_CHANNEL = "fm6";
 
+function withoutGenesis(master: Song["master"]): Song["master"] {
+  const { genesis: _dropped, ...rest } = master;
+  return rest;
+}
+
 /** Switch the DAC on or off in place: the flag, the channel's kind, and an instrument that no longer fits is dropped. */
-export function setDac(song: Song, on: boolean): void {
+function setDac(song: Song, on: boolean): void {
   if (on) {
     song.master.genesis = { dac: true };
   } else {
-    delete song.master.genesis;
+    song.master = withoutGenesis(song.master);
   }
   const kind = on ? "sample" : "fm";
   for (const ch of song.channels) {

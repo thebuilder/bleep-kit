@@ -84,13 +84,20 @@ function render(
   sample: UserSample,
   tail = 0.2
 ): { left: Float32Array; right: Float32Array } {
-  const r = renderSong(song, { hit: dacInstrument("s") }, {
-    master: { limiter: false, volume: 1 },
-    samples: { s: sample },
-    sampleRate: SR,
-    tail,
-  });
-  return { left: r.channels[0] as Float32Array, right: r.channels[1] as Float32Array };
+  const r = renderSong(
+    song,
+    { hit: dacInstrument("s") },
+    {
+      master: { limiter: false, volume: 1 },
+      sampleRate: SR,
+      samples: { s: sample },
+      tail,
+    }
+  );
+  return {
+    left: r.channels[0] as Float32Array,
+    right: r.channels[1] as Float32Array,
+  };
 }
 
 describe("the DAC setting", () => {
@@ -109,8 +116,11 @@ describe("the DAC setting", () => {
       hardwareChannels("nes", { genesis: { dac: true } }).map((c) => c.kind)
     ).toEqual(hardwareChannels("nes").map((c) => c.kind));
     expect(
-      chipChannels({ channels: [], chip: "genesis", master: { genesis: { dac: true } } })[5]
-        ?.kind
+      chipChannels({
+        channels: [],
+        chip: "genesis",
+        master: { genesis: { dac: true } },
+      })[5]?.kind
     ).toBe("sample");
   });
 
@@ -128,17 +138,23 @@ describe("the DAC setting", () => {
     expect(off.value.master.genesis).toBeUndefined();
     expect(off.value.channels.find((c) => c.id === "fm6")?.kind).toBe("fm");
     // a song without the setting normalizes exactly as it did before the DAC existed
-    expect(Object.keys(normalizeSong({ chip: "genesis" }).value.master)).toEqual([
-      "volume",
-      "echo",
-      "reverb",
-    ]);
-    const nes = normalizeSong({ chip: "nes", master: { genesis: { dac: true } } });
+    expect(
+      Object.keys(normalizeSong({ chip: "genesis" }).value.master)
+    ).toEqual(["volume", "echo", "reverb"]);
+    const nes = normalizeSong({
+      chip: "nes",
+      master: { genesis: { dac: true } },
+    });
     expect(nes.value.master.genesis).toBeUndefined();
     expect(nes.issues.map((i) => i.path)).toContain("/master/genesis");
-    const bad = normalizeSong({ chip: "genesis", master: { genesis: { dac: 1 } } });
+    const bad = normalizeSong({
+      chip: "genesis",
+      master: { genesis: { dac: 1 } },
+    });
     expect(bad.ok).toBe(false);
-    expect(bad.issues.find((i) => i.path === "/master/genesis/dac")).toBeDefined();
+    expect(
+      bad.issues.find((i) => i.path === "/master/genesis/dac")
+    ).toBeDefined();
     // idempotent
     const again = normalizeSong(on.value);
     expect(again.issues).toEqual([]);
@@ -153,22 +169,28 @@ describe("the DAC setting", () => {
       chip: "genesis",
       master: dac ? { genesis: { dac: true } } : {},
     });
-    const withDac = normalizeSong(song(true, "lead"), { lead: fm, kick: sample });
+    const withDac = normalizeSong(song(true, "lead"), {
+      kick: sample,
+      lead: fm,
+    });
     expect(withDac.ok).toBe(false);
-    expect(withDac.issues.find((i) => i.severity === "error")?.message).toContain(
-      "DAC"
-    );
-    expect(normalizeSong(song(true, "kick"), { lead: fm, kick: sample }).ok).toBe(
-      true
-    );
-    const without = normalizeSong(song(false, "kick"), { lead: fm, kick: sample });
+    expect(
+      withDac.issues.find((i) => i.severity === "error")?.message
+    ).toContain("DAC");
+    expect(
+      normalizeSong(song(true, "kick"), { kick: sample, lead: fm }).ok
+    ).toBe(true);
+    const without = normalizeSong(song(false, "kick"), {
+      kick: sample,
+      lead: fm,
+    });
     expect(without.ok).toBe(false);
-    expect(without.issues.find((i) => i.severity === "error")?.message).toContain(
-      "DAC mode"
-    );
-    expect(normalizeSong(song(false, "lead"), { lead: fm, kick: sample }).ok).toBe(
-      true
-    );
+    expect(
+      without.issues.find((i) => i.severity === "error")?.message
+    ).toContain("DAC mode");
+    expect(
+      normalizeSong(song(false, "lead"), { kick: sample, lead: fm }).ok
+    ).toBe(true);
   });
 
   it("warns when a note would need a rate outside 8 to 26 kHz", () => {
@@ -180,17 +202,19 @@ describe("the DAC setting", () => {
           chip: "genesis",
           master: { genesis: { dac: true } },
           order: ["a"],
-          patterns: { a: { length: 4, tracks: { fm6: [{ row: 0, s: note }] } } },
+          patterns: {
+            a: { length: 4, tracks: { fm6: [{ row: 0, s: note }] } },
+          },
         },
         { kick: sample }
       );
-    expect(song("C-4").issues.filter((i) => i.path.startsWith("/patterns"))).toEqual(
-      []
-    );
+    expect(
+      song("C-4").issues.filter((i) => i.path.startsWith("/patterns"))
+    ).toEqual([]);
     // an octave up is still inside (the generated rate is 12969 Hz), two octaves are not, nor is a fourth below -8
-    expect(song("C-5").issues.filter((i) => i.path.startsWith("/patterns"))).toEqual(
-      []
-    );
+    expect(
+      song("C-5").issues.filter((i) => i.path.startsWith("/patterns"))
+    ).toEqual([]);
     const high = song("C-6").issues.find((i) => i.path.startsWith("/patterns"));
     expect(high?.severity).toBe("warning");
     expect(high?.message).toContain("DAC");
@@ -201,21 +225,31 @@ describe("the DAC setting", () => {
 
 describe("the DAC rate", () => {
   it("is held inside 8 to 26 kHz and is the Z80 clock over a whole number of cycles", () => {
-    expect(quantizeDacRate(1000)).toBeCloseTo(3_579_545 / Math.round(3_579_545 / 8000), 6);
-    expect(quantizeDacRate(100_000)).toBeCloseTo(3_579_545 / Math.round(3_579_545 / 26_000), 6);
+    expect(quantizeDacRate(1000)).toBeCloseTo(
+      3_579_545 / Math.round(3_579_545 / 8000),
+      6
+    );
+    expect(quantizeDacRate(100_000)).toBeCloseTo(
+      3_579_545 / Math.round(3_579_545 / 26_000),
+      6
+    );
     for (const want of [8000, 11_025, 13_000, 22_050, 26_000]) {
       const got = quantizeDacRate(want);
       expect(got).toBeGreaterThanOrEqual(7999);
       expect(got).toBeLessThanOrEqual(26_001);
       expect(Math.abs(got / want - 1)).toBeLessThan(0.005);
-      expect(Number.isInteger(3_579_545 / got + 1e-9) || Math.abs(3_579_545 / got - Math.round(3_579_545 / got)) < 1e-9).toBe(true);
+      expect(
+        Number.isInteger(3_579_545 / got + 1e-9) ||
+          Math.abs(3_579_545 / got - Math.round(3_579_545 / got)) < 1e-9
+      ).toBe(true);
     }
   });
 
   it("sets how long a sample plays: unity at its own rate, the limits at 8 and 26 kHz", () => {
     // 1 s at 8000 Hz: noise, base note C-4
     const sample = sampleFromData(burst(8000), 8000, { bits: 8 });
-    const dur = (note: string) => lastAudible(render(dacSong({ 0: note }), sample).left);
+    const dur = (note: string) =>
+      lastAudible(render(dacSong({ 0: note }), sample).left);
     expect(dur("C-4")).toBeGreaterThan(0.97);
     expect(dur("C-4")).toBeLessThan(1.03);
     // an octave up doubles the rate: half the length
@@ -266,12 +300,18 @@ describe("playing on the DAC", () => {
     }
     expect(worst).toBeLessThan(1e-5);
     // and the sample really is longer than the gap, so something was cut
-    expect(lastAudible(render(dacSong({ 0: "C-4" }, 32), sample, 0.1).left)).toBeGreaterThan(1.9);
+    expect(
+      lastAudible(render(dacSong({ 0: "C-4" }, 32), sample, 0.1).left)
+    ).toBeGreaterThan(1.9);
   });
 
   it("a note off stops the sample, and the instrument's envelope does not shape it", () => {
     const sample = sampleFromData(burst(16_000), 8000, { bits: 8 });
-    const stopped = render(dacSong({ 0: "C-4", 4: "OFF" }, 32), sample, 0.1).left;
+    const stopped = render(
+      dacSong({ 0: "C-4", 4: "OFF" }, 32),
+      sample,
+      0.1
+    ).left;
     expect(lastAudible(stopped)).toBeLessThan(0.56);
     expect(lastAudible(stopped)).toBeGreaterThan(0.48);
     // flat level while it plays: the RMS of the first and the last quarter second match
@@ -310,8 +350,8 @@ describe("playing on the DAC", () => {
       song.value,
       { bass, hit: dacInstrument("s") },
       {
-        samples: { s: sampleFromData(burst(2000), 8000, { bits: 8 }) },
         sampleRate: SR,
+        samples: { s: sampleFromData(burst(2000), 8000, { bits: 8 }) },
         stems: true,
         tail: 0.3,
       }
@@ -332,8 +372,8 @@ describe("playing on the DAC", () => {
       chip: "genesis",
       duration: 0.3,
       release: 0.1,
-      samples: { s: sampleFromData(burst(4000), 8000, { bits: 8 }) },
       sampleRate: SR,
+      samples: { s: sampleFromData(burst(4000), 8000, { bits: 8 }) },
     });
     expect(peak(r.channels)).toBeGreaterThan(0.01);
   });

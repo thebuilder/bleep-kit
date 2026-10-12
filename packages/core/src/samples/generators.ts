@@ -24,6 +24,19 @@ function param(gen: SampleGeneratorId, params: Params, key: string): number {
   return Math.min(spec.max, Math.max(spec.min, raw));
 }
 
+/** Several params at once, each read through `param` (so clamped to its range), under their own names. */
+function readParams<K extends string>(
+  gen: SampleGeneratorId,
+  params: Params,
+  keys: readonly K[]
+): Record<K, number> {
+  const out = {} as Record<K, number>;
+  for (const k of keys) {
+    out[k] = param(gen, params, k);
+  }
+  return out;
+}
+
 function noise(rng: Rng): number {
   return rng() * 2 - 1;
 }
@@ -56,14 +69,37 @@ function fadeIn(buf: Float32Array, sr: number, seconds: number): void {
   }
 }
 
-/** One sample of the metallic cluster: the METAL square oscillators advance by `scale` and add up (not yet divided). */
-function metalSum(phases: Float64Array, scale: number, sr: number): number {
+/** One sample of a metallic cluster: the table's square oscillators advance by `scale` and add up (not yet divided). */
+function metalSum(
+  phases: Float64Array,
+  table: readonly number[],
+  scale: number,
+  sr: number
+): number {
   let s = 0;
-  for (let k = 0; k < METAL.length; k += 1) {
-    phases[k] = ((phases[k] ?? 0) + ((METAL[k] ?? 0) * scale) / sr) % 1;
+  for (let k = 0; k < table.length; k += 1) {
+    phases[k] = ((phases[k] ?? 0) + ((table[k] ?? 0) * scale) / sr) % 1;
     s += (phases[k] ?? 0) < 0.5 ? 1 : -1;
   }
   return s;
+}
+
+/** Soft saturation in place: tanh of the signal times `gain`. */
+function saturate(buf: Float32Array, gain: number): void {
+  for (let i = 0; i < buf.length; i += 1) {
+    buf[i] = Math.tanh((buf[i] ?? 0) * gain);
+  }
+}
+
+/** The end of every drum: fade the tail so it never ends on a step, normalize hot, and wrap it as a one shot. */
+function finishDrum(
+  buf: Float32Array,
+  sr: number,
+  fadeSeconds?: number
+): GeneratedSample {
+  fadeEnd(buf, sr, fadeSeconds);
+  normalize(buf, DRUM_PEAK);
+  return oneShot(buf, sr);
 }
 
 /** Fade the last ms to zero so one-shots never end on a step. */
@@ -152,13 +188,48 @@ function loopShape(
 
 // ------------------------------------------------------------------ drums
 
+/** The frequency of a pitch sweep at time `t`: `startHz` falling to `pitch` with time constant `tau`. */
+function sweepHz(
+  pitch: number,
+  startHz: number,
+  t: number,
+  tau: number
+): number {
+  return pitch + (startHz - pitch) * Math.exp(-t / tau);
+}
+
+/** The noise tail of a clap, starting three gaps in. */
+function clapTail(t: number, gap: number, decay: number): number {
+  return t >= gap * 3 ? Math.exp(-(t - gap * 3) / (decay / 4.6)) : 0;
+}
+
+/** A clap's early bursts at time `t`: `count` decaying hits `gap` seconds apart, each scaled by `level(index)`. */
+function burstEnv(
+  t: number,
+  gap: number,
+  count: number,
+  tau: number,
+  level: (b: number) => number
+): number {
+  let env = 0;
+  for (let b = 0; b < count; b += 1) {
+    const dt = t - b * gap;
+    if (dt >= 0) {
+      env += Math.exp(-dt / tau) * level(b);
+    }
+  }
+  return env;
+}
+
 function kick(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "kick";
-  const pitch = param(g, p, "pitch");
-  const sweep = param(g, p, "sweep");
-  const decay = param(g, p, "decay");
-  const click = param(g, p, "click");
-  const drive = param(g, p, "drive");
+  const { pitch, sweep, decay, click, drive } = readParams(g, p, [
+    "pitch",
+    "sweep",
+    "decay",
+    "click",
+    "drive",
+  ]);
   const rng = mulberry32(seed);
   const n = frames(decay * 1.3 + 0.05, sr);
   const out = new Float32Array(n);
@@ -168,8 +239,7 @@ function kick(p: Params, seed: number, sr: number): GeneratedSample {
   let phase = 0;
   for (let i = 0; i < n; i += 1) {
     const t = i / sr;
-    const f = pitch + (startHz - pitch) * Math.exp(-t / sweepTau);
-    phase += f / sr;
+    phase += sweepHz(pitch, startHz, t, sweepTau) / sr;
     let v = Math.sin(TWO_PI * phase) * Math.exp(-t / ampTau);
     if (t < 0.004) {
       v += noise(rng) * click * (1 - t / 0.004) * 0.8;
@@ -177,22 +247,19 @@ function kick(p: Params, seed: number, sr: number): GeneratedSample {
     out[i] = v;
   }
   if (drive > 0) {
-    const d = 1 + drive * 5;
-    for (let i = 0; i < n; i += 1) {
-      out[i] = Math.tanh((out[i] ?? 0) * d);
-    }
+    saturate(out, 1 + drive * 5);
   }
-  fadeEnd(out, sr);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  return finishDrum(out, sr);
 }
 
 function snare(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "snare";
-  const tone = param(g, p, "tone");
-  const noiseAmt = param(g, p, "noise");
-  const decay = param(g, p, "decay");
-  const snap = param(g, p, "snap");
+  const {
+    tone,
+    noise: noiseAmt,
+    decay,
+    snap,
+  } = readParams(g, p, ["tone", "noise", "decay", "snap"]);
   const rng = mulberry32(seed);
   const n = frames(decay * 1.4 + 0.03, sr);
   const body = new Float32Array(n);
@@ -212,18 +279,14 @@ function snare(p: Params, seed: number, sr: number): GeneratedSample {
     out[i] =
       (body[i] ?? 0) * (1 - noiseAmt * 0.5) + (hiss[i] ?? 0) * noiseAmt * 1.2;
   }
-  fadeEnd(out, sr);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  return finishDrum(out, sr);
 }
 
 const METAL = [205.3, 304.4, 369.6, 522.7, 540, 800] as const;
 
 function hat(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "hat";
-  const decay = param(g, p, "decay");
-  const tone = param(g, p, "tone");
-  const open = param(g, p, "open");
+  const { decay, tone, open } = readParams(g, p, ["decay", "tone", "open"]);
   const rng = mulberry32(seed);
   const len = decay + open * 0.45;
   const n = frames(len * 1.2 + 0.02, sr);
@@ -231,21 +294,17 @@ function hat(p: Params, seed: number, sr: number): GeneratedSample {
   const phases = new Float64Array(METAL.length);
   const scale = 3 + tone * 3;
   for (let i = 0; i < n; i += 1) {
-    const s = metalSum(phases, scale, sr);
+    const s = metalSum(phases, METAL, scale, sr);
     const t = i / sr;
     out[i] = (s / METAL.length + noise(rng) * 0.5) * Math.exp(-t / (len / 4.6));
   }
   svf(out, "hp", 5000 + tone * 3000, 0.9, sr);
-  fadeEnd(out, sr);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  return finishDrum(out, sr);
 }
 
 function tom(p: Params, _seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "tom";
-  const pitch = param(g, p, "pitch");
-  const decay = param(g, p, "decay");
-  const sweep = param(g, p, "sweep");
+  const { pitch, decay, sweep } = readParams(g, p, ["pitch", "decay", "sweep"]);
   const n = frames(decay * 1.3 + 0.05, sr);
   const out = new Float32Array(n);
   const startHz = pitch * (1 + sweep * 2.2);
@@ -257,69 +316,106 @@ function tom(p: Params, _seed: number, sr: number): GeneratedSample {
       Math.sin(TWO_PI * phase) * Math.exp(-t / (decay / 4.6)) +
       0.12 * Math.sin(TWO_PI * phase * 2.3) * Math.exp(-t / 0.04);
   }
-  fadeEnd(out, sr);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  return finishDrum(out, sr);
+}
+
+/** A cymbal body: metallic squares plus noise under the envelope `env(t)`, `decay * 1.1` seconds long. */
+function metalNoise(
+  o: {
+    decay: number;
+    metal: readonly number[];
+    metalGain: number;
+    noiseGain: number;
+    scale: number;
+  },
+  rng: Rng,
+  sr: number,
+  env: (t: number) => number
+): Float32Array {
+  const out = new Float32Array(frames(o.decay * 1.1, sr));
+  const phases = new Float64Array(o.metal.length);
+  for (let i = 0; i < out.length; i += 1) {
+    const s = metalSum(phases, o.metal, o.scale, sr);
+    const t = i / sr;
+    out[i] =
+      (noise(rng) * o.noiseGain + (s / o.metal.length) * o.metalGain) * env(t);
+  }
+  return out;
+}
+
+/** Noise shaped by `bursts` decaying hits `gap` seconds apart (each scaled by `level(index)`) and a long tail. */
+function clapNoise(
+  o: {
+    bursts: number;
+    decay: number;
+    envGain: number;
+    gap: number;
+    level: (b: number) => number;
+    tailGain: number;
+    tau: number;
+  },
+  rng: Rng,
+  sr: number
+): Float32Array {
+  const out = new Float32Array(
+    frames(o.gap * o.bursts + o.decay * 1.3 + 0.02, sr)
+  );
+  for (let i = 0; i < out.length; i += 1) {
+    const t = i / sr;
+    const env = burstEnv(t, o.gap, o.bursts, o.tau, o.level);
+    const tail = clapTail(t, o.gap, o.decay);
+    out[i] = noise(rng) * (env * o.envGain + tail * o.tailGain);
+  }
+  return out;
 }
 
 function clap(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "clap";
-  const decay = param(g, p, "decay");
-  const spread = param(g, p, "spread");
-  const tone = param(g, p, "tone");
+  const { decay, spread, tone } = readParams(g, p, ["decay", "spread", "tone"]);
   const rng = mulberry32(seed);
   const gap = 0.007 + spread * 0.012;
-  const n = frames(gap * 3 + decay * 1.3 + 0.02, sr);
-  const out = new Float32Array(n);
-  for (let i = 0; i < n; i += 1) {
-    const t = i / sr;
-    let env = 0;
-    for (let b = 0; b < 3; b += 1) {
-      const dt = t - b * gap;
-      if (dt >= 0) {
-        env += Math.exp(-dt / 0.0045) * (b === 2 ? 0.6 : 1);
-      }
-    }
-    const tail = t >= gap * 3 ? Math.exp(-(t - gap * 3) / (decay / 4.6)) : 0;
-    out[i] = noise(rng) * (env * 0.8 + tail);
-  }
+  const out = clapNoise(
+    {
+      bursts: 3,
+      decay,
+      envGain: 0.8,
+      gap,
+      level: (b) => (b === 2 ? 0.6 : 1),
+      tailGain: 1,
+      tau: 0.0045,
+    },
+    rng,
+    sr
+  );
   svf(out, "bp", 900 + tone * 1800, 1.2, sr);
-  fadeEnd(out, sr);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  return finishDrum(out, sr);
 }
 
 function crash(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "crash";
-  const decay = param(g, p, "decay");
-  const tone = param(g, p, "tone");
-  const rng = mulberry32(seed);
-  const n = frames(decay * 1.1, sr);
-  const out = new Float32Array(n);
-  const phases = new Float64Array(METAL.length);
-  for (let i = 0; i < n; i += 1) {
-    const s = metalSum(phases, 2.7, sr);
-    const t = i / sr;
-    const env = Math.exp(-t / (decay / 4.6)) * (1 + 1.5 * Math.exp(-t / 0.03));
-    out[i] = (noise(rng) * 0.8 + (s / METAL.length) * 0.4) * env;
-  }
+  const { decay, tone } = readParams(g, p, ["decay", "tone"]);
+  const out = metalNoise(
+    { decay, metal: METAL, metalGain: 0.4, noiseGain: 0.8, scale: 2.7 },
+    mulberry32(seed),
+    sr,
+    (t) => Math.exp(-t / (decay / 4.6)) * (1 + 1.5 * Math.exp(-t / 0.03))
+  );
   svf(out, "hp", 2500 + tone * 2500, 0.7, sr);
-  fadeEnd(out, sr, 0.01);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  return finishDrum(out, sr, 0.01);
 }
-
 
 // ------------------------------------------------------------------ techno drums
 
 /** A 909 style kick: a sine that starts high and falls fast to its pitch, a short noise click on top, then drive. */
 function kick909(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "kick909";
-  const pitch = param(g, p, "pitch");
-  const sweep = param(g, p, "sweep");
-  const decay = param(g, p, "decay");
-  const click = param(g, p, "click");
-  const drive = param(g, p, "drive");
+  const { pitch, sweep, decay, click, drive } = readParams(g, p, [
+    "pitch",
+    "sweep",
+    "decay",
+    "click",
+    "drive",
+  ]);
   const rng = mulberry32(seed);
   const n = frames(decay * 1.25 + 0.04, sr);
   const out = new Float32Array(n);
@@ -330,8 +426,7 @@ function kick909(p: Params, seed: number, sr: number): GeneratedSample {
   let lp = 0;
   for (let i = 0; i < n; i += 1) {
     const t = i / sr;
-    const f = pitch + (startHz - pitch) * Math.exp(-t / sweepTau);
-    phase += f / sr;
+    phase += sweepHz(pitch, startHz, t, sweepTau) / sr;
     const attack = Math.min(1, t / 0.0006);
     let v = Math.sin(TWO_PI * phase) * Math.exp(-t / ampTau) * attack;
     if (t < 0.006) {
@@ -342,22 +437,19 @@ function kick909(p: Params, seed: number, sr: number): GeneratedSample {
     }
     out[i] = v;
   }
-  const d = 1.2 + drive * 6;
-  for (let i = 0; i < n; i += 1) {
-    out[i] = Math.tanh((out[i] ?? 0) * d);
-  }
-  fadeEnd(out, sr);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  saturate(out, 1.2 + drive * 6);
+  return finishDrum(out, sr);
 }
 
 /** An 808 style kick: a long, pure sine boom with a short pitch drop and soft saturation. */
 function kick808(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "kick808";
-  const pitch = param(g, p, "pitch");
-  const decay = param(g, p, "decay");
-  const click = param(g, p, "click");
-  const drive = param(g, p, "drive");
+  const { pitch, decay, click, drive } = readParams(g, p, [
+    "pitch",
+    "decay",
+    "click",
+    "drive",
+  ]);
   const rng = mulberry32(seed);
   const n = frames(decay * 1.2 + 0.05, sr);
   const out = new Float32Array(n);
@@ -366,8 +458,7 @@ function kick808(p: Params, seed: number, sr: number): GeneratedSample {
   let phase = 0;
   for (let i = 0; i < n; i += 1) {
     const t = i / sr;
-    const f = pitch + (startHz - pitch) * Math.exp(-t / 0.022);
-    phase += f / sr;
+    phase += sweepHz(pitch, startHz, t, 0.022) / sr;
     // the level sags in two stages: a quick settle after the hit, then the long tail
     const env = (0.72 + 0.28 * Math.exp(-t / 0.05)) * Math.exp(-t / ampTau);
     let v = Math.sin(TWO_PI * phase) * env * Math.min(1, t / 0.0012);
@@ -376,22 +467,19 @@ function kick808(p: Params, seed: number, sr: number): GeneratedSample {
     }
     out[i] = v;
   }
-  const d = 1 + drive * 4;
-  for (let i = 0; i < n; i += 1) {
-    out[i] = Math.tanh((out[i] ?? 0) * d);
-  }
-  fadeEnd(out, sr, 0.008);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  saturate(out, 1 + drive * 4);
+  return finishDrum(out, sr, 0.008);
 }
 
 /** A 909 style snare: two detuned tones with a fast pitch drop and a noise body that rings longer than the snap. */
 function snare909(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "snare909";
-  const tone = param(g, p, "tone");
-  const noiseAmt = param(g, p, "noise");
-  const decay = param(g, p, "decay");
-  const snap = param(g, p, "snap");
+  const {
+    tone,
+    noise: noiseAmt,
+    decay,
+    snap,
+  } = readParams(g, p, ["tone", "noise", "decay", "snap"]);
   const rng = mulberry32(seed);
   const n = frames(decay * 1.35 + 0.03, sr);
   const body = new Float32Array(n);
@@ -419,41 +507,32 @@ function snare909(p: Params, seed: number, sr: number): GeneratedSample {
       (hiss[i] ?? 0) * noiseAmt * 2.2 +
       (crack[i] ?? 0) * snap * 1.6;
   }
-  for (let i = 0; i < n; i += 1) {
-    out[i] = Math.tanh((out[i] ?? 0) * 1.4);
-  }
-  fadeEnd(out, sr);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  saturate(out, 1.4);
+  return finishDrum(out, sr);
 }
 
 /** A 909 style clap: four close noise bursts into a short band limited tail. */
 function clap909(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "clap909";
-  const decay = param(g, p, "decay");
-  const spread = param(g, p, "spread");
-  const tone = param(g, p, "tone");
+  const { decay, spread, tone } = readParams(g, p, ["decay", "spread", "tone"]);
   const rng = mulberry32(seed);
   const gap = 0.0085 + spread * 0.011;
-  const n = frames(gap * 4 + decay * 1.3 + 0.02, sr);
-  const out = new Float32Array(n);
-  for (let i = 0; i < n; i += 1) {
-    const t = i / sr;
-    let env = 0;
-    for (let b = 0; b < 4; b += 1) {
-      const dt = t - b * gap;
-      if (dt >= 0) {
-        env += Math.exp(-dt / 0.0035) * (0.75 + 0.25 * (b % 2));
-      }
-    }
-    const tail = t >= gap * 3 ? Math.exp(-(t - gap * 3) / (decay / 4.6)) : 0;
-    out[i] = noise(rng) * (env * 0.7 + tail * 0.9);
-  }
+  const out = clapNoise(
+    {
+      bursts: 4,
+      decay,
+      envGain: 0.7,
+      gap,
+      level: (b) => 0.75 + 0.25 * (b % 2),
+      tailGain: 0.9,
+      tau: 0.0035,
+    },
+    rng,
+    sr
+  );
   svf(out, "bp", 1000 + tone * 1700, 1.4, sr);
   svf(out, "hp", 450, 0.7, sr);
-  fadeEnd(out, sr);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  return finishDrum(out, sr);
 }
 
 /** The six square oscillators of the 909's hats and cymbals, a little higher than the 808's. */
@@ -462,8 +541,7 @@ const METAL_909 = [263.1, 400, 421, 474.1, 587.3, 845] as const;
 /** A 909 style hat: metallic squares and noise with a very short (closed) or longer (open) decay. */
 function hat909(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "hat909";
-  const open = param(g, p, "open");
-  const tone = param(g, p, "tone");
+  const { open, tone } = readParams(g, p, ["open", "tone"]);
   const rng = mulberry32(seed);
   const len = 0.035 + open * open * 0.45 + open * 0.08;
   const n = frames(len * 1.25 + 0.015, sr);
@@ -471,48 +549,31 @@ function hat909(p: Params, seed: number, sr: number): GeneratedSample {
   const phases = new Float64Array(METAL_909.length);
   const scale = 4 + tone * 2;
   for (let i = 0; i < n; i += 1) {
-    let s = 0;
-    for (let k = 0; k < METAL_909.length; k += 1) {
-      phases[k] = ((phases[k] ?? 0) + ((METAL_909[k] ?? 0) * scale) / sr) % 1;
-      s += (phases[k] ?? 0) < 0.5 ? 1 : -1;
-    }
+    const s = metalSum(phases, METAL_909, scale, sr);
     const t = i / sr;
     // a hat closes with a short tick of full level, then falls; an open hat holds longer before the fall
     const env = Math.exp(-t / (len / 4.6)) * (1 + 0.8 * Math.exp(-t / 0.004));
     out[i] = (s / METAL_909.length + noise(rng) * 0.35) * env;
   }
   svf(out, "hp", 6500 + tone * 2500, 0.8, sr);
-  fadeEnd(out, sr, 0.003);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  return finishDrum(out, sr, 0.003);
 }
 
 /** A 909 style crash: bright metal and noise, a swell of a few ms, then a slow shimmering fall. */
 function crash909(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "crash909";
-  const decay = param(g, p, "decay");
-  const tone = param(g, p, "tone");
-  const rng = mulberry32(seed);
-  const n = frames(decay * 1.1, sr);
-  const out = new Float32Array(n);
-  const phases = new Float64Array(METAL_909.length);
-  for (let i = 0; i < n; i += 1) {
-    let s = 0;
-    for (let k = 0; k < METAL_909.length; k += 1) {
-      phases[k] = ((phases[k] ?? 0) + ((METAL_909[k] ?? 0) * 3.5) / sr) % 1;
-      s += (phases[k] ?? 0) < 0.5 ? 1 : -1;
-    }
-    const t = i / sr;
-    const env =
+  const { decay, tone } = readParams(g, p, ["decay", "tone"]);
+  const out = metalNoise(
+    { decay, metal: METAL_909, metalGain: 0.55, noiseGain: 0.7, scale: 3.5 },
+    mulberry32(seed),
+    sr,
+    (t) =>
       Math.min(1, t / 0.002) *
       Math.exp(-t / (decay / 4.6)) *
-      (1 + 1.2 * Math.exp(-t / 0.05));
-    out[i] = (noise(rng) * 0.7 + (s / METAL_909.length) * 0.55) * env;
-  }
+      (1 + 1.2 * Math.exp(-t / 0.05))
+  );
   svf(out, "hp", 3200 + tone * 3200, 0.7, sr);
-  fadeEnd(out, sr, 0.015);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  return finishDrum(out, sr, 0.015);
 }
 
 /** Add a band limited sawtooth (additive, up to 24 harmonics) at `hz` into `buf`, scaled by `gain`. */
@@ -539,19 +600,21 @@ function addSaw(
     a brassy body, with a noise burst on top. It sounds at unity on C-4, so notes transpose the whole stab. */
 function orchestra(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "orchestra";
-  const decay = param(g, p, "decay");
-  const bright = param(g, p, "bright");
-  const detune = param(g, p, "detune");
-  const width = param(g, p, "width");
+  const { decay, bright, detune, width } = readParams(g, p, [
+    "decay",
+    "bright",
+    "detune",
+    "width",
+  ]);
   const rng = mulberry32(seed);
   const n = frames(decay * 1.4 + 0.06, sr);
   const hi = new Float32Array(n);
   const lo = new Float32Array(n);
   const voices = [
-    { ratio: 1, gain: 1 },
-    { ratio: 1.4983, gain: 0.8 * (0.35 + 0.65 * width) },
-    { ratio: 2, gain: 0.7 },
-    { ratio: 3, gain: 0.5 * width },
+    { gain: 1, ratio: 1 },
+    { gain: 0.8 * (0.35 + 0.65 * width), ratio: 1.4983 },
+    { gain: 0.7, ratio: 2 },
+    { gain: 0.5 * width, ratio: 3 },
   ];
   const spread = [-1, 0, 1];
   for (const v of voices) {
@@ -581,9 +644,7 @@ function orchestra(p: Params, seed: number, sr: number): GeneratedSample {
         (hiss[i] ?? 0) * 0.9) *
       attack;
   }
-  fadeEnd(out, sr, 0.02);
-  normalize(out, DRUM_PEAK);
-  return oneShot(out, sr);
+  return finishDrum(out, sr, 0.02);
 }
 
 // ------------------------------------------------------------------ tonal
@@ -591,9 +652,11 @@ function orchestra(p: Params, seed: number, sr: number): GeneratedSample {
 /** Karplus-Strong string with linear interpolated fractional delay. */
 function pluck(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "pluck";
-  const brightness = param(g, p, "brightness");
-  const damp = param(g, p, "damp");
-  const pick = param(g, p, "pick");
+  const { brightness, damp, pick } = readParams(g, p, [
+    "brightness",
+    "damp",
+    "pick",
+  ]);
   const rng = mulberry32(seed);
   const n = frames(2.2, sr);
   const out = new Float32Array(n);
@@ -661,9 +724,11 @@ function steadyBody(
 
 function bass(p: Params, _seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "bass";
-  const cutoff = param(g, p, "cutoff");
-  const resonance = param(g, p, "resonance");
-  const sub = param(g, p, "sub");
+  const { cutoff, resonance, sub } = readParams(g, p, [
+    "cutoff",
+    "resonance",
+    "sub",
+  ]);
   const shape = loopShape(BASE_HZ / 2, sr, 0.5, 2);
   const body = shape.n;
   const f = shape.f;
@@ -689,9 +754,11 @@ function bass(p: Params, _seed: number, sr: number): GeneratedSample {
 
 function pad(p: Params, _seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "pad";
-  const detune = param(g, p, "detune");
-  const cutoff = param(g, p, "cutoff");
-  const speed = param(g, p, "speed");
+  const { detune, cutoff, speed } = readParams(g, p, [
+    "detune",
+    "cutoff",
+    "speed",
+  ]);
   const shape = loopShape(BASE_HZ, sr, 1.6);
   const body = shape.n;
   const spread = [-1, -0.37, 0.21, 0.62, 1];
@@ -732,11 +799,13 @@ function pad(p: Params, _seed: number, sr: number): GeneratedSample {
 
 function organ(p: Params, _seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "organ";
-  const sub = param(g, p, "sub");
-  const second = param(g, p, "second");
-  const third = param(g, p, "third");
-  const fourth = param(g, p, "fourth");
-  const perc = param(g, p, "perc");
+  const { sub, second, third, fourth, perc } = readParams(g, p, [
+    "sub",
+    "second",
+    "third",
+    "fourth",
+    "perc",
+  ]);
   const shape = loopShape(BASE_HZ / 2, sr, 0.5, 2);
   const body = shape.n;
   const intro = Math.round(0.12 * sr);
@@ -768,9 +837,7 @@ function organ(p: Params, _seed: number, sr: number): GeneratedSample {
 
 function bell(p: Params, _seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "bell";
-  const ratio = param(g, p, "ratio");
-  const index = param(g, p, "index");
-  const decay = param(g, p, "decay");
+  const { ratio, index, decay } = readParams(g, p, ["ratio", "index", "decay"]);
   const n = frames(decay * 1.5 + 0.1, sr);
   const out = new Float32Array(n);
   for (let i = 0; i < n; i += 1) {
@@ -790,9 +857,11 @@ function bell(p: Params, _seed: number, sr: number): GeneratedSample {
 
 function strings(p: Params, _seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "strings";
-  const detune = param(g, p, "detune");
-  const bright = param(g, p, "bright");
-  const attack = param(g, p, "attack");
+  const { detune, bright, attack } = readParams(g, p, [
+    "detune",
+    "bright",
+    "attack",
+  ]);
   const shape = loopShape(BASE_HZ, sr, 1.4);
   const body = shape.n;
   const intro = Math.round((0.01 + attack * 0.35) * sr);
@@ -883,7 +952,7 @@ function formantMix(
 /** Add band passed noise at `amount` of the signal's peak. */
 function addBreath(
   out: Float32Array,
-  rng: () => number,
+  rng: Rng,
   amount: number,
   sr: number
 ): void {
@@ -903,9 +972,11 @@ function addBreath(
 
 function choir(p: Params, seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "choir";
-  const vowel = param(g, p, "vowel");
-  const breath = param(g, p, "breath");
-  const vibrato = param(g, p, "vibrato");
+  const { vowel, breath, vibrato } = readParams(g, p, [
+    "vowel",
+    "breath",
+    "vibrato",
+  ]);
   const rng = mulberry32(seed);
   const shape = loopShape(BASE_HZ, sr, 1.2);
   const body = shape.n;
@@ -935,9 +1006,11 @@ const LEAD_VIBRATO_DEPTH = 0.35;
 
 function lead(p: Params, _seed: number, sr: number): GeneratedSample {
   const g: SampleGeneratorId = "lead";
-  const bright = param(g, p, "bright");
-  const duty = param(g, p, "duty");
-  const vibrato = param(g, p, "vibrato");
+  const { bright, duty, vibrato } = readParams(g, p, [
+    "bright",
+    "duty",
+    "vibrato",
+  ]);
   const shape = loopShape(BASE_HZ, sr, 0.8);
   const body = shape.n;
   const intro = Math.round(0.02 * sr);

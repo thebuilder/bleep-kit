@@ -13,7 +13,7 @@ export const AMIGA_PERIOD_MAX = 856;
 export const AMIGA_PERIOD_EXT_MIN = 56;
 export const AMIGA_PERIOD_EXT_MAX = 1712;
 /** ProTracker's C-2 has period 428; Bleepkit names that note C-2 as well (MIDI note 36), so MOD note names carry over. */
-export const MOD_C2_PERIOD = 428;
+const MOD_C2_PERIOD = 428;
 export const MOD_C2_NOTE = 36;
 /** The rate a MOD sample plays at on its C-2: the clock divided by 428. */
 export const MOD_SAMPLE_RATE = 8287;
@@ -21,10 +21,10 @@ export const MOD_SAMPLE_RATE = 8287;
 export const MOD_NOTE_LOW = 24;
 export const MOD_NOTE_HIGH = 59;
 /** The A500's fixed output filter (one pole), the LED filter (two poles) and the DC blocker. */
-export const AMIGA_A500_LOWPASS_HZ = 4421;
+const AMIGA_A500_LOWPASS_HZ = 4421;
 export const AMIGA_LED_HZ = 3091;
 export const AMIGA_LED_Q = 0.66;
-export const AMIGA_HIGHPASS_HZ = 5.2;
+const AMIGA_HIGHPASS_HZ = 5.2;
 /** Generated samples (presets, the sample generators) are made at this rate: period 320, so the base note plays at 320. */
 export const AMIGA_GENERATOR_RATE = 11_084;
 /** The rate user samples are resampled to on import by default (period 214, ProTracker's C-3). */
@@ -75,7 +75,7 @@ export const PROTRACKER_PERIODS: readonly number[] = [
 ];
 
 /** The period register that plays `rate` frames per second, as an integer, clamped to the extended range. */
-export function rateToPeriod(rate: number): number {
+function rateToPeriod(rate: number): number {
   const p = Math.round(AMIGA_CLOCK_HZ / Math.max(1, rate));
   return Math.min(AMIGA_PERIOD_EXT_MAX, Math.max(AMIGA_PERIOD_EXT_MIN, p));
 }
@@ -90,11 +90,6 @@ export function exactPeriod(rate: number): number {
   return AMIGA_CLOCK_HZ / Math.max(1, rate);
 }
 
-/** Whether a period is inside ProTracker's standard range. */
-export function periodInStandardRange(period: number): boolean {
-  return period >= AMIGA_PERIOD_MIN - 0.5 && period <= AMIGA_PERIOD_MAX + 0.5;
-}
-
 /** The ProTracker period of a note: C-2 (36) is 428, an octave up halves it. */
 export function noteToPeriod(note: number): number {
   return MOD_C2_PERIOD * 2 ** ((MOD_C2_NOTE - note) / 12);
@@ -103,12 +98,6 @@ export function noteToPeriod(note: number): number {
 /** The note (fractional) a period stands for. */
 export function periodToNote(period: number): number {
   return MOD_C2_NOTE + 12 * Math.log2(MOD_C2_PERIOD / Math.max(1, period));
-}
-
-/** The table period of a whole note from 24 to 59, or null outside ProTracker's range. */
-export function tablePeriod(note: number): number | null {
-  const i = Math.round(note) - MOD_NOTE_LOW;
-  return PROTRACKER_PERIODS[i] ?? null;
 }
 
 /** The whole note whose table period is nearest (in pitch) to `period`. May lie outside 24 to 59 for extended periods. */

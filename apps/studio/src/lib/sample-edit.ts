@@ -27,7 +27,7 @@ export function floatsOf(s: UserSample): Float32Array {
 export const framesOf = (s: UserSample): number => sampleFrames(s);
 
 /** `s` with new audio. The loop is kept when it still fits and dropped when it does not. */
-export function withAudio(
+function withAudio(
   s: UserSample,
   floats: Float32Array,
   bits: 8 | 16 = s.bits
@@ -135,6 +135,9 @@ export function instrumentFor(
 export function describeSample(s: UserSample): string {
   const frames = sampleFrames(s);
   const bytes = frames * (s.bits === 8 ? 1 : 2);
-  const kb = bytes < 1024 * 10 ? `${(bytes / 1024).toFixed(1)}` : `${Math.round(bytes / 1024)}`;
+  const kb =
+    bytes < 1024 * 10
+      ? `${(bytes / 1024).toFixed(1)}`
+      : `${Math.round(bytes / 1024)}`;
   return `${(frames / s.rate).toFixed(2)} s, ${s.rate} Hz, ${s.bits} bit mono, ${kb} KB`;
 }

@@ -140,15 +140,15 @@ describe("sample tools", () => {
     expect((await call("resample", { id: "x", ref: "coin" })).isError).toBe(
       true
     );
-    expect((await call("resample", { id: "Bad Id", ref: "sfx/coin" })).isError).toBe(
-      true
-    );
+    expect(
+      (await call("resample", { id: "Bad Id", ref: "sfx/coin" })).isError
+    ).toBe(true);
     expect(
       (await call("resample", { bits: 12, id: "x", ref: "sfx/coin" })).isError
     ).toBe(true);
-    expect((await call("resample", { id: "snare", ref: "sfx/coin" })).text).toContain(
-      "already"
-    );
+    expect(
+      (await call("resample", { id: "snare", ref: "sfx/coin" })).text
+    ).toContain("already");
     expect((await call("resample", { id: "x", ref: "sfx/nope" })).isError).toBe(
       true
     );

@@ -21,7 +21,7 @@ const chipFor = (chip: ChipId): ChipId | null =>
   chip === "custom" ? null : chip;
 
 /** Import one audio file as a sample document. Resolves to the new sample's id, or null (a notice says why). */
-export async function importAudioFile(file: File): Promise<string | null> {
+async function importAudioFile(file: File): Promise<string | null> {
   const name = file.name.replace(EXT, "").trim() || "Sample";
   let decoded: Awaited<ReturnType<typeof decodeAudioBytes>>;
   try {
@@ -33,7 +33,7 @@ export async function importAudioFile(file: File): Promise<string | null> {
     app.toast(`Could not import ${file.name}: ${(err as Error).message}`);
     return null;
   }
-  const first = decoded.channels[0];
+  const [first] = decoded.channels;
   if (!first || first.length < 2) {
     app.toast(`Could not import ${file.name}: it holds no audio`);
     return null;
@@ -91,7 +91,11 @@ export async function importAudioFiles(files: readonly File[]): Promise<void> {
 
 /** Opens the system file picker for audio files. */
 export function pickAudioFiles(): void {
-  const input = h("input", { accept: AUDIO_ACCEPT, multiple: true, type: "file" });
+  const input = h("input", {
+    accept: AUDIO_ACCEPT,
+    multiple: true,
+    type: "file",
+  });
   input.addEventListener("change", () => {
     const files = Array.from(input.files ?? []);
     if (files.length > 0) {

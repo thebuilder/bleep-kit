@@ -137,10 +137,6 @@ class FakeEngine implements EngineNodeLike {
       this.renderCache.clear();
     },
     loadSfx: (m) => this.sfxDocs.set(m.id, m.sfx),
-    unloadSample: (m) => {
-      this.userSamples.delete(m.id);
-      this.renderCache.clear();
-    },
     loadSong: (m) => {
       this.song = m.song;
       this.songInstruments = m.instruments;
@@ -172,6 +168,10 @@ class FakeEngine implements EngineNodeLike {
     setMaster: (m) => this.setMaster(m),
     stop: () => this.stop(),
     trigger: (m) => this.trigger(m),
+    unloadSample: (m) => {
+      this.userSamples.delete(m.id);
+      this.renderCache.clear();
+    },
     unloadSfx: (m) => this.sfxDocs.delete(m.id),
     unloadSong: () => {
       this.stopSource();

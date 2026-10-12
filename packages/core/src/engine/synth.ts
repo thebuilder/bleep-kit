@@ -306,6 +306,12 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
       amiga?.model !== "a1200",
       amiga?.led ?? false
     );
+    this.collectSidVoices();
+    this.reseedNoise();
+  }
+
+  /** The (up to three) SID channels of the song's chip: their voices render as one group. */
+  private collectSidVoices(): void {
     this.sidVoices = [];
     this.sidOsc = [];
     this.sidOuts = [];
@@ -318,7 +324,6 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
         this.sidOuts.push(v.xbuf);
       }
     }
-    this.reseedNoise();
   }
 
   private retime(): void {

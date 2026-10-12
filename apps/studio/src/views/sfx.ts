@@ -24,6 +24,7 @@ import { playLength, renderSfxAsync } from "../render-service.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
 import {
+  bindName,
   type FieldHandle,
   type Group,
   group,
@@ -923,10 +924,9 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
   };
   specBtn.addEventListener("click", () => setSpec(!showSpec));
   setSpec(showSpec);
-  nameIn.addEventListener("keydown", (e) => e.stopPropagation());
-  nameIn.addEventListener("input", () =>
+  bindName(nameIn, (name) =>
     edit((d) => {
-      d.name = nameIn.value;
+      d.name = name;
     }, "name")
   );
   chipSel.addEventListener("change", () => {

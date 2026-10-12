@@ -59,9 +59,9 @@ export interface ExampleSong {
   id: string;
   /** Ids of the example instruments the song uses (channel defaults, row switches, MML `@id`). */
   instrumentIds: string[];
+  name: string;
   /** Ids of the example user samples those instruments play. */
   sampleIds: string[];
-  name: string;
   /** One pass through the song (the order list once, tempo changes included). */
   seconds: number;
   song: Song;

@@ -10,7 +10,6 @@ import {
   CHIP_IDS,
   type ChannelKind,
   type ChipId,
-  type EngineEvent,
   type Instrument,
   type Macro,
   type SampleGeneratorSpec,
@@ -29,6 +28,7 @@ import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
 import { deleteButton } from "../ui/delete-doc.ts";
 import {
+  bindName,
   type FieldHandle,
   group,
   note,
@@ -41,21 +41,16 @@ import { dutySvg } from "../ui/fm.ts";
 import { buildFmPanel } from "../ui/fm-panel.ts";
 import { icon } from "../ui/icons.ts";
 import { showIssues } from "../ui/issues.ts";
-import { openResample } from "../ui/resample.ts";
+import { createKeyboard } from "../ui/keyboard.ts";
 import {
   type MacroEditor,
   type MacroSpec,
   macroEditor,
   macroTick,
 } from "../ui/macro.ts";
-import {
-  createPiano,
-  keyToOffset,
-  LOWER_KEYS,
-  UPPER_KEYS,
-} from "../ui/piano.ts";
+import { openResample } from "../ui/resample.ts";
 import { presetTable, waveGrid } from "../ui/wavegrid.ts";
-import { addVisual, type Frame } from "../visuals/loop.ts";
+import { addVisual } from "../visuals/loop.ts";
 
 /** The sample generator spec for an id that may not be a known generator (a hand edited document). */
 function generatorSpec(id: string): SampleGeneratorSpec | undefined {
@@ -83,7 +78,6 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     project.get<Instrument>("instrument", id) as Doc<Instrument>;
   const inst = () => doc().value;
   const hex = () => KIND_HEX[inst().kind];
-  let octave = prefs.get("kb-octave", 3);
   let testNote = prefs.get("inst-test-note", 60);
   let testDur = prefs.get("inst-test-dur", 0.6);
   let playOnChange = prefs.get("inst-play-change", true);
@@ -91,7 +85,6 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     MacroKey,
     { ed: MacroEditor; get: () => Macro | undefined }
   >();
-  const heldKeys = new Map<string, number>();
   const chanNote = new Map<number, number>();
   const wasHeld = {
     note: -1,
@@ -142,37 +135,14 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
   autoIn.checked = playOnChange;
 
   /* ----- keyboard ----- */
-  const labels = new Map<number, string>();
-  const relabel = () => {
-    labels.clear();
-    const lo = (octave + 1) * 12;
-    for (const [i, c] of (LOWER_KEYS + UPPER_KEYS).split("").entries()) {
-      labels.set(lo + i, c.toUpperCase());
-    }
-  };
-  relabel();
-  const kbCanvas = q<HTMLCanvasElement>("#iKeys");
-  let piano = makePiano();
-  function makePiano() {
-    const lo = (octave + 1) * 12;
-    return createPiano(kbCanvas, {
-      hi: lo + 23,
-      label: (n) => labels.get(n) ?? null,
-      lo,
-      onDown: (n) => noteDown(n),
-      onUp: (n) => noteUp(n),
-    });
-  }
-  function setOctave(o: number): void {
-    octave = clamp(o, 1, 6);
-    prefs.set("kb-octave", octave);
-    octEl.textContent = String(octave);
-    piano.dispose();
-    relabel();
-    piano = makePiano();
-    piano.draw();
-  }
-  octEl.textContent = String(octave);
+  const kb = createKeyboard({
+    canvas: q<HTMLCanvasElement>("#iKeys"),
+    color: hex,
+    noteDown: (n) => noteDown(n),
+    noteUp: (n) => noteUp(n),
+    octaveLabel: octEl,
+    owns: (previewId) => previewId === id,
+  });
 
   function noteDown(n: number): void {
     const d = doc();
@@ -187,7 +157,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       type: "noteOn",
       velocity: 0.9,
     });
-    piano.light(n, hex(), true);
+    kb.piano.light(n, hex(), true);
     wasHeld.note = n;
     wasHeld.since = performance.now();
     wasHeld.released = null;
@@ -201,35 +171,20 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       engine.announce({ channel: ch, channelId: inst().kind, type: "noteOff" });
       chanNote.delete(ch);
     }
-    piano.release(n);
+    kb.piano.release(n);
     if (wasHeld.note === n) {
       wasHeld.released = performance.now() - wasHeld.since;
       wasHeld.until = performance.now() + 700;
     }
   }
-  const onKeyUp = (e: KeyboardEvent) => {
-    const n = heldKeys.get(e.key.toLowerCase());
-    if (n !== undefined) {
-      heldKeys.delete(e.key.toLowerCase());
-      noteUp(n);
-    }
-  };
-  document.addEventListener("keyup", onKeyUp);
 
   /* ----- playing ----- */
   function play(): void {
     const d = doc();
     playInstrumentDoc(d, testNote, testDur);
-    piano.light(
-      clamp(testNote, (octave + 1) * 12, (octave + 1) * 12 + 23),
-      hex(),
-      true
-    );
+    kb.piano.light(clamp(testNote, kb.low(), kb.low() + 23), hex(), true);
     setTimeout(
-      () =>
-        piano.release(
-          clamp(testNote, (octave + 1) * 12, (octave + 1) * 12 + 23)
-        ),
+      () => kb.piano.release(clamp(testNote, kb.low(), kb.low() + 23)),
       testDur * 1000
     );
     wasHeld.note = testNote;
@@ -706,7 +661,9 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
         class: "linkish",
         href: `#/sample/${encodeURIComponent(s.userSample)}`,
       });
-      open.textContent = known ? "Open the sample" : "No such sample in this project";
+      open.textContent = known
+        ? "Open the sample"
+        : "No such sample in this project";
       fb.append(h("div", { class: "fld" }, open));
       body.append(
         h(
@@ -1188,8 +1145,8 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     ico.innerHTML = icon(i.kind, 20);
     ico.style.color = hex();
     host.style.setProperty("--kc", hex());
-    const kb = q("#iKind");
-    kb.textContent = `${KIND_LABEL[i.kind]}${i.chip ? `  ${CHIP_THEME[i.chip].short}` : "  any chip"}`;
+    const kindEl = q("#iKind");
+    kindEl.textContent = `${KIND_LABEL[i.kind]}${i.chip ? `  ${CHIP_THEME[i.chip].short}` : "  any chip"}`;
     ctx.setChip(chipOf());
   }
 
@@ -1206,8 +1163,8 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
   q("#iResample").addEventListener("click", () =>
     openResample(doc(), { duration: testDur, note: testNote })
   );
-  q("#iOctDn").addEventListener("click", () => setOctave(octave - 1));
-  q("#iOctUp").addEventListener("click", () => setOctave(octave + 1));
+  q("#iOctDn").addEventListener("click", () => kb.shift(-1));
+  q("#iOctUp").addEventListener("click", () => kb.shift(1));
   noteSel.addEventListener("change", () => {
     testNote = Number(noteSel.value);
     prefs.set("inst-test-note", testNote);
@@ -1221,11 +1178,10 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     playOnChange = autoIn.checked;
     prefs.set("inst-play-change", playOnChange);
   });
-  nameIn.addEventListener("keydown", (e) => e.stopPropagation());
-  nameIn.addEventListener("input", () =>
+  bindName(nameIn, (name) =>
     edit(
       (x) => {
-        x.name = nameIn.value;
+        x.name = name;
       },
       "name",
       false
@@ -1249,39 +1205,6 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
   });
 
   /* ----- visuals ----- */
-  /** The keys each preview channel lit and has not put out yet. A note is announced twice: at once when it is played,
-      and again by the engine when it becomes audible. So the engine's noteOn for an old key can arrive after a newer
-      key was lit, and one slot per channel would forget the old key and leave it lit. A channel holds one note, so its
-      noteOff puts out every key it lit. */
-  const litOn = new Map<number, Set<number>>();
-  /** Light the keys of the notes this instrument just played, when they are inside the two visible octaves, and put
-      them out on the engine's noteOff. The engine reports a note when it becomes audible, which for a quick click is
-      after the mouse is already up, so lighting without the matching release would leave the key stuck on. */
-  function lightKeys(f: Frame): void {
-    const lo = (octave + 1) * 12;
-    for (const ev of f.events as readonly EngineEvent[]) {
-      if (ev.channel < 0) {
-        continue;
-      }
-      if (ev.type === "noteOff") {
-        for (const n of litOn.get(ev.channel) ?? []) {
-          piano.release(n, f.time);
-        }
-        litOn.delete(ev.channel);
-        continue;
-      }
-      if (ev.type !== "noteOn" || ev.id !== id) {
-        continue;
-      }
-      const n = Math.round(ev.note);
-      if (n >= lo && n < lo + 24) {
-        piano.light(n, hex(), true, f.time);
-        const keys = litOn.get(ev.channel) ?? new Set<number>();
-        keys.add(n);
-        litOn.set(ev.channel, keys);
-      }
-    }
-  }
   /** Move the macro playheads and the wavetable marker along with the note being held. */
   function movePlayheads(now: number): void {
     const active =
@@ -1302,27 +1225,20 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     }
   }
   const offVisual = addVisual((f) => {
-    lightKeys(f);
-    if (piano.busy(f.time) || f.reduced) {
-      piano.draw(f.time);
-    }
+    kb.frame(f);
     movePlayheads(performance.now());
   });
 
   rebuildAll();
   engine.setInstrument(id, inst());
-  piano.draw();
+  kb.piano.draw();
   ctx.cleanup(() => {
     offVisual();
     unsub();
     autoPlay.cancel();
-    document.removeEventListener("keyup", onKeyUp);
-    piano.dispose();
+    kb.dispose();
     for (const m of macros.values()) {
       m.ed.dispose();
-    }
-    for (const n of heldKeys.values()) {
-      noteUp(n);
     }
     releaseNote();
   });
@@ -1341,7 +1257,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       icon: "up",
       id: "inst:oct-up",
       keys: "=",
-      run: () => setOctave(octave + 1),
+      run: () => kb.shift(1),
       title: "Keyboard octave up",
     },
     {
@@ -1349,7 +1265,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       icon: "down",
       id: "inst:oct-down",
       keys: "-",
-      run: () => setOctave(octave - 1),
+      run: () => kb.shift(-1),
       title: "Keyboard octave down",
     },
   ];
@@ -1358,31 +1274,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     chip: () => chipOf(),
     commands,
     doc: () => doc(),
-    onKey(e) {
-      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) {
-        return false;
-      }
-      if (e.key === "-") {
-        setOctave(octave - 1);
-        return true;
-      }
-      if (e.key === "=" || e.key === "+") {
-        setOctave(octave + 1);
-        return true;
-      }
-      const off = keyToOffset(e.key);
-      if (off === null || e.key.length !== 1 || off >= 24) {
-        return false;
-      }
-      const lower = e.key.toLowerCase();
-      if (heldKeys.has(lower)) {
-        return true;
-      }
-      const n = (octave + 1) * 12 + off;
-      heldKeys.set(lower, n);
-      noteDown(n);
-      return true;
-    },
+    onKey: kb.onKey,
     play,
     stop: stopEverything,
   };

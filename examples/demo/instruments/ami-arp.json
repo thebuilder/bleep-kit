@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "name": "Amiga arp (pulse)",
+  "kind": "sample",
+  "chip": "amiga",
+  "volume": 1.0,
+  "sample": {
+    "generator": "pluck",
+    "params": {},
+    "seed": 1,
+    "baseNote": 60,
+    "loop": false,
+    "userSample": "ami-arp"
+  },
+  "envelope": {
+    "attack": 0,
+    "decay": 0,
+    "sustain": 1,
+    "release": 0.02
+  }
+}

@@ -62,10 +62,7 @@ function freeSongId(name: string, bytes: Uint8Array): string {
   return project.uniqueId("song", name);
 }
 
-async function create(
-  result: ModImport,
-  id: string
-): Promise<void> {
+async function create(result: ModImport, id: string): Promise<void> {
   for (const [sid, sample] of Object.entries(result.samples)) {
     // biome-ignore lint/performance/noAwaitInLoops: samples before instruments before the song, each normalized against the last
     await project.create("sample", sid, sample);
@@ -110,7 +107,7 @@ async function importMod(
 }
 
 /** Asks for the options, then imports. A file that is not a module gets a notice instead of a dialog. */
-export function openModBytes(bytes: Uint8Array, file: string): void {
+function openModBytes(bytes: Uint8Array, file: string): void {
   const check = modToSong(bytes, { id: "check" }).issues.find(
     (i) => i.severity === "error"
   );

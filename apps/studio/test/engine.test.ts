@@ -11,8 +11,10 @@ import { defaultInstrument, defaultSfx } from "../src/lib/core.ts";
 import { starterFiles } from "../src/store/seed.ts";
 
 const player = vi.hoisted(() => ({
+  active: [] as boolean[],
   connect: vi.fn(),
   createCalls: [] as { ctx: unknown; workletUrl: unknown }[],
+  disposed: 0,
   fail: false,
   frame: 0,
   handlers: [] as ((msg: unknown) => void)[],
@@ -26,7 +28,9 @@ vi.mock("@bleepkit/player", () => ({
       return Promise.reject(new Error("worklet blocked"));
     }
     return Promise.resolve({
-      dispose: vi.fn(),
+      dispose: () => {
+        player.disposed += 1;
+      },
       node: { connect: player.connect },
       nowFrame: () => player.frame,
       on: (handler: (msg: unknown) => void) => {
@@ -38,6 +42,7 @@ vi.mock("@bleepkit/player", () => ({
         latest: () => new Float32Array(0),
       },
       send: (msg: Record<string, unknown>) => player.sent.push(msg),
+      setActive: (on: boolean) => player.active.push(on),
     });
   }),
 }));
@@ -51,6 +56,7 @@ class FakeContext {
     gain: { value: number };
   }[] = [];
   readonly sampleRate = 48_000;
+  closed = false;
   refuseResume = false;
   state = "suspended";
   private readonly listeners: (() => void)[] = [];
@@ -61,12 +67,19 @@ class FakeContext {
     this.listeners.push(fn);
   }
   close(): Promise<void> {
+    this.closed = true;
     return Promise.resolve();
   }
   createGain() {
     const g = { connect: vi.fn(), gain: { value: 1 } };
     this.gains.push(g);
     return g;
+  }
+  /** The browser reporting that `state` changed. */
+  notify(): void {
+    for (const fn of this.listeners) {
+      fn();
+    }
   }
   resume(): Promise<void> {
     if (this.refuseResume) {
@@ -102,8 +115,10 @@ let current: Engine | null = null;
 beforeEach(() => {
   vi.stubGlobal("AudioContext", FakeContext);
   FakeContext.all = [];
+  player.active = [];
   player.connect.mockClear();
   player.createCalls = [];
+  player.disposed = 0;
   player.fail = false;
   player.frame = 0;
   player.handlers = [];
@@ -480,5 +495,153 @@ describe("songs and instruments reach the engine as the user edited them", () =>
       velocity: 0.8,
     });
     expect(player.sent[4]).toMatchObject({ channel: b, instrument: "bell" });
+  });
+});
+
+describe("a page that is hidden, and an engine that is rebuilt", () => {
+  const files = starterFiles();
+  const song = () =>
+    structuredClone(files.get("songs/starter-theme.json")) as never as {
+      tempo: number;
+    };
+  const instruments = () =>
+    Object.fromEntries(
+      [...files]
+        .filter(([p]) => p.startsWith("instruments/"))
+        .map(([p, v]) => [p.replace(/^.*\/|\.json$/g, ""), structuredClone(v)])
+    ) as never as Record<string, { name: string }>;
+  const ev = (frame: number, id = "x") =>
+    ({
+      channel: 0,
+      channelId: "",
+      frame,
+      hz: 0,
+      id,
+      note: 60,
+      order: 0,
+      row: 0,
+      type: "noteOn",
+      velocity: 1,
+    }) as never;
+  const eventsMsg = (frames: number[]): FromWorklet => ({
+    clockFrame: 0,
+    clockTime: 0,
+    events: frames.map((f) => ev(f)),
+    type: "events",
+  });
+
+  it("holds at most 2000 events, dropping the oldest, however long nothing takes them out", async () => {
+    const engine = await boot();
+    for (let i = 0; i < 30; i += 1) {
+      deliver(eventsMsg(Array.from({ length: 500 }, (_, k) => i * 500 + k)));
+    }
+    player.frame = 1e9;
+    const got = engine.drain();
+    expect(got).toHaveLength(2000);
+    expect(got[0]?.frame).toBe(13_000);
+    expect(got.at(-1)?.frame).toBe(14_999);
+  });
+
+  describe("with a page to watch", () => {
+    const doc = Object.assign(new EventTarget(), {
+      visibilityState: "visible" as string,
+    });
+    const win = new EventTarget();
+    const setVisibility = (state: "hidden" | "visible") => {
+      doc.visibilityState = state;
+      doc.dispatchEvent(new Event("visibilitychange"));
+    };
+    beforeEach(() => {
+      doc.visibilityState = "visible";
+      vi.stubGlobal("document", doc);
+      vi.stubGlobal("window", win);
+    });
+
+    it("stops collecting events while hidden, tells the worklet, and starts from nothing on return", async () => {
+      const engine = await boot();
+      deliver(eventsMsg([10, 20]));
+      engine.announce({ type: "trigger" });
+      setVisibility("hidden");
+      expect(player.active).toEqual([false]);
+      // events that arrive while nobody draws are dropped, and so are the ones that were waiting
+      deliver(eventsMsg([30, 40]));
+      engine.announce({ type: "trigger" });
+      player.frame = 1000;
+      expect(engine.drain()).toEqual([]);
+      setVisibility("visible");
+      expect(player.active).toEqual([false, true]);
+      deliver(eventsMsg([50]));
+      expect(engine.drain().map((e) => e.frame)).toEqual([50]);
+    });
+
+    it("rebuilds the context and the node when the context was closed under it", async () => {
+      const engine = await boot();
+      await engine.unlock();
+      const first = FakeContext.all[0] as FakeContext;
+      first.state = "closed";
+      first.notify();
+      await vi.waitFor(() => expect(engine.rebuilds).toBe(1));
+      expect(engine.lastRebuild).toBe("closed");
+      expect(FakeContext.all).toHaveLength(2);
+      expect(player.createCalls).toHaveLength(2);
+      expect(player.createCalls[1]?.ctx).toBe(FakeContext.all[1]);
+      expect(player.disposed).toBe(1);
+      expect(player.connect).toHaveBeenLastCalledWith(
+        (FakeContext.all[1] as FakeContext).destination
+      );
+    });
+  });
+
+  it("gives the new engine the song, the master, the channels and the position the old one had", async () => {
+    const engine = await boot();
+    await engine.unlock();
+    const s = song();
+    const i = instruments();
+    engine.loadSong(s as never, i as never, [], "theme");
+    engine.setMaster({ volume: 0.5 });
+    engine.setChannel(1, { muted: true });
+    engine.setTempo(s.tempo + 20);
+    engine.playSong({ loop: true });
+    deliver({
+      frame: 0,
+      playing: true,
+      position: { order: 2, pulse: 96, row: 8, tick: 0 },
+      time: 0,
+      type: "clock",
+    });
+    player.sent = [];
+    await engine.rebuild("sample-rate");
+    expect(engine.lastRebuild).toBe("sample-rate");
+    expect(player.disposed).toBe(1);
+    expect((FakeContext.all[0] as FakeContext).closed).toBe(true);
+    // the song first (the worklet resets channels on a load), then the settings, then play from where it was
+    expect(kinds()).toEqual([
+      "loadSong",
+      "setTempo",
+      "setMaster",
+      "setChannel",
+      "play",
+    ]);
+    expect(player.sent.at(-1)).toEqual({
+      loop: true,
+      order: 2,
+      row: 8,
+      type: "play",
+    });
+    expect(player.sent[2]).toEqual({ type: "setMaster", volume: 0.5 });
+    expect(engine.hasSong("theme")).toBe(true);
+    expect(engine.playing).toBe(true);
+    // sounds and instruments are uploaded again when they are used next
+    const sfx = defaultSfx("nes");
+    player.sent = [];
+    engine.triggerSfx("coin", sfx);
+    expect(kinds()).toEqual(["loadSfx", "trigger"]);
+  });
+
+  it("does not rebuild the fake engine", async () => {
+    const engine = await boot({ fake: true });
+    await engine.rebuild("closed");
+    expect(engine.rebuilds).toBe(0);
+    expect(FakeContext.all).toHaveLength(1);
   });
 });

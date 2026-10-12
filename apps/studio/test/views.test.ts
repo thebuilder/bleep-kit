@@ -849,13 +849,13 @@ describe("switches and the save icon", () => {
     restoreSfx("coin", original);
   });
 
-  it("the sound editor ends in the two buttons, without the long description", async () => {
+  it("the sound editor ends in its three buttons, without the long description", async () => {
     await goSfx("coin");
     expect(view().querySelector("#sDesc")).toBeNull();
     expect(view().querySelector(".ed-foot")?.textContent).not.toContain(
       "coin sound"
     );
-    expect(view().querySelectorAll(".ed-foot button").length).toBe(2);
+    expect(view().querySelectorAll(".ed-foot button").length).toBe(3);
   });
 
   it("the save icon is one fixed size icon that changes its state and words, never its shape", async () => {
@@ -3048,7 +3048,7 @@ describe("the examples view", () => {
 
   it("lists the demo songs and sounds, and plays one through the engine without touching the project", async () => {
     await goExamples();
-    expect(document.querySelectorAll(".xcard")).toHaveLength(6);
+    expect(document.querySelectorAll(".xcard")).toHaveLength(7);
     expect(document.querySelectorAll(".xpad")).toHaveLength(22);
     expect(card("grid-battle").textContent).toContain("150 bpm");
     expect(document.querySelector(".nav a.cur")?.textContent).toContain(

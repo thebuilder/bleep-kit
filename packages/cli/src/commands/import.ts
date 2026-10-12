@@ -7,7 +7,6 @@ import {
   type ChipId,
   type ChordMode,
   type Instrument,
-  type Issue,
   midiToSong,
   normalizeInstrument,
   normalizeSong,
@@ -23,24 +22,11 @@ import {
   writeDoc,
 } from "../project.ts";
 import { importMod, importSample } from "./import-audio.ts";
+import { idFromName, invalidImport, reportSections } from "./import-shared.ts";
 import type { CommandSpec } from "./types.ts";
 
-const NON_ID_RE = /[^a-z0-9]+/g;
-const EDGE_DASH_RE = /^-+|-+$/g;
-const MIDI_EXT_RE = /\.midi?$/i;
 const MOD_EXT_RE = /\.(mod|nst)$/i;
 const IMPORT_CHIPS = CHIP_IDS.filter((c) => c !== "custom");
-
-/** `Boss Theme (v2).mid` becomes `boss-theme-v2`. */
-function idFromFile(file: string): string {
-  const base = path.basename(file).replace(MIDI_EXT_RE, "").toLowerCase();
-  const id = base
-    .replace(NON_ID_RE, "-")
-    .replace(EDGE_DASH_RE, "")
-    .slice(0, 64)
-    .replace(EDGE_DASH_RE, "");
-  return id === "" ? "imported" : id;
-}
 
 function readMidi(abs: string, shown: string): Uint8Array {
   try {
@@ -117,16 +103,6 @@ function writeInstruments(
     });
   }
   return out;
-}
-
-function issueSection(title: string, issues: Issue[]): string[] {
-  return issues.length === 0
-    ? []
-    : [`${title} (${issues.length}):`, ...issues.map(issueLine)];
-}
-
-function issueLine(i: Issue): string {
-  return `  ${i.severity} ${i.path === "" ? "" : `${i.path}: `}${i.message}`;
 }
 
 function partLine(p: {
@@ -268,7 +244,7 @@ export const importCommand: CommandSpec = {
     if (MOD_EXT_RE.test(file)) {
       return importMod(ctx, args, file);
     }
-    const id = args.str("id") ?? idFromFile(file);
+    const id = args.str("id") ?? idFromName(file, "imported");
     checkId(id);
     const pc = openProject(ctx);
     const songRel = docRel("song", id);
@@ -290,15 +266,11 @@ export const importCommand: CommandSpec = {
         ? {}
         : { rowsPerBeat: args.num("rows-per-beat") as number }),
     });
-    const errors = result.issues.filter((i) => i.severity === "error");
-    if (errors.length > 0) {
-      throw new CliError(
-        "invalid",
-        `cannot import ${file}:\n${errors.map(issueLine).join("\n")}`,
-        {
-          details: { issues: result.issues },
-          hint: "Check that it is a Standard MIDI file (format 0 or 1), and that --chip, --rows-per-beat and --map are valid.",
-        }
+    if (result.issues.some((x) => x.severity === "error")) {
+      throw invalidImport(
+        file,
+        result.issues,
+        "Check that it is a Standard MIDI file (format 0 or 1), and that --chip, --rows-per-beat and --map are valid."
       );
     }
     const known = { ...pc.instruments(), ...result.instruments };
@@ -315,14 +287,7 @@ export const importCommand: CommandSpec = {
         "Parts:",
         ...result.parts.map(partLine),
         `Instruments: ${created.length > 0 ? `wrote ${created.join(", ")}` : "none written"}${reused.length > 0 ? `; kept your existing ${reused.join(", ")}` : ""}`,
-        ...issueSection(
-          "Converted",
-          result.issues.filter((i) => i.severity === "info")
-        ),
-        ...issueSection(
-          "Lost or changed",
-          result.issues.filter((i) => i.severity !== "info")
-        ),
+        ...reportSections(result.issues),
         `Next: bleepkit render song/${id} --analyze --images`,
       ].join("\n"),
       json: {

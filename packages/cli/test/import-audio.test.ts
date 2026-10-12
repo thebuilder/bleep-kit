@@ -231,10 +231,18 @@ describe("resample", () => {
       path: "samples/zap-sample.json",
     });
     expect(
-      (readJson(path.join(project, "samples/zap-sample.json")) as { rate: number })
-        .rate
+      (
+        readJson(path.join(project, "samples/zap-sample.json")) as {
+          rate: number;
+        }
+      ).rate
     ).toBe(16_574);
-    const again = await run(project, ["resample", "sfx/zap", "--id", "zap-sample"]);
+    const again = await run(project, [
+      "resample",
+      "sfx/zap",
+      "--id",
+      "zap-sample",
+    ]);
     expect(again.code).toBe(1);
     const crushed = await run(project, [
       "resample",
@@ -246,7 +254,14 @@ describe("resample", () => {
       "--json",
     ]);
     expect(crushed.json).toMatchObject({ bits: 8, rate: 8000 });
-    const bad = await run(project, ["resample", "sfx/zap", "--id", "z3", "--bits", "12"]);
+    const bad = await run(project, [
+      "resample",
+      "sfx/zap",
+      "--id",
+      "z3",
+      "--bits",
+      "12",
+    ]);
     expect(bad.code).toBe(2);
     expect(bad.stderr + bad.stdout).toContain("--bits must be 8 or 16");
   });

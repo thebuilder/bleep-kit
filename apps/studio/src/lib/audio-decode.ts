@@ -13,11 +13,8 @@ export interface DecodedAudio {
 const WAV_NAME = /\.wave?$/i;
 
 export const AUDIO_ACCEPT = ".wav,.mp3,.ogg,.oga,.flac,.m4a,.aac,audio/*";
-export const AUDIO_NAME = /\.(wav|wave|mp3|ogg|oga|flac|m4a|aac|opus)$/i;
 
-type Decoder = (
-  bytes: ArrayBuffer
-) => Promise<{
+type Decoder = (bytes: ArrayBuffer) => Promise<{
   getChannelData: (i: number) => Float32Array;
   numberOfChannels: number;
   sampleRate: number;
@@ -68,10 +65,11 @@ export async function decodeAudioBytes(
       ),
       sampleRate: buf.sampleRate,
     };
-  } catch {
+  } catch (error) {
     throw new Error(
       wavProblem ||
-        `${name} is not an audio file this browser can read (WAV, MP3 and OGG work)`
+        `${name} is not an audio file this browser can read (WAV, MP3 and OGG work)`,
+      { cause: error }
     );
   }
 }

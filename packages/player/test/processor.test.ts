@@ -5,6 +5,7 @@ import {
   CLOCK_FRAMES,
   type ClockMessage,
   type EngineOptions,
+  MAX_PENDING_EVENTS,
 } from "../src/worklet/engine.ts";
 import { FakePort } from "./fake-port.ts";
 import {
@@ -358,6 +359,81 @@ describe("processor: scopes", () => {
       t.block();
     }
     expect(t.port.of("scope")).toHaveLength(0);
+  });
+});
+
+describe("processor: an inactive feed (a hidden page)", () => {
+  /** Render `seconds` of audio in whole blocks. */
+  const run = (t: ReturnType<typeof setup>, seconds: number) => {
+    for (let i = 0; i < Math.ceil((seconds * RATE) / 128); i += 1) {
+      t.block();
+    }
+  };
+
+  it("posts no events and no scope copies, and a clock about once a second", () => {
+    const t = setup({ voices: 10_000 });
+    t.engine.handleMessage({ type: "play" });
+    t.engine.handleMessage({ active: false, type: "setFeed" });
+    t.port.posted.length = 0;
+    for (let i = 0; i < 300; i += 1) {
+      t.engine.handleMessage({ handle: i + 1, id: "a", type: "trigger" });
+      t.block();
+    }
+    run(t, 4);
+    expect(t.port.of("events")).toHaveLength(0);
+    expect(t.port.of("scope")).toHaveLength(0);
+    // 4 seconds and a bit: far fewer clocks than the 190 an active feed posts for the same time
+    const clocks = t.port.of("clock").length;
+    expect(clocks).toBeGreaterThanOrEqual(3);
+    expect(clocks).toBeLessThanOrEqual(6);
+  });
+
+  it("still tells the page a song ended", () => {
+    const t = setup({ songFrames: 256 });
+    t.engine.handleMessage({ type: "play" });
+    t.engine.handleMessage({ active: false, type: "setFeed" });
+    t.block();
+    t.block();
+    t.block();
+    expect(t.port.of("ended")).toHaveLength(1);
+    expect(t.port.of("events")).toHaveLength(0);
+  });
+
+  it("posts a fresh clock at once when the feed changes, and resumes the full feed", () => {
+    const t = setup();
+    t.block();
+    t.port.posted.length = 0;
+    t.engine.handleMessage({ active: false, type: "setFeed" });
+    expect(t.port.of("clock")).toHaveLength(1);
+    t.engine.handleMessage({ active: true, type: "setFeed" });
+    expect(t.port.of("clock")).toHaveLength(2);
+    t.port.posted.length = 0;
+    run(t, 0.1);
+    expect(t.port.of("clock").length).toBeGreaterThanOrEqual(3);
+    expect(t.port.of("scope").length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("drops the events that were waiting when it goes inactive", () => {
+    const t = setup();
+    t.engine.handleMessage({ type: "play" });
+    t.block();
+    t.engine.handleMessage({ active: false, type: "setFeed" });
+    run(t, 0.1);
+    expect(t.port.of("events")).toHaveLength(0);
+  });
+});
+
+describe("processor: the event backlog is bounded", () => {
+  it("never holds more than MAX_PENDING_EVENTS for the next post", () => {
+    // one block makes far more events than the bound, and no flush happens before the check below
+    const t = setup({ voices: 100_000 });
+    const burst = MAX_PENDING_EVENTS * 3;
+    for (let i = 1; i <= burst; i += 1) {
+      t.engine.handleMessage({ handle: i, id: "a", type: "trigger" });
+    }
+    t.block();
+    const [batch] = t.port.of("events");
+    expect(batch?.events.length).toBe(MAX_PENDING_EVENTS);
   });
 });
 

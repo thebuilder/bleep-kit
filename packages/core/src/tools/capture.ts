@@ -3,7 +3,11 @@
    16 bit, a 0.99 peak), so the result is what an imported recording of the same sound would be. `bits: 8` crushes it
    to 8 bit on purpose, a lower `rate` crushes the bandwidth: the sound of a sampler from the 80s and 90s. */
 
-import { importBits, mixToMonoChannels, prepareImport } from "../samples/user.ts";
+import {
+  importBits,
+  mixToMonoChannels,
+  prepareImport,
+} from "../samples/user.ts";
 import type { ChipId, RenderResult } from "../types.ts";
 import { detectSamplePitch } from "./pitch.ts";
 
@@ -66,7 +70,7 @@ export function captureSample(
 ): Captured {
   const chip = opts.chip ?? null;
   const notes: string[] = [];
-  let channels = r.channels;
+  let { channels } = r;
   if (opts.trim !== false) {
     const span = audibleSpan(channels, r.sampleRate);
     if (span === null) {
@@ -94,7 +98,7 @@ export function captureSample(
   const { sample } = imported;
   if (pitch) {
     sample.finetune = Math.max(-100, Math.min(100, -pitch.cents));
-    notes.push(`pitch detected`);
+    notes.push("pitch detected");
   }
   const bits = opts.bits ?? importBits(chip);
   if (bits === 8) {

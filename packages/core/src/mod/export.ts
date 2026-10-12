@@ -1,4 +1,4 @@
-/* MOD export (architecture.md section 2.10): an amiga song becomes a 4 channel ProTracker module (M.K.). Each sample
+/* MOD export (architecture.md section 2.11): an amiga song becomes a 4 channel ProTracker module (M.K.). Each sample
    instrument becomes a MOD sample (the note shift that puts its pitch on ProTracker's table goes into the written notes,
    the remainder into the finetune), patterns longer than 64 rows are split, and Bleepkit's persistent effects are
    written again on every row, as a tracker needs them. What a MOD cannot hold is counted in a warning. */
@@ -42,6 +42,11 @@ const MAX_SAMPLE_BYTES = 131_070;
 const HEADER = 1084;
 const DEFAULT_SPEED = 6;
 const PREFERRED_SPEEDS = [6, 3, 4, 5, 2, 8, 7, 1, 9, 10, 12, 16];
+const MIN_BPM = 32;
+const MAX_BPM = 255;
+/** A tempo this far from the module's row length (relative) is reported. */
+const ENVELOPE_EPSILON = 0.005;
+const TEMPO_WARN = 0.002;
 
 /* ---------- small helpers ---------- */
 
@@ -67,6 +72,15 @@ function writeText(bytes: Uint8Array, at: number, text: string, max: number) {
     bytes[at + i] = t.charCodeAt(i);
   }
 }
+
+/** The effects a MOD has no code for, by what the warning calls them. */
+const NOT_IN_A_MOD: Readonly<Partial<Record<EffectType, string>>> = {
+  duty: "Vxx duty",
+  noteSlideDown: "Qxy and Rxy note slides",
+  noteSlideUp: "Qxy and Rxy note slides",
+  pan: "Xxx pan",
+  send: "Wxx echo send",
+};
 
 function bump(map: Map<string, number>, key: string): void {
   map.set(key, (map.get(key) ?? 0) + 1);
@@ -226,39 +240,32 @@ function buildSample(
 
 /* ---------- timing ---------- */
 
-interface Tempo {
+/** How ProTracker plays one Bleepkit tempo: `speed` ticks per row at `bpm` (a row lasts speed * 2.5 / bpm seconds). */
+interface Timing {
+  bpm: number;
+  /** Relative error of the row length. */
+  err: number;
   speed: number;
 }
 
-function chooseSpeed(song: Song, tempos: number[], issues: Issue[]): Tempo {
-  let best = { bad: Number.POSITIVE_INFINITY, err: 0, speed: DEFAULT_SPEED };
-  for (const speed of PREFERRED_SPEEDS) {
-    let bad = 0;
-    let err = 0;
-    for (const t of tempos) {
-      const b = (speed * t * song.rowsPerBeat) / 24;
-      if (b < 32 || b > 255) {
-        bad += 1;
-      }
-      err = Math.max(err, Math.abs(Math.round(b) - b) / b);
-    }
-    if (bad < best.bad || (bad === best.bad && err + 0.002 < best.err)) {
-      best = { bad, err, speed };
-    }
-    if (bad === 0 && err < 0.004) {
-      best = { bad, err, speed };
-      break;
+/** The (speed, BPM) pair that plays a Bleepkit tempo most exactly: the BPM must be a whole number from 32 to 255, so
+    each tempo gets the speed that rounds the least; equal choices keep the speed `prefer` (fewer speed commands), then
+    the usual speeds in order. A tempo no speed can reach is clamped, and the row length is off. */
+function timingFor(tempo: number, rowsPerBeat: number, prefer: number): Timing {
+  let best: Timing | null = null;
+  let bestBad = Number.POSITIVE_INFINITY;
+  const speeds = [prefer, ...PREFERRED_SPEEDS.filter((v) => v !== prefer)];
+  for (const speed of speeds) {
+    const exact = (speed * tempo * rowsPerBeat) / 24;
+    const bpm = clamp(Math.round(exact), MIN_BPM, MAX_BPM);
+    const err = Math.abs(bpm - exact) / exact;
+    const bad = exact < MIN_BPM - 0.5 || exact > MAX_BPM + 0.5 ? 1 : 0;
+    if (bad < bestBad || (bad === bestBad && best && err + 0.0001 < best.err)) {
+      best = { bpm, err, speed };
+      bestBad = bad;
     }
   }
-  if (best.bad > 0) {
-    issues.push(
-      issue(
-        "warning",
-        "some tempos of this song need a ProTracker BPM outside 32 to 255; they are clamped and run off"
-      )
-    );
-  }
-  return { speed: best.speed };
+  return best ?? { bpm: 125, err: 0, speed: DEFAULT_SPEED };
 }
 
 /* ---------- cells ---------- */
@@ -475,21 +482,13 @@ function readEffects(
       case "pitch":
         pitchSet = e;
         break;
-      case "noteSlideUp":
-      case "noteSlideDown":
-        bump(env.counts, "Qxy and Rxy note slides");
+      default: {
+        const lost = NOT_IN_A_MOD[e.type];
+        if (lost) {
+          bump(env.counts, lost);
+        }
         break;
-      case "pan":
-        bump(env.counts, "Xxx pan");
-        break;
-      case "send":
-        bump(env.counts, "Wxx echo send");
-        break;
-      case "duty":
-        bump(env.counts, "Vxx duty");
-        break;
-      default:
-        break;
+      }
     }
   }
   return { cands, delayed, pitchSet, sampleOffset };
@@ -566,11 +565,15 @@ interface FlowItem {
 }
 
 interface Plan {
-  bpmOf: (tempo: number) => number;
+  /** The timing of the song's own tempo (what the module starts with and what a loop restarts with). */
+  base: Timing;
   chanVol: number[];
   chunks: Chunk[];
   env: Env;
+  /** The loop target's slot in the order list. */
+  hasTempoFx: boolean;
   instruments: Record<string, Instrument>;
+  loopSlot: number;
   muted: boolean[];
   slotOf: Map<number, number>;
   states: ChanState[];
@@ -579,6 +582,19 @@ interface Plan {
 
 const CHANNEL_IDS = ["ch1", "ch2", "ch3", "ch4"];
 const FIT_MESSAGE = "effects that did not fit the single effect of a MOD cell";
+
+/** A MOD has no amplitude envelope: a sample plays at its volume until the next note. Say so for one that shapes it. */
+function warnEnvelope(inst: Instrument, id: string, issues: Issue[]): void {
+  const { attack, decay, sustain } = inst.envelope;
+  if (attack > ENVELOPE_EPSILON || (decay > ENVELOPE_EPSILON && sustain < 1)) {
+    issues.push(
+      issue(
+        "warning",
+        `instrument "${id}" has an attack or decay envelope, which a MOD cannot hold: its notes play at a steady level (volume slides, Axy, shape a note in a tracker)`
+      )
+    );
+  }
+}
 
 function collectSamples(
   song: Song,
@@ -610,6 +626,7 @@ function collectSamples(
       );
       break;
     }
+    warnEnvelope(inst, id, issues);
     out.push(
       buildSample(inst, src, notes.get(id) ?? [], inst.name || id, issues)
     );
@@ -642,9 +659,8 @@ function makePlan(
   outSamples: ModSampleOut[],
   issues: Issue[]
 ): Plan {
-  const { speed } = chooseSpeed(song, tempoList(song), issues);
-  const bpmOf = (t: number): number =>
-    clamp(Math.round((speed * t * song.rowsPerBeat) / 24), 32, 255);
+  const base = timingFor(song.tempo, song.rowsPerBeat, DEFAULT_SPEED);
+  warnTempos(song, issues);
   let chunks = chunksOf(song);
   if (chunks.length > MAX_ORDER) {
     issues.push(
@@ -673,19 +689,21 @@ function makePlan(
   }
   const find = (id: string) => song.channels.find((c) => c.id === id);
   return {
-    bpmOf,
+    base,
     chanVol: CHANNEL_IDS.map((id) => find(id)?.volume ?? 1),
     chunks,
     env: {
-      bpm: bpmOf(song.tempo),
+      bpm: base.bpm,
       counts: new Map(),
       issues,
       numbers,
       samples: outSamples,
       song,
-      speed,
+      speed: base.speed,
     },
+    hasTempoFx: tempoList(song).length > 1,
     instruments,
+    loopSlot: slotOf.get(song.loop ?? 0) ?? 0,
     muted: CHANNEL_IDS.map((id) => find(id)?.muted ?? false),
     slotOf,
     states: CHANNEL_IDS.map((id) => ({
@@ -758,8 +776,13 @@ function readFlow(plan: Plan, rc: RowCtx, fx: Effect[]): void {
     const xx = e.x * 16 + e.y;
     if (e.type === "tempo") {
       plan.tempoNow = xx;
-      plan.env.bpm = plan.bpmOf(xx);
-      rc.flow.push({ chan: c, effect: 15, param: plan.env.bpm });
+      const t = timingFor(xx, song.rowsPerBeat, plan.env.speed);
+      if (t.speed !== plan.env.speed) {
+        rc.flow.push({ chan: c, effect: 15, param: t.speed });
+      }
+      plan.env.speed = t.speed;
+      plan.env.bpm = t.bpm;
+      rc.flow.push({ chan: c, effect: 15, param: t.bpm });
     } else if (e.type === "jump") {
       rc.flow.push({ chan: c, effect: 11, param: slotOf.get(xx) ?? 0 });
     } else if (e.type === "halt") {
@@ -905,13 +928,16 @@ function placeFlows(
 ): void {
   for (const f of flows) {
     let target = f.chan >= 0 && (cells[f.chan]?.pri ?? 0) < 0 ? f.chan : -1;
-    let low = Number.POSITIVE_INFINITY;
-    cells.forEach((candidate, i) => {
-      if (target < 0 && candidate.pri < low) {
-        low = candidate.pri;
-        target = i;
-      }
-    });
+    if (target < 0) {
+      // the cell whose effect matters least takes it (the first of equals)
+      let low = Number.POSITIVE_INFINITY;
+      cells.forEach((candidate, i) => {
+        if (candidate.pri < low) {
+          low = candidate.pri;
+          target = i;
+        }
+      });
+    }
     const cell = cells[target];
     if (cell) {
       if (cell.pri >= 0) {
@@ -919,6 +945,51 @@ function placeFlows(
       }
       Object.assign(cell, { effect: f.effect, param: f.param, pri: PRI.flow });
     }
+  }
+}
+
+/** The player's timing at the start of the song, and again where a loop restarts. */
+function resetTiming(plan: Plan): void {
+  const { base, env } = plan;
+  env.speed = base.speed;
+  env.bpm = base.bpm;
+  plan.tempoNow = env.song.tempo;
+}
+
+/** The song's own speed and BPM, written on its first row and on the row a loop restarts at (a player keeps the last
+    tempo otherwise). The defaults (6 and 125) are left unwritten only when no tempo effect can have changed them. A
+    tempo effect on that row says it itself: cells run in channel order, so a second pair could undo it. */
+function startTiming(plan: Plan, flow: FlowItem[]): void {
+  if (flow.some((f) => f.effect === 15)) {
+    return;
+  }
+  const { base } = plan;
+  if (base.speed !== DEFAULT_SPEED || plan.hasTempoFx) {
+    flow.push({ chan: -1, effect: 15, param: base.speed });
+  }
+  if (base.bpm !== 125 || plan.hasTempoFx) {
+    flow.push({ chan: -1, effect: 15, param: base.bpm });
+  }
+}
+
+/** A tempo whose row length ProTracker cannot hit is reported. */
+function warnTempos(song: Song, issues: Issue[]): void {
+  let worst = 0;
+  let { tempo } = song;
+  for (const t of tempoList(song)) {
+    const { err } = timingFor(t, song.rowsPerBeat, DEFAULT_SPEED);
+    if (err > worst) {
+      worst = err;
+      tempo = t;
+    }
+  }
+  if (worst > TEMPO_WARN) {
+    issues.push(
+      issue(
+        "warning",
+        `tempo ${tempo} has no exact speed and BPM pair in a MOD (the BPM is a whole number from ${MIN_BPM} to ${MAX_BPM}); its rows run ${(worst * 100).toFixed(1)}% off`
+      )
+    );
   }
 }
 
@@ -932,18 +1003,17 @@ function chunkCells(plan: Plan, chunk: Chunk, slot: number): Cell[][] {
   const [from, to] = chunk.rows;
   for (let r = 0; r < to - from; r += 1) {
     const flow: FlowItem[] = [];
-    if (slot === 0 && r === 0) {
-      if (plan.env.speed !== DEFAULT_SPEED) {
-        flow.push({ chan: -1, effect: 15, param: plan.env.speed });
-      }
-      if (plan.env.bpm !== 125) {
-        flow.push({ chan: -1, effect: 15, param: plan.env.bpm });
-      }
+    const start = r === 0 && (slot === 0 || slot === plan.loopSlot);
+    if (start) {
+      resetTiming(plan);
     }
     const rowCells = cells[r] ?? [];
     rowCells.forEach((cell, c) => {
       channelRow(plan, { c, cell, chunk, flow, slot, src: from + r });
     });
+    if (start) {
+      startTiming(plan, flow);
+    }
     placeFlows(rowCells, flow, plan.env.counts);
   }
   endBreak(cells, to - from);
@@ -1125,7 +1195,7 @@ export function songToMod(
   issues.push(
     issue(
       "info",
-      `wrote ${bytes.length} bytes: ${out.length} sample(s), ${built.patterns.length} pattern(s), ${built.order.length} order entries; speed ${plan.env.speed}, BPM ${plan.bpmOf(song.tempo)}, ${AMIGA_CLOCK_HZ} Hz PAL clock`
+      `wrote ${bytes.length} bytes: ${out.length} sample(s), ${built.patterns.length} pattern(s), ${built.order.length} order entries; speed ${plan.base.speed}, BPM ${plan.base.bpm}, ${AMIGA_CLOCK_HZ} Hz PAL clock`
     )
   );
   return { bytes, issues };

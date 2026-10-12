@@ -426,7 +426,10 @@ function fitMaster(work: Work, song: Song): void {
     note(`Amiga output settings removed (${chip} has no Paula output stage)`);
   }
   // FM 6 as a DAC is a Genesis setting; the new chip's own channels were laid out without it
-  const { genesis, ...left } = song.master as unknown as Record<string, unknown>;
+  const { genesis, ...left } = song.master as unknown as Record<
+    string,
+    unknown
+  >;
   if (genesis !== undefined && chip !== "genesis") {
     song.master = left as unknown as Song["master"];
     note(`Genesis DAC setting removed (${chip} has no FM 6 DAC)`);

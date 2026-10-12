@@ -1,10 +1,17 @@
 import {
   describeInstrument,
+  describeSample,
   describeSong,
   fmtSeconds,
   songFacts,
 } from "@bleepkit/agent";
-import { type Instrument, noteName, type Sfx, type Song } from "@bleepkit/core";
+import {
+  type Instrument,
+  noteName,
+  type Sfx,
+  type Song,
+  type UserSample,
+} from "@bleepkit/core";
 import { describeSfx } from "@bleepkit/sfx";
 import { CliError, fmtDb, round } from "../output.ts";
 import {
@@ -66,6 +73,22 @@ function describeAny(
       rel: doc.rel,
     };
   }
+  if (kind === "sample") {
+    const sample = doc.value as UserSample;
+    return {
+      description: describeSample(sample),
+      facts: {
+        baseNote: sample.baseNote,
+        bits: sample.bits,
+        loop: sample.loop,
+        rate: sample.rate,
+        volume: sample.volume,
+      },
+      issues: doc.issues,
+      ok: doc.ok,
+      rel: doc.rel,
+    };
+  }
   const inst = doc.value as Instrument;
   return {
     description: describeInstrument(inst),
@@ -80,10 +103,11 @@ export const describeCommand: CommandSpec = {
   description:
     "Explains a document in words, plus the facts an agent needs without listening: for an sfx the wave, start pitch, " +
     "length and category; for a song the tempo, length, loop point and per-channel note counts and range; for an " +
-    "instrument the envelope and patch. Also reports the last render's duration and level, and whether it is stale.",
+    "instrument the envelope and patch; for a user sample its format, length, base note, loop and peak. Also reports the last render's duration and level, and whether it is stale.",
   examples: [
     "bleepkit describe sfx/coin",
     "bleepkit describe song/title --json",
+    "bleepkit describe sample/kick",
   ],
   flags: [],
   name: "describe",
@@ -95,10 +119,10 @@ export const describeCommand: CommandSpec = {
       });
     }
     const pc = openProject(ctx);
-    const r = resolveRef(pc, refArg, ["sfx", "song", "instrument"]);
+    const r = resolveRef(pc, refArg, ["sfx", "song", "instrument", "sample"]);
     const d = describeAny(pc, r.kind, r.id);
     let render: Record<string, unknown> | null = null;
-    if (r.kind !== "instrument") {
+    if (r.kind !== "instrument" && r.kind !== "sample") {
       const meta = readMeta(pc, r.kind, r.id);
       if (meta) {
         render = {
@@ -113,7 +137,7 @@ export const describeCommand: CommandSpec = {
       }
     }
     const next: string[] =
-      r.kind === "instrument"
+      r.kind === "instrument" || r.kind === "sample"
         ? [`bleepkit validate ${r.ref}`]
         : [
             `bleepkit render ${r.ref} --analyze`,
@@ -127,7 +151,7 @@ export const describeCommand: CommandSpec = {
       lines.push(
         `Last render: ${fmtSeconds(render.duration as number)}, peak ${fmtDb(render.peakDb as number)}, rms ${fmtDb(render.rmsDb as number)}${render.clipped ? ", CLIPPED" : ""}${render.stale ? " (stale: the document changed since)" : ""}.`
       );
-    } else if (r.kind !== "instrument") {
+    } else if (r.kind !== "instrument" && r.kind !== "sample") {
       lines.push(`Not rendered yet. Try: bleepkit render ${r.ref} --analyze`);
     }
     const problems = (

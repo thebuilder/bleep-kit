@@ -11,7 +11,7 @@ export const DAC_RATE_MAX = 26_000;
 /** 276 cycles per sample is 12969 Hz (13 kHz, what common Mega Drive drivers played drums at), the rate generated and
     imported DAC samples are made at: a note an octave up plays at 25.9 kHz, just inside the top of the range, and a
     note down to a fourth below still reaches 9.7 kHz. */
-export const DAC_CYCLES = 276;
+const DAC_CYCLES = 276;
 export const GENESIS_DAC_RATE = GENESIS_CLOCK_HZ / DAC_CYCLES;
 
 export const GENESIS: ChipProfile = {

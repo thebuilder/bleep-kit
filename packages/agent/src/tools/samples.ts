@@ -203,7 +203,8 @@ export function resampleTool(host: AgentHost): AgentTool {
           type: "integer",
         },
         id: {
-          description: "The new sample's id (lowercase letters, digits, dashes).",
+          description:
+            "The new sample's id (lowercase letters, digits, dashes).",
           type: "string",
         },
         name: { description: "A display name.", type: "string" },

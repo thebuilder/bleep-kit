@@ -14,14 +14,14 @@ Bleepkit generates 80s and 90s style game audio (chiptune and FM era) for browse
 ## Layout
 
 ```
-packages/core      @bleepkit/core: engine, chips, documents + normalize, MML, MIDI import, sample generators
+packages/core      @bleepkit/core: engine, chips, documents + normalize, MML, MIDI import, sample generators, user samples, ProTracker MOD import/export
                    @bleepkit/core/tools: WAV/OGG/MP3, analysis, spectrogram, pitch, PNG images
 packages/sfx       @bleepkit/sfx: sfx generators per category, randomize, mutate, describe
 packages/agent     @bleepkit/agent: the studio assistant's kit (tools over an AgentHost, system prompt, Anthropic and OpenAI adapters, agent loop). Browser safe, also holds the `help formats` text the CLI prints
 packages/player    @bleepkit/player: game runtime (AudioWorklet, files or synth mode, typed manifest)
 packages/cli       bleepkit: the CLI and the studio server
 apps/studio        the Vite studio (vanilla TypeScript, canvas views, Pixelkit backdrop); src/assistant is the bring-your-own-key assistant drawer
-examples/demo      a demo project folder: six songs (one per chip) and 22 sfx, exported OGGs in export/
+examples/demo      a demo project folder: seven songs (one per chip, the Amiga one with its samples) and 22 sfx, exported OGGs in export/
 docs/architecture.md   the contract: formats, engine design, worklet protocol, CLI, studio UX
 ```
 
@@ -35,8 +35,9 @@ You cannot hear, so work from text and measurements:
 2. Author: `new sfx <id> --category <c> --chip <chip>`, `mutate`, `new song <id> --mml "pulse1=..."`, `import tune.mid --chip nes` (a MIDI file to a song, with the notes it had to drop listed), or edit the JSON in `sfx/`, `songs/`, `instruments/` directly.
 3. Check: `validate`, then `describe <ref>` (a precise text description).
 4. Measure: `render <ref> --analyze --images`, then look at `out/analysis/<id>.waveform.png`, `.spectrogram.png` and `.scopes.png` with your image reader. `analyze <ref> --json` gives peak, RMS, LUFS, clipping, pitch track, loop seam and envelope.
-5. Targets that sound right in practice: songs around -14 to -16 LUFS and within 3 LUFS of each other; sfx peaks between -6 and -16 dBFS; zero clipped frames; loop `seamDiffDb` below -40 dB.
-6. Ship: `export` writes OGG (or MP3/WAV), a `manifest.json` and a typed `audio.ts` into the game.
+5. Own recordings: `import sample hit.wav --base-note C-4` writes `samples/hit.json` and a sample instrument plays it; `import song.mod` and `export mod song/<id>` move ProTracker modules in and out (amiga chip).
+6. Targets that sound right in practice: songs around -14 to -16 LUFS and within 3 LUFS of each other; sfx peaks between -6 and -16 dBFS; zero clipped frames; loop `seamDiffDb` below -40 dB.
+7. Ship: `export` writes OGG (or MP3/WAV), a `manifest.json` and a typed `audio.ts` into the game.
 
 Every command takes `--json` (exactly one JSON object on stdout) and `--project <dir>`. From the repo root use `pnpm bleepkit <args> --project examples/demo`.
 

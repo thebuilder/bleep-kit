@@ -131,6 +131,7 @@ export {
   sampleFrames,
   sampleFromData,
   scalePosition,
+  usedSamples,
 } from "./samples/user.ts";
 export {
   describeRechip,

@@ -345,7 +345,10 @@ export function renderInstrumentNote(
   let chip: ChipId = opts?.chip ?? inst.chip ?? "custom";
   // a sample on the Genesis plays through the DAC, which is FM channel 6 switched to PCM
   const dac = chip === "genesis" && inst.kind === "sample";
-  const channels = hardwareChannels(chip, dac ? { genesis: { dac } } : undefined);
+  const channels = hardwareChannels(
+    chip,
+    dac ? { genesis: { dac } } : undefined
+  );
   let index = channels.findIndex((c) => c.kind === inst.kind);
   if (index < 0) {
     chip = "custom";

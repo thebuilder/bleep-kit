@@ -29,7 +29,9 @@ export function exportMod(doc: Doc): void {
   const result = songToMod(song, project.instruments(), project.samples());
   const error = result.issues.find((i) => i.severity === "error");
   if (!result.bytes || error) {
-    app.toast(`Cannot export ${doc.id} as a module: ${error?.message ?? "unknown problem"}`);
+    app.toast(
+      `Cannot export ${doc.id} as a module: ${error?.message ?? "unknown problem"}`
+    );
     return;
   }
   download(`${doc.id}.mod`, result.bytes, "audio/x-mod");
@@ -53,7 +55,7 @@ export function amigaFields(
   edit: (fn: (d: Song) => void, key: string) => void,
   rebuild: () => void
 ): void {
-  const amiga = song.master.amiga;
+  const { amiga } = song.master;
   if (!amiga) {
     return;
   }

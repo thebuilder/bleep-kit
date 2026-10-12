@@ -3,8 +3,8 @@ import { app } from "./app.ts";
 import { engine } from "./engine/engine.ts";
 import type { Instrument, Sfx, Song, UserSample } from "./lib/contract.ts";
 import { chipChannels } from "./lib/core.ts";
-import { framesOf, instrumentFor } from "./lib/sample-edit.ts";
 import { fire } from "./lib/dom.ts";
+import { framesOf, instrumentFor } from "./lib/sample-edit.ts";
 import { type Doc, project } from "./state/docs.ts";
 
 function unlockAudio(): void {
@@ -142,7 +142,7 @@ export function releaseNote(): void {
 }
 
 /** The id of the instrument the sample editor and the sidebar play a sample through. */
-export const samplePreviewId = (id: string): string => `sample-preview:${id}`;
+const samplePreviewId = (id: string): string => `sample-preview:${id}`;
 
 /**
  * Hold `note` on a sample with no song around: through a sample instrument that plays it at its base note. The preview
@@ -158,11 +158,14 @@ export function previewSampleNote(doc: Doc, note: number): number {
 }
 
 /** The play button of a sample row: its base note, held for the length of the sample (at most four seconds). */
-export function playSampleDoc(doc: Doc): void {
+function playSampleDoc(doc: Doc): void {
   const sample = doc.value as UserSample;
   releaseNote();
   heldChannel = previewSampleNote(doc, sample.baseNote);
-  const seconds = Math.min(4, Math.max(0.2, sample.loop ? 1.5 : sampleSeconds(sample)));
+  const seconds = Math.min(
+    4,
+    Math.max(0.2, sample.loop ? 1.5 : sampleSeconds(sample))
+  );
   clearTimeout(noteTimer);
   noteTimer = setTimeout(releaseNote, seconds * 1000);
 }

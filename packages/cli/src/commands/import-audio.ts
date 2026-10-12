@@ -6,12 +6,10 @@ import path from "node:path";
 import {
   CHIP_IDS,
   type ChipId,
-  type Issue,
   type ModImport,
   modToSong,
   normalizeSample,
   noteName,
-  parseNoteName,
   prepareImport,
   scalePosition,
   type UserSample,
@@ -27,22 +25,12 @@ import {
   requireOk,
   writeDoc,
 } from "../project.ts";
-
-const DIGITS_RE = /^\d+$/;
-const NON_ID_RE = /[^a-z0-9]+/g;
-const EDGE_DASH_RE = /^-+|-+$/g;
-const EXT_RE = /\.[A-Za-z0-9]+$/;
-
-/** `Boss Theme (v2).wav` becomes `boss-theme-v2`. */
-export function idFromName(file: string, fallback: string): string {
-  const base = path.basename(file).replace(EXT_RE, "").toLowerCase();
-  const id = base
-    .replace(NON_ID_RE, "-")
-    .replace(EDGE_DASH_RE, "")
-    .slice(0, 64)
-    .replace(EDGE_DASH_RE, "");
-  return id === "" ? fallback : id;
-}
+import {
+  idFromName,
+  invalidImport,
+  noteFlag,
+  reportSections,
+} from "./import-shared.ts";
 
 function readBytes(ctx: Ctx, file: string, what: string): Uint8Array {
   try {
@@ -56,16 +44,6 @@ function readBytes(ctx: Ctx, file: string, what: string): Uint8Array {
       { hint: `Pass the path of ${what}.` }
     );
   }
-}
-
-function issueLine(i: Issue): string {
-  return `  ${i.severity} ${i.path === "" ? "" : `${i.path}: `}${i.message}`;
-}
-
-function section(title: string, issues: Issue[]): string[] {
-  return issues.length === 0
-    ? []
-    : [`${title} (${issues.length}):`, ...issues.map(issueLine)];
 }
 
 function chipOf(pc: ProjectCtx, flag: string | undefined): ChipId | null {
@@ -93,23 +71,6 @@ function guardFree(
 }
 
 /* ---------- WAV to sample ---------- */
-
-function baseNoteOf(text: string | undefined): number | null {
-  if (text === undefined) {
-    return null;
-  }
-  const n = DIGITS_RE.test(text) ? Number(text) : parseNoteName(text);
-  if (n === null || n < 0 || n > 127) {
-    throw new CliError(
-      "usage",
-      `--base-note must be a note name like C-4 or A#3, or 0 to 127 (was "${text}")`,
-      {
-        hint: "Example: --base-note C-4. Leave it out to detect the pitch.",
-      }
-    );
-  }
-  return n;
-}
 
 function decodeAudio(bytes: Uint8Array, file: string) {
   const lower = file.toLowerCase();
@@ -184,7 +145,11 @@ export function importSample(
   const pitch = pitchOf(
     mono,
     wav.sampleRate,
-    baseNoteOf(args.str("base-note"))
+    noteFlag(
+      args.str("base-note"),
+      "base-note",
+      "Example: --base-note C-4. Leave it out to detect the pitch."
+    ) ?? null
   );
   const imported = prepareImport(wav.channels, wav.sampleRate, chip, {
     baseNote: pitch.baseNote,
@@ -263,15 +228,11 @@ export function importMod(ctx: Ctx, args: Parsed, file: string): CommandResult {
     name: args.str("name") ?? id,
     ...(separation === undefined ? {} : { separation }),
   });
-  const errors = result.issues.filter((i) => i.severity === "error");
-  if (errors.length > 0) {
-    throw new CliError(
-      "invalid",
-      `cannot import ${file}:\n${errors.map(issueLine).join("\n")}`,
-      {
-        details: { issues: result.issues },
-        hint: "Check that it is a ProTracker module (M.K., 4CHN, 6CHN, 8CHN). 15 sample Soundtracker modules and compressed modules are not supported.",
-      }
+  if (result.issues.some((i) => i.severity === "error")) {
+    throw invalidImport(
+      file,
+      result.issues,
+      "Check that it is a ProTracker module (M.K., 4CHN, 6CHN, 8CHN). 15 sample Soundtracker modules and compressed modules are not supported."
     );
   }
   const written = writeAll(pc, id, result, force);
@@ -280,14 +241,7 @@ export function importMod(ctx: Ctx, args: Parsed, file: string): CommandResult {
     human: [
       `Imported ${file} as song/${id} (${written.song}) for ${result.song.chip}`,
       `Samples: ${written.samples.length} (samples/), instruments: ${written.instruments.length} (instruments/)`,
-      ...section(
-        "Converted",
-        result.issues.filter((i) => i.severity === "info")
-      ),
-      ...section(
-        "Lost or changed",
-        result.issues.filter((i) => i.severity !== "info")
-      ),
+      ...reportSections(result.issues),
       `Next: bleepkit render song/${id} --analyze --images`,
     ].join("\n"),
     json: {

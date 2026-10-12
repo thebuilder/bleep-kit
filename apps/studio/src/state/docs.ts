@@ -17,6 +17,7 @@ import {
   normalizeSample,
   normalizeSfx,
   normalizeSong,
+  usedSamples,
 } from "../lib/core.ts";
 import { fire, prefs } from "../lib/dom.ts";
 import { createHistory, type History } from "../lib/history.ts";
@@ -200,16 +201,7 @@ class ProjectState {
   samplesFor(
     instruments: Record<string, Instrument>
   ): Record<string, UserSample> {
-    const all = this.samples();
-    const out: Record<string, UserSample> = {};
-    for (const inst of Object.values(instruments)) {
-      const id = inst.sample?.userSample;
-      const sample = id === undefined ? undefined : all[id];
-      if (id !== undefined && sample) {
-        out[id] = sample;
-      }
-    }
-    return out;
+    return usedSamples(instruments, this.samples());
   }
 
   /** Resolve "sfx/coin", "song/title", "instrument/lead" or a bare id (sfx first). */

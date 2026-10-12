@@ -607,7 +607,11 @@ export type ToWorklet =
   | { type: "setChannel"; channel: number; muted?: boolean; solo?: boolean; volume?: number; pan?: number }
   | { type: "setMaster"; volume?: number; limiter?: boolean }
   | { type: "setTempo"; tempo: number }
-  | { type: "setScopeBuffer"; buffer: SharedArrayBuffer | null };
+  | { type: "setScopeBuffer"; buffer: SharedArrayBuffer | null }
+  /** Whether anyone is looking and listening for events and scope copies. Inactive (a hidden page): no `events`, no `scope`
+      messages and a `clock` about once a second, so a page that cannot run its message handlers does not pile up a backlog.
+      Either value makes the worklet post a fresh `clock` at once. Default active. */
+  | { type: "setFeed"; active: boolean };
 
 export type FromWorklet =
   | { type: "ready"; sampleRate: number }

@@ -3,6 +3,15 @@
 import { choose, clamp, fmtNum, h, prefs } from "../lib/dom.ts";
 import { icon } from "./icons.ts";
 
+/** Bind a name input to a document edit. Typing in it must not fire the view's single key shortcuts. */
+export function bindName(
+  input: HTMLInputElement,
+  setName: (name: string) => void
+): void {
+  input.addEventListener("keydown", (e) => e.stopPropagation());
+  input.addEventListener("input", () => setName(input.value));
+}
+
 export interface Group {
   body: HTMLElement;
   el: HTMLElement;

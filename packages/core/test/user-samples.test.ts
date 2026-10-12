@@ -1,4 +1,4 @@
-/* User samples (architecture.md section 2.9): the base64 helpers, normalize, import preparation, pitch detection and
+/* User samples (architecture.md section 2.10): the base64 helpers, normalize, import preparation, pitch detection and
    how the engine plays them on the Amiga (period steps, 8 bit data, hard panning). */
 
 import { describe, expect, it } from "vitest";

@@ -1,4 +1,4 @@
-/* normalizeSample: samples/<id>.json (architecture.md section 2.9). The audio stays a base64 string; this checks its
+/* normalizeSample: samples/<id>.json (architecture.md section 2.10). The audio stays a base64 string; this checks its
    shape and size without decoding it, so a 2 MiB sample validates in about a millisecond. */
 
 import { base64ByteLength, isBase64, sampleFrames } from "../samples/user.ts";
