@@ -159,7 +159,11 @@ const SHIFTS = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6] as const;
 /** Up to this share of notes outside the range is fixed note by note; more moves the whole part. */
 const STRAY_SHARE = 0.2;
 
-function outside(notes: GridNote[], range: Range, shift: number): number {
+function outside(
+  notes: readonly { note: number }[],
+  range: Range,
+  shift: number
+): number {
   const [low, high] = range;
   return notes.filter((n) => {
     const v = n.note + shift * 12;
@@ -168,7 +172,10 @@ function outside(notes: GridNote[], range: Range, shift: number): number {
 }
 
 /** The octave shift for a whole part: none when only a few notes stray, else the one that leaves the fewest outside. */
-function chooseShift(notes: GridNote[], range: Range): number {
+export function chooseShift(
+  notes: readonly { note: number }[],
+  range: Range
+): number {
   if (outside(notes, range, 0) <= notes.length * STRAY_SHARE) {
     return 0;
   }

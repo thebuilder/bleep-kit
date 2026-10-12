@@ -6,8 +6,8 @@ export const FORMAT_VERSION = 1;
 
 /* ---------- chips ---------- */
 
-/** "snes" is the 16-bit sample profile (SNES and Amiga style). */
-export const CHIP_IDS = ["nes", "gameboy", "c64", "genesis", "adlib", "snes", "custom"] as const;
+/** "snes" is the 16-bit sample profile (SNES style); "amiga" is Paula: four 8-bit sample channels with hard panning. */
+export const CHIP_IDS = ["nes", "gameboy", "c64", "genesis", "adlib", "snes", "amiga", "custom"] as const;
 export type ChipId = (typeof CHIP_IDS)[number];
 
 export const CHANNEL_KINDS = ["pulse", "triangle", "noise", "wave", "sid", "fm", "sample"] as const;
@@ -22,9 +22,12 @@ export interface ChipChannel {
   fmOps?: 2 | 4;
   /** For "pulse" on a PSG: duty is fixed at 0.5. */
   fixedDuty?: number;
+  /** Hardware pan of the channel, -1 left to 1 right (Paula: channels 1 and 4 left, 2 and 3 right). Only with PanMode "fixed". */
+  pan?: number;
 }
 
-export type PanMode = "none" | "hard" | "free";
+/** "fixed": the channel's own `pan` decides (scaled by the song's stereo separation); instrument, row and song pans are ignored. */
+export type PanMode = "none" | "hard" | "free" | "fixed";
 
 /** How a profile keeps sound authentic. The engine applies these at voice level; normalize only warns. */
 export interface ChipConstraints {
@@ -243,6 +246,7 @@ export interface FmPatch {
 export const SAMPLE_GENERATOR_IDS = [
   "kick", "snare", "hat", "tom", "clap", "crash",
   "pluck", "bass", "pad", "organ", "bell", "strings", "choir", "lead",
+  "kick909", "kick808", "snare909", "clap909", "hat909", "crash909", "orchestra",
 ] as const;
 export type SampleGeneratorId = (typeof SAMPLE_GENERATOR_IDS)[number];
 
@@ -254,6 +258,35 @@ export interface SamplePatch {
   /** MIDI note the generated sample plays at unity. */
   baseNote: number;     // default 60
   loop: boolean;        // default false; generators that can loop expose loopStart/loopEnd in GeneratedSample
+  /** Id of a user sample (samples/<id>.json); absent for a generated sample. When set the generator fields are ignored and the sample's own base note,
+      loop, finetune and volume apply; the instrument's transpose, finetune and volume still stack on top. */
+  userSample?: string;
+}
+
+/* ---------- User samples ---------- */
+
+export const SAMPLE_BITS = [8, 16] as const;
+/** The most PCM bytes one sample may hold (2 MiB): 2,097,152 frames at 8 bit, 1,048,576 at 16 bit. */
+export const SAMPLE_MAX_BYTES = 2 * 1024 * 1024;
+
+/** samples/<id>.json: one mono recording with the metadata a sample instrument needs. The audio is embedded as base64. */
+export interface UserSample {
+  version: number;
+  name: string;
+  /** Sample rate of the stored data in Hz. */
+  rate: number;                 // 1000..96000, default 22050
+  /** MIDI note the sample sounds at when it plays at `rate` (unity). */
+  baseNote: number;             // 0..127, default 60
+  /** Cents the sample sounds sharp (positive) or flat when it plays at unity. */
+  finetune: number;             // -100..100, default 0
+  /** Level of the sample, 0..1 (a MOD sample volume 0..64 divided by 64). */
+  volume: number;               // default 1
+  /** Loop region in frames (start < end <= length), or null for a one shot. */
+  loop: { start: number; end: number } | null;
+  /** Bit depth of the stored PCM. */
+  bits: 8 | 16;                 // default 16
+  /** Mono PCM, standard base64: signed 8 bit, or signed 16 bit little endian. At most SAMPLE_MAX_BYTES decoded. */
+  data: string;
 }
 
 export interface SidPatch {
@@ -302,7 +335,7 @@ export type NoteValue = number | "off" | "release";
 export const EFFECT_TYPES = [
   "arp", "slideUp", "slideDown", "portamento", "vibrato", "tremolo", "volSlide",
   "jump", "halt", "skip", "tempo", "duty", "pitch", "cut", "delay",
-  "noteSlideUp", "noteSlideDown", "pan", "send", "retrigger",
+  "noteSlideUp", "noteSlideDown", "pan", "send", "retrigger", "filter", "sampleOffset",
 ] as const;
 export type EffectType = (typeof EFFECT_TYPES)[number];
 
@@ -350,6 +383,25 @@ export interface SongMaster {
   volume: number;               // 0..1, default 0.8
   echo: { delay: number /* s 0.01..1 */; feedback: number /* 0..0.95 */; level: number /* 0..1 */; lowpassHz: number } | null;
   reverb: { size: number /* 0..1 */; damping: number /* 0..1 */; level: number /* 0..1 */ } | null;
+  /** Amiga songs only (absent on other chips): the Paula output stage. */
+  amiga?: AmigaSettings;
+  /** Genesis songs only, and only when it is on: the YM2612 DAC switch for FM channel 6. */
+  genesis?: GenesisSettings;
+}
+
+export interface GenesisSettings {
+  /** "FM6 plays samples (DAC)": the YM2612's channel 6 is switched into 8 bit PCM mode. fm6 then plays sample
+      instruments through the DAC (mono, 8 bit, 8 to 26 kHz, one sample at a time) and no FM. Default false. */
+  dac: boolean;
+}
+
+export interface AmigaSettings {
+  /** Stereo separation: 1 is Paula's hard left/right, 0 is mono. Many players soften it (0.2 to 0.7). */
+  separation: number;           // 0..1, default 1
+  /** "a500" has the fixed 4.4 kHz output lowpass, "a1200" does not. */
+  model: "a500" | "a1200";      // default "a500"
+  /** The LED filter (a steeper lowpass near 3.1 kHz) at the start of the song; the E01 effect switches it on and off. */
+  led: boolean;                 // default false
 }
 
 export interface Song {
@@ -439,6 +491,8 @@ export interface RenderOptions {
   tail?: number;
   /** Also return per-channel dry stems (before master effects). */
   stems?: boolean;
+  /** The user samples the instruments reference (by id), for songs and instrument notes. */
+  samples?: Record<string, UserSample>;
   /** Progress callback every 2^16 frames; return false to abort. */
   onProgress?: (frames: number, total: number) => boolean | undefined;
 }
@@ -499,8 +553,12 @@ export interface Synth {
   readonly frame: number;
   readonly playing: boolean;
   readonly scopes: ScopeRings;
-  loadSong(song: Song, instruments: Record<string, Instrument>): void;
+  /** `samples` are the user samples the instruments reference (also settable one by one with loadSample). */
+  loadSong(song: Song, instruments: Record<string, Instrument>, samples?: Record<string, UserSample>): void;
   unloadSong(): void;
+  /** Make a user sample available to sample instruments; instruments that reference it are rebuilt. */
+  loadSample(id: string, sample: UserSample): void;
+  unloadSample(id: string): void;
   loadSfx(id: string, sfx: Sfx): void;
   unloadSfx(id: string): void;
   setInstrument(id: string, inst: Instrument): void;
@@ -531,8 +589,10 @@ export interface Normalized<T> { ok: boolean; value: T; issues: Issue[] }
 /* ---------- worklet protocol (section 5) ---------- */
 
 export type ToWorklet =
-  | { type: "loadSong"; song: Song; instruments: Record<string, Instrument> }
+  | { type: "loadSong"; song: Song; instruments: Record<string, Instrument>; samples?: Record<string, UserSample> }
   | { type: "unloadSong" }
+  | { type: "loadSample"; id: string; sample: UserSample }
+  | { type: "unloadSample"; id: string }
   | { type: "loadSfx"; id: string; sfx: Sfx }
   | { type: "unloadSfx"; id: string }
   | { type: "play"; order?: number; row?: number; loop?: boolean }
@@ -547,7 +607,11 @@ export type ToWorklet =
   | { type: "setChannel"; channel: number; muted?: boolean; solo?: boolean; volume?: number; pan?: number }
   | { type: "setMaster"; volume?: number; limiter?: boolean }
   | { type: "setTempo"; tempo: number }
-  | { type: "setScopeBuffer"; buffer: SharedArrayBuffer | null };
+  | { type: "setScopeBuffer"; buffer: SharedArrayBuffer | null }
+  /** Whether anyone is looking and listening for events and scope copies. Inactive (a hidden page): no `events`, no `scope`
+      messages and a `clock` about once a second, so a page that cannot run its message handlers does not pile up a backlog.
+      Either value makes the worklet post a fresh `clock` at once. Default active. */
+  | { type: "setFeed"; active: boolean };
 
 export type FromWorklet =
   | { type: "ready"; sampleRate: number }
@@ -566,7 +630,7 @@ export interface ManifestSong {
   loopStart: number | null;     // seconds
   loopEnd: number | null;
   events?: string;              // path of the events json
-  data?: { song: Song; instruments: Record<string, Instrument> };
+  data?: { song: Song; instruments: Record<string, Instrument>; samples?: Record<string, UserSample> };
 }
 export interface AudioManifest {
   base: string;

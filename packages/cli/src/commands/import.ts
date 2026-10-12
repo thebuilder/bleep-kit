@@ -7,7 +7,6 @@ import {
   type ChipId,
   type ChordMode,
   type Instrument,
-  type Issue,
   midiToSong,
   normalizeInstrument,
   normalizeSong,
@@ -22,23 +21,12 @@ import {
   requireOk,
   writeDoc,
 } from "../project.ts";
+import { importMod, importSample } from "./import-audio.ts";
+import { idFromName, invalidImport, reportSections } from "./import-shared.ts";
 import type { CommandSpec } from "./types.ts";
 
-const NON_ID_RE = /[^a-z0-9]+/g;
-const EDGE_DASH_RE = /^-+|-+$/g;
-const MIDI_EXT_RE = /\.midi?$/i;
+const MOD_EXT_RE = /\.(mod|nst)$/i;
 const IMPORT_CHIPS = CHIP_IDS.filter((c) => c !== "custom");
-
-/** `Boss Theme (v2).mid` becomes `boss-theme-v2`. */
-function idFromFile(file: string): string {
-  const base = path.basename(file).replace(MIDI_EXT_RE, "").toLowerCase();
-  const id = base
-    .replace(NON_ID_RE, "-")
-    .replace(EDGE_DASH_RE, "")
-    .slice(0, 64)
-    .replace(EDGE_DASH_RE, "");
-  return id === "" ? "imported" : id;
-}
 
 function readMidi(abs: string, shown: string): Uint8Array {
   try {
@@ -117,16 +105,6 @@ function writeInstruments(
   return out;
 }
 
-function issueSection(title: string, issues: Issue[]): string[] {
-  return issues.length === 0
-    ? []
-    : [`${title} (${issues.length}):`, ...issues.map(issueLine)];
-}
-
-function issueLine(i: Issue): string {
-  return `  ${i.severity} ${i.path === "" ? "" : `${i.path}: `}${i.message}`;
-}
-
 function partLine(p: {
   channel: number;
   name: string | null;
@@ -140,6 +118,12 @@ function partLine(p: {
 
 export const importCommand: CommandSpec = {
   description:
+    "Imports audio and music files. `import sample <file.wav>` writes samples/<id>.json: the WAV is mixed to mono, " +
+    "resampled for the chip (the Amiga gets 8 bit at 16574 Hz, the SNES 16 bit at 32000 Hz, other chips keep up to 32000 " +
+    "Hz), normalized, and its pitch is detected for the base note (--base-note overrides). A smpl loop in the WAV is " +
+    "kept. WAV only on the command line (the studio also imports MP3 and OGG); 2 MiB per sample. `import song.mod` " +
+    "reads a ProTracker module (M.K., 4CHN; 6CHN and 8CHN become a custom chip song) and writes the song, one " +
+    "sample instrument per used sample and the samples; the issues list the effects that did not map. " +
     "Imports a Standard MIDI File (format 0 or 1) as a song. MIDI channel 10 becomes the chip's drums (noise, a SID noise " +
     "voice, an FM voice, or one sample per drum), the lowest busy part the bass, the busiest high part the lead, and the " +
     "other parts fill the remaining channels. Each channel plays one note at a time, so chords are handled the way 80s and " +
@@ -157,6 +141,8 @@ export const importCommand: CommandSpec = {
     "otherwise.",
   examples: [
     "bleepkit import tune.mid",
+    "bleepkit import sample kick.wav --id kick --chip amiga",
+    "bleepkit import song.mod --id chiptune",
     "bleepkit import boss.mid --id boss-theme --chip genesis --rows-per-beat 8",
     'bleepkit import tune.mid --chip nes --map "1=pulse1,2=triangle,10=noise"',
   ],
@@ -198,7 +184,21 @@ export const importCommand: CommandSpec = {
       valueName: "<map>",
     },
     {
-      description: "label stored in the song (default: the id)",
+      description:
+        "sample import: the note the recording sounds at, like C-4 or 60 (default: detected)",
+      name: "base-note",
+      type: "string",
+      valueName: "<note>",
+    },
+    {
+      description:
+        "MOD import: stereo separation 0 (mono) to 1 (Paula's hard panning, the default)",
+      name: "separation",
+      type: "number",
+      valueName: "<0..1>",
+    },
+    {
+      description: "label stored in the song or sample (default: the id)",
       name: "name",
       type: "string",
       valueName: "<name>",
@@ -217,17 +217,34 @@ export const importCommand: CommandSpec = {
   ],
   name: "import",
   run: (ctx, args) => {
+    const [first, ...tail] = args.positionals;
+    if (first === "sample") {
+      const [wav, ...more] = tail;
+      if (!wav || more.length > 0) {
+        throw new CliError(
+          "usage",
+          "import sample needs one WAV file: import sample <file.wav>",
+          {
+            hint: "Example: bleepkit import sample kick.wav --id kick --chip amiga",
+          }
+        );
+      }
+      return importSample(ctx, args, wav);
+    }
     const [file, ...rest] = args.positionals;
     if (!file || rest.length > 0) {
       throw new CliError(
         "usage",
-        "import needs one MIDI file: import <file.mid>",
+        "import needs one file: import <file.mid>, import <file.mod> or import sample <file.wav>",
         {
           hint: "Example: bleepkit import tune.mid --chip nes",
         }
       );
     }
-    const id = args.str("id") ?? idFromFile(file);
+    if (MOD_EXT_RE.test(file)) {
+      return importMod(ctx, args, file);
+    }
+    const id = args.str("id") ?? idFromName(file, "imported");
     checkId(id);
     const pc = openProject(ctx);
     const songRel = docRel("song", id);
@@ -249,15 +266,11 @@ export const importCommand: CommandSpec = {
         ? {}
         : { rowsPerBeat: args.num("rows-per-beat") as number }),
     });
-    const errors = result.issues.filter((i) => i.severity === "error");
-    if (errors.length > 0) {
-      throw new CliError(
-        "invalid",
-        `cannot import ${file}:\n${errors.map(issueLine).join("\n")}`,
-        {
-          details: { issues: result.issues },
-          hint: "Check that it is a Standard MIDI file (format 0 or 1), and that --chip, --rows-per-beat and --map are valid.",
-        }
+    if (result.issues.some((x) => x.severity === "error")) {
+      throw invalidImport(
+        file,
+        result.issues,
+        "Check that it is a Standard MIDI file (format 0 or 1), and that --chip, --rows-per-beat and --map are valid."
       );
     }
     const known = { ...pc.instruments(), ...result.instruments };
@@ -274,14 +287,7 @@ export const importCommand: CommandSpec = {
         "Parts:",
         ...result.parts.map(partLine),
         `Instruments: ${created.length > 0 ? `wrote ${created.join(", ")}` : "none written"}${reused.length > 0 ? `; kept your existing ${reused.join(", ")}` : ""}`,
-        ...issueSection(
-          "Converted",
-          result.issues.filter((i) => i.severity === "info")
-        ),
-        ...issueSection(
-          "Lost or changed",
-          result.issues.filter((i) => i.severity !== "info")
-        ),
+        ...reportSections(result.issues),
         `Next: bleepkit render song/${id} --analyze --images`,
       ].join("\n"),
       json: {
@@ -297,6 +303,7 @@ export const importCommand: CommandSpec = {
       },
     };
   },
-  summary: "import a MIDI file as a song",
-  usage: "import <file.mid> [--id <id>] [--chip <chip>] [flags]",
+  summary: "import a MIDI or MOD file as a song, or a WAV as a sample",
+  usage:
+    "import <file.mid|file.mod> | sample <file.wav> [--id <id>] [--chip <chip>] [flags]",
 };

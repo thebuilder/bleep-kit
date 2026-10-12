@@ -12,6 +12,7 @@ import type {
   Sfx,
   SidPatch,
   Song,
+  UserSample,
 } from "../types.ts";
 import { FORMAT_VERSION } from "../types.ts";
 
@@ -201,5 +202,20 @@ export function defaultSong(chip: ChipId = "nes"): Song {
     order: ["pattern-1"],
     loop: 0,
     master: { volume: 0.8, echo: null, reverb: null },
+  };
+}
+
+/** A fresh, empty user sample: no audio yet, 16 bit, 22050 Hz, base note C-4. */
+export function defaultSample(): UserSample {
+  return {
+    baseNote: 60,
+    bits: 16,
+    data: "",
+    finetune: 0,
+    loop: null,
+    name: "Sample",
+    rate: 22_050,
+    version: FORMAT_VERSION,
+    volume: 1,
   };
 }

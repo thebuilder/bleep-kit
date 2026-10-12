@@ -6,6 +6,13 @@ import { app } from "../app.ts";
 import { engine } from "../engine/engine.ts";
 import type { ExportResult } from "../export-local.ts";
 import {
+  DEFAULT_DIR,
+  DEFAULT_MANIFEST,
+  exportFieldCopy,
+  storedFromZip,
+  zipLayout,
+} from "../export-paths.ts";
+import {
   type Manifest,
   manifestTs,
   previewManifest,
@@ -42,7 +49,6 @@ import { icon } from "../ui/icons.ts";
 
 const EVENTS_EXT = /\.events$/;
 const LAST_EXT = /\.[^.]+$/;
-const LEADING_DOTDOT = /^(\.\.\/)+/;
 
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -170,7 +176,7 @@ function browserResultNodes(res: ExportResult): HTMLElement[] {
     h(
       "p",
       { class: "ok" },
-      `Exported ${res.entries.length} files (${kb(res.bytes, 0)}). The zip was downloaded.`
+      `Exported ${res.entries.length} files (${kb(res.bytes, 0)}). The zip was downloaded: unzip it into your game's project root.`
     ),
     list,
     ...res.notes.map((n) => h("p", { class: "warnline" }, n)),
@@ -346,19 +352,40 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
         },
         `exp-${String(key)}`
       );
+  /* The project stores disk paths for the CLI. In the browser the fields show the zip layout and store the matching
+     disk path (export-paths.ts explains the mapping). */
+  const copy = exportFieldCopy(local);
+  const zip = zipLayout(e0);
   textField(expB, {
-    label: "Audio folder",
-    onInput: E("dir"),
-    placeholder: "../public/audio",
-    value: e0.dir,
+    hint: copy.dirHint,
+    label: copy.dirLabel,
+    onInput: local
+      ? (v) =>
+          edit((p) => {
+            p.export.dir = storedFromZip(v, p.export.dir, DEFAULT_DIR);
+          }, "exp-dir")
+      : E("dir"),
+    placeholder: copy.dirPlaceholder,
+    value: local ? `${zip.dir}/` : e0.dir,
   });
   textField(expB, {
-    label: "Manifest file",
-    onInput: E("manifest"),
-    placeholder: "../src/audio.ts",
-    value: e0.manifest,
+    hint: copy.manifestHint,
+    label: copy.manifestLabel,
+    onInput: local
+      ? (v) =>
+          edit((p) => {
+            p.export.manifest = storedFromZip(
+              v,
+              p.export.manifest,
+              DEFAULT_MANIFEST
+            );
+          }, "exp-manifest")
+      : E("manifest"),
+    placeholder: copy.manifestPlaceholder,
+    value: local ? zip.manifest : e0.manifest,
   });
   textField(expB, {
+    hint: copy.urlHint,
     label: "URL prefix",
     onInput: E("baseUrl"),
     placeholder: "/audio/",
@@ -426,9 +453,10 @@ export function mountProject(ctx: ViewCtx): ViewHooks {
     q("#pPrevSub").textContent =
       `${Object.keys(m.sfx).length} sfx, ${Object.keys(m.songs).length} songs. Durations are estimates until you export.`;
     q("#pName").textContent = p.name;
+    const where = zipLayout(p.export);
     q("#pExpSub").textContent = local
-      ? `Renders in this browser and downloads a zip with ${p.export.dir.replace(LEADING_DOTDOT, "")} and ${p.export.manifest.replace(LEADING_DOTDOT, "")}`
-      : `The studio server writes to ${p.export.dir}`;
+      ? `Renders in this browser and downloads a zip with ${where.dir}/ and ${where.manifest}. Unzip it into your game's project root.`
+      : `The studio server writes to ${p.export.dir} and ${p.export.manifest}, relative to the project.`;
   }
   const preview = debounce(renderPreview, 120);
   q("#pCopy").addEventListener("click", async () => {

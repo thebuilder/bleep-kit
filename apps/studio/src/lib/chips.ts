@@ -16,6 +16,12 @@ export const CHIP_THEME: Record<ChipId, ChipTheme> = {
     ramp: ["#8a4a12", "#f3b24a", "#ffe0a0"],
     short: "AdLib",
   },
+  amiga: {
+    id: "amiga",
+    line: "#ff9a6a",
+    ramp: ["#7a2a24", "#e2503c", "#ffc0a0"],
+    short: "Amiga",
+  },
   c64: {
     id: "c64",
     line: "#c8b8ff",
@@ -115,6 +121,7 @@ export const categoryRing = (c: SfxCategory | string): string | null =>
 /** Which waves each chip allows for an sfx (section 2.4). */
 export const CHIP_WAVES: Record<ChipId, SfxWave[]> = {
   adlib: ["fm", "square", "sine", "saw"],
+  amiga: ["sine", "triangle", "saw", "square", "noise"],
   c64: ["square", "saw", "triangle", "noise"],
   custom: ["square", "triangle", "saw", "sine", "noise", "wave", "fm"],
   gameboy: ["square", "wave", "noise"],

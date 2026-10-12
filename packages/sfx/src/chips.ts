@@ -35,6 +35,15 @@ export const CHIP_CAPS: Readonly<Record<ChipId, ChipCaps>> = {
     phaser: false,
     waves: ["fm", "square", "sine", "saw"],
   },
+  amiga: {
+    bitcrush: false,
+    duties: null,
+    filter: false,
+    floor: {},
+    noiseSweep: true,
+    phaser: false,
+    waves: ["sine", "triangle", "saw", "square", "noise"],
+  },
   c64: {
     bitcrush: false,
     duties: null,

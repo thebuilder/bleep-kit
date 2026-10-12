@@ -17,6 +17,7 @@ import type {
  */
 export const BASS_KIND: Record<ChipId, ChannelKind> = {
   adlib: "fm",
+  amiga: "sample",
   c64: "sid",
   custom: "sid",
   gameboy: "wave",

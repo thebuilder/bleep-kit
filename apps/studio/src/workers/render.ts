@@ -1,6 +1,12 @@
 /* Renders sounds off the main thread, so the UI never stalls while a waveform is redrawn (section 11.2). The same
    worker also analyses a render and draws the three analysis images, which are slower. */
-import type { Instrument, RenderResult, Sfx, Song } from "../lib/contract.ts";
+import type {
+  Instrument,
+  RenderResult,
+  Sfx,
+  Song,
+  UserSample,
+} from "../lib/contract.ts";
 import {
   type Analysis,
   analyze,
@@ -15,8 +21,18 @@ import {
 
 export type Source =
   | { type: "sfx"; sfx: Sfx }
-  | { type: "song"; song: Song; instruments: Record<string, Instrument> }
-  | { type: "note"; inst: Instrument; note: number };
+  | {
+      type: "song";
+      song: Song;
+      instruments: Record<string, Instrument>;
+      samples?: Record<string, UserSample>;
+    }
+  | {
+      type: "note";
+      inst: Instrument;
+      note: number;
+      samples?: Record<string, UserSample>;
+    };
 
 /** The project's master: its volume scales sfx renders, and its limiter setting applies to songs too. */
 export interface RenderMaster {
@@ -31,6 +47,7 @@ export type RenderRequest =
       kind: "song";
       song: Song;
       instruments: Record<string, Instrument>;
+      samples?: Record<string, UserSample>;
       rate: number;
       stems: boolean;
       master: RenderMaster;
@@ -70,10 +87,11 @@ function renderSource(
   if (s.type === "sfx") {
     return renderSfx(s.sfx, opts);
   }
+  const samples = s.samples ?? {};
   if (s.type === "song") {
-    return renderSong(s.song, s.instruments, { ...opts, stems: true });
+    return renderSong(s.song, s.instruments, { ...opts, samples, stems: true });
   }
-  return renderInstrumentNote(s.inst, s.note, opts);
+  return renderInstrumentNote(s.inst, s.note, { ...opts, samples });
 }
 
 export function runRequest(req: RenderRequest): RenderResult | AnalysisBundle {
@@ -84,6 +102,7 @@ export function runRequest(req: RenderRequest): RenderResult | AnalysisBundle {
     return renderSong(req.song, req.instruments, {
       master: req.master,
       sampleRate: req.rate,
+      samples: req.samples ?? {},
       stems: req.stems,
     });
   }

@@ -1,12 +1,23 @@
+import {
+  AMIGA_PERIOD_EXT_MAX,
+  AMIGA_PERIOD_EXT_MIN,
+  AMIGA_PERIOD_MAX,
+  AMIGA_PERIOD_MIN,
+  exactPeriod,
+} from "../chips/amiga.ts";
 import { CUSTOM_MAX_CHANNELS } from "../chips/custom.ts";
-import { CHIPS } from "../chips/index.ts";
+import { DAC_RATE_MAX, DAC_RATE_MIN } from "../chips/genesis.ts";
+import { CHIPS, hardwareChannels } from "../chips/index.ts";
 import { parseMml } from "../mml/parser.ts";
-import { parseNoteName } from "../notes.ts";
+import { noteToHz, parseNoteName } from "../notes.ts";
 import type {
+  AmigaSettings,
   ChannelKind,
+  ChipChannel,
   ChipId,
   ChipProfile,
   Effect,
+  GenesisSettings,
   Instrument,
   Normalized,
   NoteValue,
@@ -15,6 +26,7 @@ import type {
   Song,
   SongChannel,
   SongMaster,
+  UserSample,
 } from "../types.ts";
 import {
   CHANNEL_KINDS,
@@ -116,9 +128,26 @@ function fixedKindCheck(
     error(
       ctx,
       path,
-      `instrument "${id}" is kind "${inst.kind}" but channel "${channel.id}" is "${channel.kind}"`
+      `instrument "${id}" is kind "${inst.kind}" but channel "${channel.id}" is "${channel.kind}"${dacHint(chip, channel, inst.kind)}`
     );
   }
+}
+
+/** What to say when the Genesis DAC switch is why an instrument does not fit fm6. */
+function dacHint(
+  chip: ChipId,
+  channel: ChannelInfo,
+  kind: ChannelKind
+): string {
+  if (chip !== "genesis" || channel.id !== "fm6") {
+    return "";
+  }
+  if (channel.kind === "sample") {
+    return ' (fm6 is in DAC mode, "FM6 plays samples (DAC)": it plays sample instruments and no FM; set /master/genesis/dac to false to play FM there)';
+  }
+  return kind === "sample"
+    ? ' (a sample plays on fm6 only in DAC mode: set /master/genesis to { "dac": true })'
+    : "";
 }
 
 interface ChannelList {
@@ -127,12 +156,16 @@ interface ChannelList {
 }
 
 /** The chip's default channels, used when the document has none that survive validation. */
-function defaultChannels(chip: ChipId): ChannelList {
+function defaultChannels(
+  chip: ChipId,
+  hw: readonly ChipChannel[]
+): ChannelList {
   const channels: SongChannel[] = [];
   const infos: ChannelInfo[] = [];
   for (const [i, c] of defaultSong(chip).channels.entries()) {
-    channels.push(c);
-    infos.push({ id: c.id, kind: c.kind, index: i, mml: null });
+    const kind = hw.find((x) => x.id === c.id)?.kind ?? c.kind;
+    channels.push({ ...c, kind });
+    infos.push({ id: c.id, kind, index: i, mml: null });
   }
   return { channels, infos };
 }
@@ -163,7 +196,7 @@ function resolveChannelKind(
   id: string,
   p: string,
   chip: ChipId,
-  profile: ChipProfile,
+  hwChannels: readonly ChipChannel[],
   keptCount: number
 ): ChannelKind | null {
   if (chip === "custom") {
@@ -178,12 +211,12 @@ function resolveChannelKind(
     }
     return kind;
   }
-  const hw = profile.channels.find((x) => x.id === id);
+  const hw = hwChannels.find((x) => x.id === id);
   if (!hw) {
     error(
       ctx,
       ptr(p, "id"),
-      `unknown channel "${id}" for chip "${chip}" (it has ${profile.channels.map((x) => x.id).join(", ")})`
+      `unknown channel "${id}" for chip "${chip}" (it has ${hwChannels.map((x) => x.id).join(", ")})`
     );
     return null;
   }
@@ -240,13 +273,13 @@ function readChannels(
   ctx: Ctx,
   doc: Rec,
   chip: ChipId,
-  profile: ChipProfile,
+  hw: readonly ChipChannel[],
   instruments: Record<string, Instrument> | undefined,
   refs: Refs
 ): ChannelList {
   const raw = doc.channels;
   if (raw === undefined) {
-    return defaultChannels(chip);
+    return defaultChannels(chip, hw);
   }
   if (!Array.isArray(raw) || raw.length === 0) {
     error(
@@ -256,7 +289,7 @@ function readChannels(
         ? "must have at least 1 channel"
         : `must be an array of channels (was ${show(raw)})`
     );
-    return defaultChannels(chip);
+    return defaultChannels(chip, hw);
   }
   const channels: SongChannel[] = [];
   const infos: ChannelInfo[] = [];
@@ -273,15 +306,7 @@ function readChannels(
     if (id === null) {
       continue;
     }
-    const kind = resolveChannelKind(
-      ctx,
-      c,
-      id,
-      p,
-      chip,
-      profile,
-      channels.length
-    );
+    const kind = resolveChannelKind(ctx, c, id, p, chip, hw, channels.length);
     if (kind === null) {
       continue;
     }
@@ -320,7 +345,9 @@ function readChannels(
           : readMuted(ctx, c.muted, ptr(p, "muted")),
     });
   }
-  return channels.length === 0 ? defaultChannels(chip) : { channels, infos };
+  return channels.length === 0
+    ? defaultChannels(chip, hw)
+    : { channels, infos };
 }
 
 function readMuted(ctx: Ctx, v: unknown, path: string): boolean {
@@ -953,19 +980,94 @@ function warnLoopOverride(
   }
 }
 
+/** The Amiga output stage: stereo separation, the A500 or A1200 output filter and the LED filter. */
+function readAmiga(ctx: Ctx, m: Rec): AmigaSettings {
+  const a = section(ctx, m, "amiga", "/master");
+  dropUnknown(ctx, a, "/master/amiga", ["separation", "model", "led"]);
+  const { led } = a;
+  if (led !== undefined && typeof led !== "boolean") {
+    error(ctx, "/master/amiga/led", `must be true or false (was ${show(led)})`);
+  }
+  return {
+    led: typeof led === "boolean" ? led : false,
+    model: enumField(
+      ctx,
+      a,
+      "model",
+      "/master/amiga",
+      ["a500", "a1200"] as const,
+      "a500"
+    ),
+    separation: numField(ctx, a, "separation", "/master/amiga", {
+      def: 1,
+      max: 1,
+      min: 0,
+    }),
+  };
+}
+
+/**
+ * The Genesis DAC switch. Read before the channels, because it decides the kind of fm6. Only a Genesis song can have it;
+ * `{ "dac": false }` is the same as no setting and is not kept, so a song that does not use it normalizes as before.
+ */
+function readGenesis(ctx: Ctx, doc: Rec, chip: ChipId): GenesisSettings | null {
+  const m = doc.master;
+  if (!isRec(m) || m.genesis === undefined) {
+    return null;
+  }
+  if (chip !== "genesis") {
+    warn(
+      ctx,
+      "/master/genesis",
+      `chip "${chip}" has no YM2612 DAC, the genesis settings are ignored`
+    );
+    return null;
+  }
+  const g = section(ctx, m, "genesis", "/master");
+  dropUnknown(ctx, g, "/master/genesis", ["dac"]);
+  const { dac } = g;
+  if (dac !== undefined && typeof dac !== "boolean") {
+    error(
+      ctx,
+      "/master/genesis/dac",
+      `must be true or false (was ${show(dac)})`
+    );
+  }
+  return dac === true ? { dac: true } : null;
+}
+
 function readMaster(
   ctx: Ctx,
   doc: Rec,
   chip: ChipId,
-  profile: ChipProfile
+  profile: ChipProfile,
+  genesis: GenesisSettings | null
 ): SongMaster {
   const m = section(ctx, doc, "master", "");
-  dropUnknown(ctx, m, "/master", ["volume", "echo", "reverb"]);
+  dropUnknown(ctx, m, "/master", [
+    "volume",
+    "echo",
+    "reverb",
+    "amiga",
+    "genesis",
+  ]);
   const master: SongMaster = {
     volume: numField(ctx, m, "volume", "/master", { min: 0, max: 1, def: 0.8 }),
     echo: readEcho(ctx, m.echo),
     reverb: readReverb(ctx, m.reverb),
   };
+  if (genesis) {
+    master.genesis = genesis;
+  }
+  if (chip === "amiga") {
+    master.amiga = readAmiga(ctx, m);
+  } else if (m.amiga !== undefined) {
+    warn(
+      ctx,
+      "/master/amiga",
+      `chip "${chip}" has no Paula output stage, the amiga settings are ignored`
+    );
+  }
   if (!profile.constraints.masterFx) {
     if (master.echo) {
       warn(
@@ -985,9 +1087,13 @@ function readMaster(
   return master;
 }
 
+/** What normalizeSong needs to know about a user sample to check Amiga periods. */
+export type SampleMeta = Pick<UserSample, "baseNote" | "finetune" | "rate">;
+
 export function normalizeSong(
   input: unknown,
-  instruments?: Record<string, Instrument>
+  instruments?: Record<string, Instrument>,
+  samples?: Record<string, SampleMeta>
 ): Normalized<Song> {
   const ctx = newCtx();
   if (!isRec(input)) {
@@ -1016,11 +1122,12 @@ export function normalizeSong(
   const refs: Refs = { used: new Map() };
   const rowPaths = new WeakMap<Row, string>();
 
+  const genesis = readGenesis(ctx, doc, chip);
   const { channels, infos } = readChannels(
     ctx,
     doc,
     chip,
-    profile,
+    hardwareChannels(chip, genesis ? { genesis } : undefined),
     instruments,
     refs
   );
@@ -1064,8 +1171,14 @@ export function normalizeSong(
 
   // jump targets are checked once the order length is final
   checkJumps(ctx, outPatterns, order.length, rowPaths);
-  const master = readMaster(ctx, doc, chip, profile);
+  const master = readMaster(ctx, doc, chip, profile, genesis);
   instrumentWarnings(ctx, chip, instruments, refs);
+  if (chip === "amiga") {
+    amigaRangeWarnings(ctx, channels, outPatterns, instruments, samples);
+  }
+  if (genesis) {
+    dacRangeWarnings(ctx, channels, outPatterns, instruments, samples);
+  }
 
   const value: Song = {
     version: FORMAT_VERSION,
@@ -1218,5 +1331,181 @@ function instrumentWarnings(
           : `instrument "${id}" has ${inst.fm.ops.length} operators, chip "${chip}" has ${want}, the missing operators stay silent`
       );
     }
+  }
+}
+
+/** The playback rate of an instrument's sample at unity, and the note it sounds at (null when it is not known). */
+function sampleReference(
+  inst: Instrument,
+  samples: Record<string, SampleMeta> | undefined,
+  generatedRate: number
+): { baseNote: number; rate: number } | null {
+  const p = inst.sample;
+  if (inst.kind !== "sample" || !p) {
+    return null;
+  }
+  if (p.userSample !== undefined) {
+    const s = samples?.[p.userSample];
+    return s ? { baseNote: s.baseNote - s.finetune / 100, rate: s.rate } : null;
+  }
+  return { baseNote: p.baseNote, rate: generatedRate };
+}
+
+interface PeriodSpan {
+  highest: number;
+  lowest: number;
+  path: string;
+}
+
+/** The rate a note plays an instrument's sample at (frames per second). */
+function noteRate(
+  inst: Instrument,
+  ref: { baseNote: number; rate: number },
+  note: number
+): number {
+  const n = note + inst.transpose + inst.finetune / 100;
+  return ref.rate * (noteToHz(n) / noteToHz(ref.baseNote));
+}
+
+type Measure = (
+  inst: Instrument,
+  ref: { baseNote: number; rate: number },
+  note: number
+) => number;
+
+const notePeriod: Measure = (inst, ref, note) =>
+  exactPeriod(noteRate(inst, ref, note));
+
+/** Track the lowest and highest period each instrument plays on one channel's rows. */
+function trackSpans(
+  spans: Map<string, PeriodSpan>,
+  where: { chId: string; pid: string },
+  rows: Row[],
+  first: string | null,
+  instruments: Record<string, Instrument>,
+  samples: Record<string, SampleMeta> | undefined,
+  measure: Measure,
+  generatedRate: number
+): void {
+  let current = first;
+  for (const [i, row] of rows.entries()) {
+    current = row.inst ?? current;
+    const inst = current === null ? undefined : instruments[current];
+    const ref = inst ? sampleReference(inst, samples, generatedRate) : null;
+    if (typeof row.note !== "number" || !inst || current === null || !ref) {
+      continue;
+    }
+    const period = measure(inst, ref, row.note);
+    const span = spans.get(current) ?? {
+      highest: period,
+      lowest: period,
+      path: ptr(ptr(ptr(ptr("/patterns", where.pid), "tracks"), where.chId), i),
+    };
+    span.highest = Math.max(span.highest, period);
+    span.lowest = Math.min(span.lowest, period);
+    spans.set(current, span);
+  }
+}
+
+/** The lowest and highest value `measure` gives each instrument over the tracks of `only` (every track when null). */
+function collectSpans(
+  from: {
+    channels: SongChannel[];
+    instruments: Record<string, Instrument>;
+    only: string | null;
+    patterns: Record<string, Pattern>;
+    samples: Record<string, SampleMeta> | undefined;
+  },
+  measure: Measure,
+  generatedRate: number
+): Map<string, PeriodSpan> {
+  const spans = new Map<string, PeriodSpan>();
+  for (const [pid, pat] of Object.entries(from.patterns)) {
+    for (const [chId, rows] of Object.entries(pat.tracks)) {
+      if (from.only !== null && chId !== from.only) {
+        continue;
+      }
+      const first =
+        from.channels.find((c) => c.id === chId)?.instrument ?? null;
+      trackSpans(
+        spans,
+        { chId, pid },
+        rows,
+        first,
+        from.instruments,
+        from.samples,
+        measure,
+        generatedRate
+      );
+    }
+  }
+  return spans;
+}
+
+/**
+ * Paula plays periods 113 to 856 (ProTracker's three octaves). The engine plays one octave more each way, so a note
+ * outside the standard range is allowed, with one warning per instrument that says how far it goes. Only instruments
+ * whose sample is known (generated ones, and user samples when `samples` is given) can be checked.
+ */
+function amigaRangeWarnings(
+  ctx: Ctx,
+  channels: SongChannel[],
+  patterns: Record<string, Pattern>,
+  instruments: Record<string, Instrument> | undefined,
+  samples: Record<string, SampleMeta> | undefined
+): void {
+  if (!instruments) {
+    return;
+  }
+  const spans = collectSpans(
+    { channels, instruments, only: null, patterns, samples },
+    notePeriod,
+    CHIPS.amiga.sampleRate ?? 11_084
+  );
+  for (const [id, span] of spans) {
+    const low = Math.round(span.lowest);
+    const high = Math.round(span.highest);
+    if (low >= AMIGA_PERIOD_MIN && high <= AMIGA_PERIOD_MAX) {
+      continue;
+    }
+    const beyond = low < AMIGA_PERIOD_EXT_MIN || high > AMIGA_PERIOD_EXT_MAX;
+    warn(
+      ctx,
+      span.path,
+      `instrument "${id}" plays periods ${low} to ${high}, outside ProTracker's ${AMIGA_PERIOD_MIN} to ${AMIGA_PERIOD_MAX}; the extended range ${AMIGA_PERIOD_EXT_MIN} to ${AMIGA_PERIOD_EXT_MAX} plays here${beyond ? ", and notes beyond it are held at the limit" : ""}, but a tracker or a real Amiga may not`
+    );
+  }
+}
+
+/**
+ * The DAC plays 8 to 26 kHz. A note whose sample rate falls outside is held at the limit (the driver cannot go
+ * further), so the pitch is wrong: one warning per instrument says how far its notes go.
+ */
+function dacRangeWarnings(
+  ctx: Ctx,
+  channels: SongChannel[],
+  patterns: Record<string, Pattern>,
+  instruments: Record<string, Instrument> | undefined,
+  samples: Record<string, SampleMeta> | undefined
+): void {
+  if (!instruments) {
+    return;
+  }
+  const spans = collectSpans(
+    { channels, instruments, only: "fm6", patterns, samples },
+    noteRate,
+    CHIPS.genesis.sampleRate ?? 12_969
+  );
+  for (const [id, span] of spans) {
+    const low = Math.round(span.lowest);
+    const high = Math.round(span.highest);
+    if (low >= DAC_RATE_MIN && high <= DAC_RATE_MAX) {
+      continue;
+    }
+    warn(
+      ctx,
+      span.path,
+      `instrument "${id}" plays the DAC at ${low} to ${high} Hz, outside the ${DAC_RATE_MIN} to ${DAC_RATE_MAX} Hz a driver can reach; notes beyond are held at the limit and sound out of tune`
+    );
   }
 }

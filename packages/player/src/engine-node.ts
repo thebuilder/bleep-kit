@@ -55,6 +55,12 @@ export interface EngineNode {
   readonly sampleRate: number;
   scopes: ScopeReader;
   send: (msg: ToWorklet) => void;
+  /**
+   * Whether anyone is looking at events and scopes. A page that is hidden (or frozen) sets it false: the worklet then
+   * stops posting events and scope copies and slows its clock to about once a second, so no backlog builds up for the
+   * main thread to chew through on return. Setting it (either way) fetches a fresh clock at once.
+   */
+  setActive: (active: boolean) => void;
 }
 
 interface LatencyContext {
@@ -116,6 +122,7 @@ export async function createEngineNode(
   const posted = new PostedRings(frames);
   let clock: ClockMessage | null = null;
   let disposed = false;
+  let active = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   // the promise exists before the port is listened to, so an early `ready` cannot be missed
@@ -143,7 +150,7 @@ export async function createEngineNode(
       onFail(new Error(msg.message));
     } else if (msg.type === "clock") {
       clock = msg;
-    } else if (msg.type === "scope") {
+    } else if (msg.type === "scope" && active) {
       posted.write(msg.frame, msg.buffers, msg.master);
     }
     for (const handler of [...handlers]) {
@@ -224,5 +231,9 @@ export async function createEngineNode(
     sampleRate,
     scopes,
     send,
+    setActive(next) {
+      active = next;
+      send({ active: next, type: "setFeed" });
+    },
   };
 }

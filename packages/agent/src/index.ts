@@ -12,6 +12,7 @@ export {
 } from "./author.ts";
 export {
   describeInstrument,
+  describeSample,
   describeSong,
   fmtSeconds,
   songFacts,
@@ -37,6 +38,7 @@ export {
   type ProjectSummary,
   parseRef,
   refText,
+  type SampleInfo,
 } from "./host.ts";
 export {
   type AgentEvent,

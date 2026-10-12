@@ -13,7 +13,7 @@ import {
 } from "vitest";
 import indexHtml from "../index.html?raw";
 import { KIND_HEX } from "../src/lib/chips.ts";
-import type { Instrument, Sfx, Song } from "../src/lib/contract.ts";
+import type { Instrument, Row, Sfx, Song } from "../src/lib/contract.ts";
 import {
   chipProfile,
   defaultSong,
@@ -849,13 +849,13 @@ describe("switches and the save icon", () => {
     restoreSfx("coin", original);
   });
 
-  it("the sound editor ends in the two buttons, without the long description", async () => {
+  it("the sound editor ends in its three buttons, without the long description", async () => {
     await goSfx("coin");
     expect(view().querySelector("#sDesc")).toBeNull();
     expect(view().querySelector(".ed-foot")?.textContent).not.toContain(
       "coin sound"
     );
-    expect(view().querySelectorAll(".ed-foot button").length).toBe(2);
+    expect(view().querySelectorAll(".ed-foot button").length).toBe(3);
   });
 
   it("the save icon is one fixed size icon that changes its state and words, never its shape", async () => {
@@ -1646,32 +1646,113 @@ describe("the song editor", () => {
     });
   });
 
-  it("changing the song's chip gives it that chip's channels and keeps the notes of channels it still has", async () => {
-    await makeSong("chip-song");
-    await goSong("chip-song");
-    typeKeys("z", "x");
-    const before = clone(
-      songValue("chip-song").patterns["pattern-1"]?.tracks[
-        songValue("chip-song").channels[0]?.id as string
-      ]
-    );
-    const chip = field<HTMLSelectElement>(insp(), "Chip");
-    const other = [...chip.options].find(
-      (o) => !o.disabled && o.value !== chip.value && o.value !== "custom"
-    )?.value as string;
-    chip.value = other;
-    fire(chip, "change");
-    const s = songValue("chip-song");
-    expect(s.chip).toBe(other);
-    expect(s.channels.map((c) => c.id)).toEqual(
-      chipProfile(other as never).channels.map((c) => c.id)
-    );
-    const kept = s.channels.find(
-      (c) => c.id === songValue("chip-song").channels[0]?.id
-    );
-    if (kept) {
-      expect(s.patterns["pattern-1"]?.tracks[kept.id]).toEqual(before);
-    }
+  describe("changing the chip", () => {
+    const note = (row: number, n: number): Row => ({
+      fx: [],
+      inst: null,
+      note: n,
+      row,
+      vol: null,
+    });
+    const confirmBtn = (primary: boolean) =>
+      document.querySelector(
+        primary
+          ? ".confirm-btns .btn.primary"
+          : ".confirm-btns .btn:not(.primary)"
+      );
+    const pickChip = (value: string) => {
+      const chip = field<HTMLSelectElement>(insp(), "Chip");
+      chip.value = value;
+      fire(chip, "change");
+    };
+    const lines = (id: string, channel: string) =>
+      (songValue(id).patterns["pattern-1"]?.tracks[channel] ?? []).map(
+        (r) => r.note
+      );
+    afterAll(async () => {
+      await Promise.all(
+        project()
+          .list("instrument")
+          .filter((d) => d.id.startsWith("genesis-"))
+          .map((d) => project().remove(d))
+      );
+    });
+
+    it("asks first and lists what moves where, and saying no leaves the song and the control as they were", async () => {
+      const lead = [72, 74, 76, 77, 79].map((n, i) => note(i * 2, n));
+      const bass = [36, 36, 38, 40, 36].map((n, i) => note(i * 3, n));
+      const song = defaultSong("nes");
+      song.name = "chip-song";
+      song.patterns = {
+        "pattern-1": { length: 16, tracks: { pulse1: lead, triangle: bass } },
+      };
+      await project().create("song", "chip-song", song);
+      await goSong("chip-song");
+      pickChip("genesis");
+      expect(
+        await until(() => document.querySelector(".confirm") !== null)
+      ).toBe(true);
+      const text = document.querySelector(".confirm")?.textContent ?? "";
+      expect(text).toContain("pulse1 to fm1");
+      expect(text).toContain("triangle to fm2");
+      expect(text).toContain("New instruments");
+      // nothing has happened yet
+      expect(songValue("chip-song").chip).toBe("nes");
+      press(confirmBtn(false));
+      await until(() => document.querySelector(".confirm") === null);
+      expect(songValue("chip-song").chip).toBe("nes");
+      expect(
+        await until(
+          () => field<HTMLSelectElement>(insp(), "Chip").value === "nes"
+        )
+      ).toBe(true);
+      expect(lines("chip-song", "pulse1")).toEqual([72, 74, 76, 77, 79]);
+    });
+
+    it("moves the channels to the ones that suit the new chip as one undo step, with a summary toast", async () => {
+      await goSong("chip-song");
+      const before = JSON.stringify(songValue("chip-song"));
+      pickChip("genesis");
+      expect(
+        await until(() => document.querySelector(".confirm") !== null)
+      ).toBe(true);
+      press(confirmBtn(true));
+      expect(await until(() => songValue("chip-song").chip === "genesis")).toBe(
+        true
+      );
+      const s = songValue("chip-song");
+      expect(s.channels.map((c) => c.id)).toEqual(
+        chipProfile("genesis").channels.map((c) => c.id)
+      );
+      // the lead and the bass went to FM voices, notes and all
+      expect(lines("chip-song", "fm1")).toEqual([72, 74, 76, 77, 79]);
+      expect(lines("chip-song", "fm2")).toEqual([36, 36, 38, 40, 36]);
+      // the song plays instruments of the FM kind that were added to the project
+      const played = s.channels.find((c) => c.id === "fm1")?.instrument ?? "";
+      expect(project().instruments()[played]?.kind).toBe("fm");
+      expect(toast()).toContain("Changed to Mega Drive: 2 channels moved");
+      // one undo brings the whole song back
+      expect(project().undo(project().get("song", "chip-song") as never)).toBe(
+        true
+      );
+      expect(JSON.stringify(songValue("chip-song"))).toBe(before);
+      expect(project().undo(project().get("song", "chip-song") as never)).toBe(
+        false
+      );
+    });
+
+    it("changes the chip of an empty song at once, without a question", async () => {
+      await makeSong("empty-chip-song");
+      await goSong("empty-chip-song");
+      pickChip("gameboy");
+      expect(
+        await until(() => songValue("empty-chip-song").chip === "gameboy")
+      ).toBe(true);
+      expect(document.querySelector(".confirm")).toBeNull();
+      expect(songValue("empty-chip-song").channels.map((c) => c.id)).toEqual(
+        chipProfile("gameboy").channels.map((c) => c.id)
+      );
+    });
   });
 });
 
@@ -2967,7 +3048,7 @@ describe("the examples view", () => {
 
   it("lists the demo songs and sounds, and plays one through the engine without touching the project", async () => {
     await goExamples();
-    expect(document.querySelectorAll(".xcard")).toHaveLength(6);
+    expect(document.querySelectorAll(".xcard")).toHaveLength(7);
     expect(document.querySelectorAll(".xpad")).toHaveLength(22);
     expect(card("grid-battle").textContent).toContain("150 bpm");
     expect(document.querySelector(".nav a.cur")?.textContent).toContain(

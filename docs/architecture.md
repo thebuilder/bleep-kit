@@ -75,8 +75,17 @@ export { createSynth } from "./engine/synth.ts";
 export { renderSfx, renderSong, renderInstrumentNote } from "./engine/render.ts";
 export { createScopeReader } from "./engine/scope.ts";
 
-// sample generators (the 16-bit profile's instruments)
+// sample generators (the sample instruments' built-in sounds)
 export { SAMPLE_GENERATORS, generateSample } from "./samples/index.ts";
+
+// user samples (section 2.10): base64 and PCM, import preparation, resampling, normalize
+export { normalizeSample, defaultSample, sampleFits } from "./normalize/index.ts";
+export { bytesToBase64, base64ToBytes, decodeSampleData, encodeSampleData, sampleFrames, prepareImport, resample, usedSamples /* and more, see samples/user.ts */ } from "./samples/user.ts";
+
+// ProTracker modules (section 2.11) and the Amiga's constants (section 3.13)
+export { parseMod, modToSong, songToMod } from "./mod/index.ts";
+export { AMIGA_CLOCK_HZ, AMIGA_PERIOD_MIN, AMIGA_PERIOD_MAX, noteToPeriod, periodToNote /* and more */ } from "./chips/amiga.ts";
+export { DAC_RATE_MIN, DAC_RATE_MAX, GENESIS_DAC_RATE, quantizeDacRate } from "./chips/genesis.ts";   // section 3.12
 
 // random
 export { mulberry32, hashString, deriveSeed } from "./prng.ts";
@@ -104,6 +113,12 @@ function mmlToTrack(src: string, rowsPerBeat: number, opts?: MmlOptions): { rows
 function patternToMml(rows: readonly Row[], rowsPerBeat: number): string;
 function midiToSong(bytes: Uint8Array, opts?: MidiToSongOptions): MidiImport;   // section 2.8
 function parseMidi(bytes: Uint8Array): MidiFile;
+function rechipSong(song: Song, instruments: Record<string, Instrument>, toChip: ChipId): RechipResult;   // section 2.9
+function describeRechip(result: RechipResult): { moved: string[]; dropped: string[]; adjusted: string[] };
+function parseMod(bytes: Uint8Array): ModParse;                                             // section 2.11
+function modToSong(bytes: Uint8Array, opts?: ModToSongOptions): ModImport;                   // { info, song, instruments, samples, issues }
+function songToMod(song: Song, instruments: Record<string, Instrument>, samples?: Record<string, UserSample>): ModExport;   // { bytes | null, issues }
+function normalizeSample(input: unknown): Normalized<UserSample>;                            // section 2.10
 function parseMidiMap(text: string): { map: Record<string, string>; issues: Issue[] };   // "1=pulse1,10=noise"
 function makeInstrument(kind: ChannelKind, chip: ChipId | null, preset: InstrumentPreset, name: string): Instrument;
 function parseEffect(code: string): Effect | null;                  // "A0F" -> { type: "volSlide", x: 0, y: 15 }
@@ -210,14 +225,16 @@ src/index.ts  src/tools.ts
 src/prng.ts               mulberry32, hashString, deriveSeed
 src/version.ts            ENGINE_VERSION
 src/notes.ts              note names and frequencies
-src/normalize/            issues.ts (Issue, Normalized, helpers), project.ts, sfx.ts, instrument.ts, song.ts, effects.ts (fx string <-> typed), index.ts
+src/normalize/            issues.ts (Issue, Normalized, helpers), project.ts, sfx.ts, instrument.ts, song.ts, sample.ts (samples/<id>.json, section 2.10), effects.ts (fx string <-> typed), sample.ts (samples/<id>.json), index.ts
 src/mml/                  lexer.ts, parser.ts, format.ts, index.ts
 src/midi/                 parse.ts (SMF reader), parts.ts (parts, --map selectors, automatic placement), plan.ts (per chip channel plan, ranges, GM drums), reduce.ts (rows, one note at a time, range), build.ts (patterns), instruments.ts, convert.ts (midiToSong), index.ts
+src/songs/                roles.ts (lead, bass, harmony, drums: the measures the MIDI importer and rechipSong share), instrument-roles.ts (what an instrument is for, the drum kit), rechip.ts (rechipSong, section 2.9) with rechip-facts.ts, rechip-assign.ts, rechip-registry.ts, rechip-map.ts, rechip-merge.ts
 src/presets.ts            instrument presets shared by the CLI (`new instrument`, `init`), the MIDI importer and the studio starter project
 src/presets-bass.ts       the bass presets, one real bass per chip (section 2.5)
-src/chips/                nes.ts, gameboy.ts, c64.ts, genesis.ts, adlib.ts, snes.ts, custom.ts, index.ts
+src/chips/                nes.ts, gameboy.ts, c64.ts, genesis.ts (with the DAC rate helpers, section 3.12), adlib.ts, snes.ts, amiga.ts (Paula: clock, period table and range, section 3.13), custom.ts, index.ts
 src/dsp/                  tables.ts (sine, exp), osc.ts, noise.ts, envelope.ts, macro.ts, fm.ts, sid-filter.ts, svf.ts, echo.ts, reverb.ts, color.ts, limiter.ts, resampler.ts
-src/samples/              one file per generator plus index.ts
+src/samples/              generators.ts + specs.ts (the sample generators), user.ts (base64 and PCM, import preparation, resample, pitch helpers; section 2.10), index.ts
+src/mod/                  parse.ts (the MOD reader), import.ts (modToSong), export.ts (songToMod), index.ts (section 2.11)
 src/engine/               voice.ts, channel.ts, sequencer.ts, timeline.ts, sfx-compile.ts, synth.ts, render.ts, events.ts, scope.ts
 src/tools/                wav.ts, encode.ts, analysis.ts, spectrum.ts, pitch.ts, png.ts, images.ts, buffers.ts, format.ts
 ```
@@ -270,8 +287,8 @@ export const FORMAT_VERSION = 1;
 
 /* ---------- chips ---------- */
 
-/** "snes" is the 16-bit sample profile (SNES and Amiga style). */
-export const CHIP_IDS = ["nes", "gameboy", "c64", "genesis", "adlib", "snes", "custom"] as const;
+/** "snes" is the 16-bit sample profile (SNES style); "amiga" is Paula: four 8-bit sample channels with hard panning. */
+export const CHIP_IDS = ["nes", "gameboy", "c64", "genesis", "adlib", "snes", "amiga", "custom"] as const;
 export type ChipId = (typeof CHIP_IDS)[number];
 
 export const CHANNEL_KINDS = ["pulse", "triangle", "noise", "wave", "sid", "fm", "sample"] as const;
@@ -286,9 +303,12 @@ export interface ChipChannel {
   fmOps?: 2 | 4;
   /** For "pulse" on a PSG: duty is fixed at 0.5. */
   fixedDuty?: number;
+  /** Hardware pan of the channel, -1 left to 1 right (Paula: channels 1 and 4 left, 2 and 3 right). Only with PanMode "fixed". */
+  pan?: number;
 }
 
-export type PanMode = "none" | "hard" | "free";
+/** "fixed": the channel's own `pan` decides (scaled by the song's stereo separation); instrument, row and song pans are ignored. */
+export type PanMode = "none" | "hard" | "free" | "fixed";
 
 /** How a profile keeps sound authentic. The engine applies these at voice level; normalize only warns. */
 export interface ChipConstraints {
@@ -507,6 +527,7 @@ export interface FmPatch {
 export const SAMPLE_GENERATOR_IDS = [
   "kick", "snare", "hat", "tom", "clap", "crash",
   "pluck", "bass", "pad", "organ", "bell", "strings", "choir", "lead",
+  "kick909", "kick808", "snare909", "clap909", "hat909", "crash909", "orchestra",
 ] as const;
 export type SampleGeneratorId = (typeof SAMPLE_GENERATOR_IDS)[number];
 
@@ -518,6 +539,35 @@ export interface SamplePatch {
   /** MIDI note the generated sample plays at unity. */
   baseNote: number;     // default 60
   loop: boolean;        // default false; generators that can loop expose loopStart/loopEnd in GeneratedSample
+  /** Id of a user sample (samples/<id>.json); absent for a generated sample. When set the generator fields are ignored and the sample's own base note,
+      loop, finetune and volume apply; the instrument's transpose, finetune and volume still stack on top. */
+  userSample?: string;
+}
+
+/* ---------- User samples ---------- */
+
+export const SAMPLE_BITS = [8, 16] as const;
+/** The most PCM bytes one sample may hold (2 MiB): 2,097,152 frames at 8 bit, 1,048,576 at 16 bit. */
+export const SAMPLE_MAX_BYTES = 2 * 1024 * 1024;
+
+/** samples/<id>.json: one mono recording with the metadata a sample instrument needs. The audio is embedded as base64. */
+export interface UserSample {
+  version: number;
+  name: string;
+  /** Sample rate of the stored data in Hz. */
+  rate: number;                 // 1000..96000, default 22050
+  /** MIDI note the sample sounds at when it plays at `rate` (unity). */
+  baseNote: number;             // 0..127, default 60
+  /** Cents the sample sounds sharp (positive) or flat when it plays at unity. */
+  finetune: number;             // -100..100, default 0
+  /** Level of the sample, 0..1 (a MOD sample volume 0..64 divided by 64). */
+  volume: number;               // default 1
+  /** Loop region in frames (start < end <= length), or null for a one shot. */
+  loop: { start: number; end: number } | null;
+  /** Bit depth of the stored PCM. */
+  bits: 8 | 16;                 // default 16
+  /** Mono PCM, standard base64: signed 8 bit, or signed 16 bit little endian. At most SAMPLE_MAX_BYTES decoded. */
+  data: string;
 }
 
 export interface SidPatch {
@@ -566,7 +616,7 @@ export type NoteValue = number | "off" | "release";
 export const EFFECT_TYPES = [
   "arp", "slideUp", "slideDown", "portamento", "vibrato", "tremolo", "volSlide",
   "jump", "halt", "skip", "tempo", "duty", "pitch", "cut", "delay",
-  "noteSlideUp", "noteSlideDown", "pan", "send", "retrigger",
+  "noteSlideUp", "noteSlideDown", "pan", "send", "retrigger", "filter", "sampleOffset",
 ] as const;
 export type EffectType = (typeof EFFECT_TYPES)[number];
 
@@ -614,6 +664,25 @@ export interface SongMaster {
   volume: number;               // 0..1, default 0.8
   echo: { delay: number /* s 0.01..1 */; feedback: number /* 0..0.95 */; level: number /* 0..1 */; lowpassHz: number } | null;
   reverb: { size: number /* 0..1 */; damping: number /* 0..1 */; level: number /* 0..1 */ } | null;
+  /** Amiga songs only (absent on other chips): the Paula output stage. */
+  amiga?: AmigaSettings;
+  /** Genesis songs only, and only when it is on: the YM2612 DAC switch for FM channel 6. */
+  genesis?: GenesisSettings;
+}
+
+export interface GenesisSettings {
+  /** "FM6 plays samples (DAC)": the YM2612's channel 6 is switched into 8 bit PCM mode. fm6 then plays sample
+      instruments through the DAC (mono, 8 bit, 8 to 26 kHz, one sample at a time) and no FM. Default false. */
+  dac: boolean;
+}
+
+export interface AmigaSettings {
+  /** Stereo separation: 1 is Paula's hard left/right, 0 is mono. Many players soften it (0.2 to 0.7). */
+  separation: number;           // 0..1, default 1
+  /** "a500" has the fixed 4.4 kHz output lowpass, "a1200" does not. */
+  model: "a500" | "a1200";      // default "a500"
+  /** The LED filter (a steeper lowpass near 3.1 kHz) at the start of the song; the E01 effect switches it on and off. */
+  led: boolean;                 // default false
 }
 
 export interface Song {
@@ -703,6 +772,8 @@ export interface RenderOptions {
   tail?: number;
   /** Also return per-channel dry stems (before master effects). */
   stems?: boolean;
+  /** The user samples the instruments reference (by id), for songs and instrument notes. */
+  samples?: Record<string, UserSample>;
   /** Progress callback every 2^16 frames; return false to abort. */
   onProgress?: (frames: number, total: number) => boolean | undefined;
 }
@@ -763,8 +834,12 @@ export interface Synth {
   readonly frame: number;
   readonly playing: boolean;
   readonly scopes: ScopeRings;
-  loadSong(song: Song, instruments: Record<string, Instrument>): void;
+  /** `samples` are the user samples the instruments reference (also settable one by one with loadSample). */
+  loadSong(song: Song, instruments: Record<string, Instrument>, samples?: Record<string, UserSample>): void;
   unloadSong(): void;
+  /** Make a user sample available to sample instruments; instruments that reference it are rebuilt. */
+  loadSample(id: string, sample: UserSample): void;
+  unloadSample(id: string): void;
   loadSfx(id: string, sfx: Sfx): void;
   unloadSfx(id: string): void;
   setInstrument(id: string, inst: Instrument): void;
@@ -795,8 +870,10 @@ export interface Normalized<T> { ok: boolean; value: T; issues: Issue[] }
 /* ---------- worklet protocol (section 5) ---------- */
 
 export type ToWorklet =
-  | { type: "loadSong"; song: Song; instruments: Record<string, Instrument> }
+  | { type: "loadSong"; song: Song; instruments: Record<string, Instrument>; samples?: Record<string, UserSample> }
   | { type: "unloadSong" }
+  | { type: "loadSample"; id: string; sample: UserSample }
+  | { type: "unloadSample"; id: string }
   | { type: "loadSfx"; id: string; sfx: Sfx }
   | { type: "unloadSfx"; id: string }
   | { type: "play"; order?: number; row?: number; loop?: boolean }
@@ -830,7 +907,7 @@ export interface ManifestSong {
   loopStart: number | null;     // seconds
   loopEnd: number | null;
   events?: string;              // path of the events json
-  data?: { song: Song; instruments: Record<string, Instrument> };
+  data?: { song: Song; instruments: Record<string, Instrument>; samples?: Record<string, UserSample> };
 }
 export interface AudioManifest {
   base: string;
@@ -1113,6 +1190,77 @@ Volume and range. Velocity 1 to 127 becomes the volume column 1 to 15, written w
 
 Instruments. `instruments` holds new instruments built from the shared presets under ids `midi-<chip>-<role>` (`lead`, `harmony`, `bass`, `drums`; a PSG square among FM voices is `midi-genesis-harmony-pulse`; the sample chip's drums are `midi-snes-kick` and so on). None exists in the project yet by design: callers write the ones the project lacks and keep any that exist, so a second import for the same chip reuses them.
 
+### 2.9 Changing a song's chip
+
+`rechipSong(song, instruments, toChip)` moves a song to another chip without losing its music. It is pure (nothing it is given is changed) and returns `{ song, instruments, created, moves, dropped, adjusted }`: the new song; the instruments it needs (the ones given, untouched, plus the new ones, whose ids are in `created`); `moves` (`{ from, to, note }` per channel with notes: the role it was given); `dropped` (`{ from, notes, reason }`: what did not fit); `adjusted` (`{ channel, message }`: notes moved by octaves, effects removed or converted, the echo removed). `describeRechip` turns the three lists into sentences for the studio dialog, the toast and the assistant. The old behavior (keep the channels whose id the new chip also has) dropped everything between chips with different channel ids, such as NES `pulse1/pulse2/triangle/noise` to Genesis `fm1..psgNoise`. The same chip, and `custom` (which declares its own channels, so every channel stays), change nothing but the chip id.
+
+Roles. Each channel with notes gets a role from its kind and its notes, with the measures of the MIDI importer (`songs/roles.ts`, shared with `midi/parts.ts`): a noise channel, or one whose notes play drum instruments (a noise voice, a drum sample, a SID voice on the noise waveform, or an instrument whose id or name says drum, kick, snare, hat and so on), is `drums`; of the rest the lowest busy channel is the `bass` (at least 4 onsets and 15 percent of the busiest channel's, when another channel has a median 5 or more semitones higher); the busiest high channel (onsets weighted a little towards high pitch) is the `lead`; the others are `harmony`. Busyness counts the notes of one play of the song (a pattern in the order twice counts twice), MML notes once.
+
+Channels. Roles choose channels by kind suitability, a table in `songs/rechip-assign.ts` that knows channel kinds and nothing about chips, so a new chip works without editing it. Higher is better, a missing kind is 0:
+
+| role | triangle | wave | pulse | fm | sid | sample | noise |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| drums | 0 | 0 | 0 | 5 | 5 | 6 | 10 |
+| bass | 10 | 9 | 3 | 8 | 6 | 7 | 0 |
+| lead | 3 | 4 | 10 | 9 | 8 | 7 | 0 |
+| harmony | 2 | 4 | 10 | 9 | 8 | 7 | 0 |
+
+A pulse with a fixed duty (a PSG square) counts 1.5 less, so an FM voice leads on the Genesis. Parts are placed in the order lead, bass, drums, then harmony by busyness; each takes the free channel of the best fit (the first of equals in the chip's channel order, the last for drums). A chip with more channels leaves the extra ones empty. With fewer, a part that finds no channel is written into the rests of the placed melodic channel with the fewest notes whose kind can play it (pattern rows only: a note goes where the host is silent and lasts until the host's next note, and every note on the merged channel then names its instrument and volume), and what does not fit is dropped and reported with its count. Drums and MML channels are dropped whole. Tempo, jump, skip and halt effects found on a part that is not placed whole are moved to the first placed channel that has no MML.
+
+Notes. A pitched channel is moved by whole octaves when more than a fifth of its notes are outside the new channel's range (`channelRange`, `midi/plan.ts`), and single stray notes are folded in by octaves (the importer's `chooseShift` and `foldInto`); both are reported. Volumes and rows are kept. Drums on a sample channel pick a drum sample per hit (kick, snare, hat, crash) from the note or from the sample they played; a sample drum going to a noise, SID or FM drum channel plays the pitch of its drum (kick 36, snare 62, hat 84).
+
+Effects. `V` (duty) means the duty index on a pulse, a wave index, a waveform mask on SID and the algorithm on FM, so it is kept between channels of the same kind, converted to the nearest duty when the new chip's duty list differs, and removed when the new channel has a fixed duty, has no duty, is another kind, or the value is beyond what the target has (FM algorithm 0 to 1 on two operators). Pan (`X`) goes where the chip has free or hard panning, send (`W`) where it has master effects, `filter` (the Amiga's LED filter switch) on the Amiga and `sampleOffset` on sample channels; the rest are kept. A song with echo or reverb moved to a chip without master effects loses them (reported). Each removal is counted in `adjusted`.
+
+Instruments. Every moved part plays an instrument of its channel's kind. In order: the instrument it played, when its kind fits (and, for FM, its operator count); a project instrument of the right kind whose id or name says the role (`lead`, `bass`, `drums`, `harmony`, and the like; a triangle is a bass and a noise instrument drums by kind), preferring one made for the chip, then a chip-less one; otherwise a new one from the per-chip presets (`makeInstrument`, the same builders as the MIDI importer, `midi/instruments.ts`) under a free id `<chip>-<role>` (then `-<kind>`, then a number), or `<chip>-<drum>` for a sample drum. Instruments the move ends up not using are not created. Existing instruments are never changed or deleted.
+
+The studio asks first (the confirm dialog of delete, listing moves, drops, adjustments and new instruments; a song with no notes changes at once), creates the new instruments, applies the song in one edit (one undo step) and shows a summary toast with Undo. The assistant's `change_song_chip` tool uses the same function, and `edit_document` refuses a `/chip` change on a song and points to it. The CLI has no command that changes a song's chip (`import --chip` and `new song --chip` choose the chip when the document is made).
+
+### 2.10 User samples
+
+`samples/<id>.json` holds one mono recording with the metadata a sample instrument needs (`UserSample`, section 2.2): `rate` (the stored data's Hz, 1000 to 96000), `baseNote` (the MIDI note it sounds at when played at `rate`), `finetune` (cents), `volume` (0 to 1; a MOD sample volume divided by 64), `loop` (`{ start, end }` in frames, or null for a one shot), `bits` (8 or 16) and `data` (standard base64 of the PCM: signed 8 bit, or signed 16 bit little endian). The audio is text because the engine runs in an AudioWorklet where there is no `atob` or `Buffer`; `samples/user.ts` has its own base64 and PCM helpers (pure, no allocation outside load time). A sample is at most `SAMPLE_MAX_BYTES` (2 MiB) decoded.
+
+`normalizeSample` checks the shape and size without decoding the audio (a 2 MiB sample validates in about a millisecond), clamps the numbers, and rejects a loop that does not fit the length. `sampleFits(sample, chip)` says what the chip will do to it (the Amiga and the Genesis DAC play 8 bit data; the Amiga plays periods, so the rate is quantized).
+
+An instrument plays a user sample through `sample.userSample = "<id>"`. The generator fields are then ignored; the sample's own base note, loop, finetune and volume apply, and the instrument's transpose, finetune and volume stack on top. Songs name samples only through instruments. A sample no instrument plays is kept (it is a project asset), a missing sample is a warning on the instrument and the note is silent. `usedSamples(instruments, all)` gives the ones a render or an export needs; `RenderOptions.samples`, `loadSong(song, instruments, samples)` and `loadSample` hand them to the engine, and the CLI, the studio and the player load them with the song.
+
+Import (`prepareImport(chip, mono, sourceRate)`): the audio is mixed to mono, resampled for the chip (`importRate`, `importBits`: the Amiga gets 8 bit at `AMIGA_IMPORT_RATE` 16574 Hz, ProTracker's C-3; the Genesis DAC 8 bit at its DAC rate; the SNES 16 bit at 32000 Hz; other chips keep up to 32000 Hz), peak normalized, and its pitch is detected for the base note (`--base-note` overrides). A WAV `smpl` loop is kept. The studio also imports MP3 and OGG through the browser's decoder; the CLI reads WAV only.
+
+Resample (`bleepkit resample`, the sfx and instrument editors' Resample button) renders a document, mixes it to mono, trims the silence and stores it as a sample for the chip. `--bits 8` and a low rate crush it on purpose.
+
+The studio's sample editor (`views/sample.ts`) shows the waveform with a draggable selection and draggable loop markers, a piano keyboard that plays the sample at any pitch through the engine, and an inspector for base note (with a Detect pitch button), fine tune, volume, loop, bit depth and Normalize. Trim to selection and the other audio edits are pure functions in `lib/sample-edit.ts` (decode once, change, encode again; the loop is clamped to the new length). Every edit is a normal project edit, so it saves, undoes and reaches the engine like any other. Make instrument creates a sample instrument that plays it; the card at the bottom lists the instruments that play it. Imports go through `ui/import-audio.ts` (WAV, MP3 and OGG via the browser's decoder, resampled for the song chip) and `ui/import-mod.ts` (a module becomes a song, its instruments and its samples in one undo step).
+
+### 2.11 ProTracker modules (MOD)
+
+`parseMod(bytes)` (`mod/parse.ts`) reads an M.K. style four channel module (M.K., M!K!, FLT4, N.T.) or a 4CHN, 6CHN or 8CHN style one (also xxCH) byte by byte and never throws: a file it cannot read gives an error issue. 15 sample Soundtracker modules and compressed modules are refused with a clear message. `modToSong(bytes, opts)` (`mod/import.ts`) returns `{ info, song, instruments, samples, issues }`: an amiga song (6CHN and 8CHN become a `custom` chip song with Paula style pans), one sample instrument per used sample (`<song>-<nn>[-<name>]`), and the samples themselves. `issues` has `info` for what was converted, `warning` for what was lost or changed.
+
+Timing. A module row lasts `speed * 2.5 / BPM` seconds; a Bleepkit row lasts `60 / (tempo * rowsPerBeat)`. The importer picks `rowsPerBeat` (the value that serves every speed and BPM the module uses best) and a tempo so the song lasts as long as the module. Later `Fxx` changes become `tempo` effects. Effect ticks: ProTracker runs `speed - 1` effect ticks per row at `BPM * 0.4` Hz, Bleepkit's tick clock is fixed at 50 or 60 Hz, so per-tick amounts are scaled.
+
+Notes. ProTracker's C-2 (period 428) is Bleepkit's C-2 (MIDI 36), so note names carry over; C-1 to B-3 are notes 24 to 59 (`MOD_NOTE_LOW`, `MOD_NOTE_HIGH`). Volume `Cxx` (0 to 64) becomes the volume column relative to the sample's own volume. A sample number resets the channel volume to the sample's volume. The module's finetune goes into the sample.
+
+Effects:
+
+| MOD | Bleepkit | notes |
+| --- | --- | --- |
+| 0xy arpeggio | `arp` | |
+| 1xx, 2xx slides | `slideUp`, `slideDown` | period units per tick become sixteenths of a semitone per tick |
+| 3xx, 5xy tone portamento | `portamento`, plus `volSlide` for 5 | target from the cell's period |
+| 4xy, 6xy vibrato | `vibrato`, plus `volSlide` for 6 | |
+| 7xy tremolo | `tremolo` | |
+| 9xx sample offset | `sampleOffset` | |
+| Axy volume slide | `volSlide` | |
+| Bxx, Dxx jump, break | followed while converting | the order list is unrolled; equal patterns are stored once |
+| Cxx volume | volume column | |
+| E0x filter | `filter` | ProTracker E00 is on, E01 off; Bleepkit's `E01` is on, so the value is inverted |
+| E1x, E2x fine slides | `pitch` | |
+| E9x retrigger | `retrigger` | |
+| EAx, EBx fine volume | volume column | |
+| ECx note cut | `cut` | |
+| EDx note delay | `delay` | |
+| Fxx speed and tempo | the song's tempo, `tempo` effects | |
+| 8xx pan, E8x, E3x, E4x, E5x, E6x, E7x, EEx, EFx | dropped | counted in one warning each |
+
+Export (`songToMod(song, instruments, samples)`, `mod/export.ts`) writes an amiga song as a 4 channel M.K. module: each sample instrument becomes a MOD sample (the note shift that puts its pitch on ProTracker's period table goes into the written notes, the remainder into the finetune; at most 31 samples, 131070 bytes each), patterns longer than 64 rows are split, the order is cut at 128 entries, Bleepkit's persistent effects are written again on every row as a tracker needs them, and the tempo is turned into a speed and BPM pair. What a MOD cannot hold (more than one effect per cell, pan, duty, more than 31 samples or 128 patterns) is counted in warnings; a song that cannot be written at all returns `bytes: null` with the reasons. `bleepkit export mod song/<id>` and the song editor's Export MOD button use it. Import then export then import keeps the notes (a test round trips a built module).
+
 ## 3. Engine design
 
 ### 3.1 Clocks and rates
@@ -1149,11 +1297,12 @@ source (osc | fm | sid | wave | noise | sample)
 | genesis | 6 x 4-op FM (section 3.5) + PSG: 3 square at duty 0.5 and 1 noise (SN76489: 15-bit LFSR white or periodic; the shift rate is one of the 3 fixed rates, clock / 512, 1024 or 2048, or in tone3 mode clock / (32 N) from the divider of square 3, N = 1..1023). Song notes use the fixed rates. An sfx whose noise pitch moves (slide, vibrato or arpeggio) uses tone3 mode, so its sweeps glide the way they do on hardware instead of jumping between three rates or turning into a tone |
 | adlib | 9 x 2-op FM with OPL2 waveform select (0 sine, 1 half sine, 2 abs sine, 3 pulse sine, 4..7 OPL3 extras allowed in custom) |
 | snes | 8 sample channels (generated samples, section 3.7), gaussian interpolation, 32000 Hz internal rate, per-voice ADSR in SPC700 rate steps, echo bus with 8-tap FIR lowpass simplified to one pole + feedback |
+| amiga | 4 x 8 bit sample channels (Paula, section 3.13): period register pitch, nearest sample playback, hard panned 1 and 4 left, 2 and 3 right, A500 lowpass and the LED filter, no master effects |
 | custom | any kind on any channel, no constraints, free pan, master effects available |
 
 Pulse oscillators are anti-aliased with PolyBLEP; triangle, saw and wave tables are naive on purpose (aliasing is part of the sound, and the chip's coloring stage adds the real one). The triangle of the NES is a 32-step table (values 15..0..15); all step tables are built once in `dsp/tables.ts`.
 
-Pitch quantization (`constraints.pitch === "period"`): the target Hz converts to an integer period register `round(clockHz / (16 * hz)) - 1` (NES pulse formula; each chip file supplies its own `hzToPeriod` / `periodToHz`), is clamped to the chip's 11-bit (NES) or equivalent range, and converts back. This is what makes high notes on an NES pulse slightly out of tune, which is authentic. The studio shows the detune in cents in the inspector.
+Pitch quantization (`constraints.pitch === "period"`): the target Hz converts to an integer period register `round(clockHz / (16 * hz)) - 1` (NES pulse formula; each chip file supplies its own `hzToPeriod` / `periodToHz`), is clamped to the chip's 11-bit (NES) or equivalent range, and converts back. This is what makes high notes on an NES pulse slightly out of tune, which is authentic. The Amiga's period is the other way round (`clockHz / period` frames per second, section 3.13). The studio shows the detune in cents in the inspector.
 
 Per-chip constraints and coloring (the values `chips/<id>.ts` must export; tests pin them):
 
@@ -1203,7 +1352,7 @@ FM runs at the host rate with a sine table of 4096 entries and linear interpolat
 - Bitcrush: quantize to `bits`, sample and hold every `rateDivide` frames.
 - Master effects (chips with `masterFx`, custom and snes): echo (delay line up to 1 s at host rate, feedback, one-pole lowpass in the loop, level) fed by per-instrument sends, then a small reverb (4 comb + 2 allpass, Schroeder, sizes scaled by `size`, damping as a one-pole in each comb). Dry and wet sum into the master bus.
 
-### 3.7 Sample generators (snes profile)
+### 3.7 Sample generators (snes profile, and the Amiga and Genesis DAC)
 
 `generateSample(gen, params, seed, sampleRate)` synthesizes a `GeneratedSample` deterministically: drums (kick: sine sweep with click; snare: tone plus filtered noise; hat: metallic noise burst; tom; clap: four noise bursts; crash: long filtered noise), and tonal generators with loop points (pluck: Karplus-Strong; bass: filtered saw; pad: detuned saws with slow filter; organ: additive drawbars; bell: FM 2 op; strings: sawtooth chorus; choir: formant filtered pulses; lead: pulse with slow pulse width modulation, `bright` low pass, `duty` width and `vibrato` depth; choir `vibrato` is pitch vibrato on the source). Samples are generated at `chipProfile.sampleRate ?? host` (32000 for snes), cached by a key of `(gen, params, seed, rate)` inside the synth (a `Map`, filled on `loadSong`, never in `process`). Voice playback uses linear interpolation at the host rate, with the SNES gaussian blur applied in coloring. Max sample length 4 s.
 
@@ -1218,7 +1367,7 @@ After the chip mix bus (stereo, sum of voices after pan):
 
 Pan modes: `none` mixes mono to both sides (nes, gameboy, c64, adlib); `hard` snaps pan to left, center, right (genesis, like the YM2612 L/R bits; gameboy actually has hard L/R bits too, so gameboy is `hard`); `free` is equal power pan (snes, custom).
 
-Leveling: chips are leveled once, in core, by `CHIP_GAIN` in `dsp/color.ts`, so that a full-volume square note peaks at -12 dBFS within 1.5 dB on every chip (a core test renders it on all 7 chips). Nothing downstream adds per-chip compensation except the sfx filter and phaser makeup in `@bleepkit/sfx`. SNES sample drums are normalized to a 0.95 peak (`DRUM_PEAK` in `samples/generators.ts`), so their instrument volume is a plain level like any other.
+Leveling: chips are leveled once, in core, by `CHIP_GAIN` in `dsp/color.ts`, so that a full-volume square note peaks at -12 dBFS within 1.5 dB on every chip (a core test renders it on all 8 chips). Nothing downstream adds per-chip compensation except the sfx filter and phaser makeup in `@bleepkit/sfx`. SNES sample drums are normalized to a 0.95 peak (`DRUM_PEAK` in `samples/generators.ts`), so their instrument volume is a plain level like any other.
 
 Master: `song.master.volume` or `project.master.volume` gain, then the limiter when enabled: a lookahead peak limiter (1 ms lookahead, 50 ms release, ceiling -0.3 dBFS) implemented with a 64-frame delay line. The limiter is always the last stage and always in both realtime and offline paths so renders match playback.
 
@@ -1240,6 +1389,20 @@ Pitch-less params a game may vary at trigger time: `velocity` (scales volume), `
 - No allocation in `process`: no closures created, no arrays, no spread, no `Map.get` on string keys inside the per-sample loops (resolve to indexes at load time). Events are pushed into a preallocated ring of `EngineEvent` objects (512 entries) that the caller drains; event objects are reused (the worklet copies them before posting).
 - Per-sample work lives in tight `for` loops over local variables; per-block work (coefficient updates, tick processing) happens at sub-block boundaries.
 - Sine, exp and dB tables are `Float32Array`, built lazily once per module.
+
+### 3.12 The Genesis DAC
+
+`song.master.genesis.dac = true` switches the YM2612's sixth FM channel into PCM mode: `fm6` then plays sample instruments through the DAC (mono, 8 bit, one sample at a time, no FM on that channel) and the other five FM channels, the PSG and the rest of the song are untouched. A driver streams the PCM from the Z80 with a whole number of cycles per sample, so the playback rate is `GENESIS_CLOCK_HZ / cycles`, held between `DAC_RATE_MIN` 8000 and `DAC_RATE_MAX` 26000 Hz (`quantizeDacRate`); `GENESIS_DAC_RATE` (about 12969 Hz) is the rate imported and generated samples are made at, so an octave up still sits under the top. The DAC has no envelope: the sample plays at its own level (scaled in fine steps like an FM total level), is not interpolated (nearest sample, like the hardware) and passes through the chip's usual output coloring. `normalize` keeps fm6 as an FM channel when `dac` is off, accepts only sample instruments on it when `dac` is on, and warns once per instrument when its notes need a rate beyond the DAC range (the driver holds the limit, the pitch is wrong). `rechipSong` removes the setting (and says so) when a song leaves the Genesis.
+
+### 3.13 The Amiga (Paula)
+
+`CHIPS.amiga` has four 8 bit sample channels (`ch1` to `ch4`), hard panned (1 and 4 left, 2 and 3 right: `ChipChannel.pan` with `PanMode` `"fixed"`, scaled by `song.master.amiga.separation`; instrument, row and song pans are ignored), volume 0 to 64 (`volumeSteps: 65`), pitch by `pitch: "period"`, no echo or reverb. Only `sample` instruments play on it.
+
+Pitch is a period register. Paula reads the data at `AMIGA_CLOCK_HZ / period` frames per second (3 546 895 Hz, PAL, what ProTracker is tuned to) with an integer period, so `quantizeRate(rate)` rounds the playback rate to the nearest achievable one and the engine plays the sample under the read position with no interpolation (zero order hold), which is the aliasing that makes a tracker sound like one. ProTracker's table covers periods 113 to 856 (C-1 to B-3, `AMIGA_PERIOD_MIN` to `AMIGA_PERIOD_MAX`); the engine plays one octave more each way (`AMIGA_PERIOD_EXT_MIN` 56 to `AMIGA_PERIOD_EXT_MAX` 1712) and `normalize` warns, once per instrument, about notes outside the standard range because a tracker or a real Amiga may not play them. The data is 8 bit: generated samples (made at `AMIGA_GENERATOR_RATE` 11084 Hz, period 320) and 16 bit user samples are quantized to 8 bit for this chip (`quantize8`), so an import for the Amiga already stores 8 bit at 16574 Hz.
+
+Output stage (`dsp/color.ts`): a DC blocker (5.2 Hz), the A500's fixed one-pole lowpass at 4421 Hz (`model: "a500"`, absent with `"a1200"`), and the switchable LED filter, a two pole lowpass at 3091 Hz with Q 0.66, off at the start unless `led` is set and switched by the `filter` effect (`E01` on, `E00` off). The chip gain is set so a full volume note peaks at -12 dBFS like every other chip.
+
+Effects on the chip: the usual `slide`, `portamento`, `vibrato`, `tremolo`, `arp`, `retrigger`, `cut`, `delay`, `volSlide`, plus `filter` (the LED) and `sampleOffset` (`9xx`, start the sample `xx * 256` bytes in, as ProTracker does). Sample loops are the sample's own loop region (a MOD loop is a loop in the same way). Songs on this chip carry `master.amiga` (`separation`, `model`, `led`). The song editor shows the Paula settings and the MOD export; the demo has `amiga-chipdisk`, a song of sample instruments (generated and sampled).
 
 ## 4. Streaming API vs offline API
 
@@ -1371,6 +1534,10 @@ Binary `bleepkit`, built with esbuild into `packages/cli/dist/index.mjs` like Pi
 | `bleepkit new instrument <id> --kind pulse [--chip] [--preset lead|bass|bass-pulse|drums|pad|bell]` | writes a preset instrument; without `--kind`, `bass` uses the chip's bass voice and `bass-pulse` a pulse (section 2.5) | `{ ok, path, doc }` |
 | `bleepkit new song <id> [--chip] [--tempo 120] [--mml "<ch>=<mml>" ...] [--template empty|loop8]` | writes a song; `--mml pulse1="o4 l8 cdefgab>c"` sets a channel's MML; `loop8` is 8 bars of empty patterns with a loop at order 0 | `{ ok, path, doc }` |
 | `bleepkit import <file.mid> [--id <id>] [--chip nes] [--rows-per-beat 4] [--chords auto\|spread\|arpeggio\|top] [--map "1=pulse1,2=triangle,10=noise"] [--name] [--no-loop] [--force]` | imports a Standard MIDI file with `midiToSong` (section 2.8): writes `songs/<id>.json` (id defaults to the file name) and the `midi-<chip>-*` instruments the project lacks; the chip defaults to the project's (nes for a custom project); exits 1 on an unreadable file or an existing id without `--force`; the `issues` list what was converted (`info`: chord spreads and arpeggios, `--chords` default `auto`) and what the chip could not play (`warning`) | `{ ok, chip, chords, path, doc, instruments: [{ id, path, created }], issues, parts: [{ ref, name, notes, target }] }` |
+| `bleepkit import <file.mod> [--id] [--separation 0..1] [--name] [--no-loop] [--force]` | imports a ProTracker module with `modToSong` (section 2.11): writes `songs/<id>.json` for the amiga chip (`custom` for 6CHN and 8CHN), one sample instrument per used sample in `instruments/` and each sample in `samples/`; the report lists converted effects and lost ones | `{ ok, root, chip, info, path, instruments, samples, issues }` |
+| `bleepkit import sample <file.wav> [--id] [--chip] [--base-note C-4] [--name] [--force]` | imports a WAV as `samples/<id>.json` (section 2.10): mono, resampled and quantized for the chip, normalized, pitch detected (`--base-note` overrides), a `smpl` loop kept | `{ ok, root, path, baseNote, finetune, doc (without data), notes }` |
+| `bleepkit resample <ref> [--id] [--chip] [--note C-4] [--seconds 0.6] [--bits 8\|16] [--rate hz] [--force]` | renders an sfx, a song or one note of an instrument and stores it as a user sample (section 2.10) | `{ ok, path, ref, baseNote, bits, rate, notes }` |
+| `bleepkit export mod <song> [--out <file>]` | writes one amiga song as a 4 channel ProTracker `.mod` with `songToMod` (section 2.11), default `out/songs/<id>.mod`; what does not fit is listed as warnings | `{ ok, path, ref, bytes, issues }` |
 | `bleepkit mutate <ref> [--amount 0.15] [--count 1] [--seed] [--out <id>]` | sfx only today; writes `<id>-m1.json`... (or `--out`) and prints descriptions | `{ ok, results: [{ id, path, description }] }` |
 | `bleepkit validate [ref...]` | normalizes every document (or the named ones) with the instrument map; exit 1 when any error | `{ ok, documents: [{ ref, ok, issues }] }` |
 | `bleepkit list [sfx|songs|instruments]` | lists documents with name, chip, category or kind, duration when a render exists in `out/` | `{ ok, sfx: [...], songs: [...], instruments: [...] }` |
@@ -1488,7 +1655,7 @@ Every package has `test/`. Fixtures live in `packages/core/test/fixtures/` (docu
 
 - DSP unit tests (core): pulse duty ratio by counting samples above zero over 100 cycles (within 1%); frequency by zero crossings and by FFT peak (within 0.5% at 440 Hz for every oscillator and FM at low index); NES period quantization reproduces known cents errors (A-7 on NES pulse is sharp by a known amount); envelope timing: attack reaches 0.99 within attack seconds plus 1 ms, release falls below -60 dB within release seconds times 1.2; macro loop and release indexes; LFSR noise short mode has period 93 or 31 in NES; SID filter cutoff lowers the FFT energy above cutoff by at least 12 dB per octave; limiter never exceeds -0.3 dBFS on a +12 dB input; echo repeats at the delay time (cross correlation peak).
 - Sequencer tests: a pattern with notes at rows 0, 4, 8 emits noteOn events at the expected frames for tempo 120 and 150; `jump`, `skip`, `halt`, loop points; MML and the equivalent pattern produce identical event lists; effects per tick values at tick 0, 1, 2.
-- Loop and level tests (core): seam below -40 dB on every fixture and chip demo and below -80 dB for an FM song with an LFO; one render has one `loop` event and `loops: 3` has three; FM key-on resets operator state; a full-volume square peaks -12 dBFS +-1.5 dB on all 7 chips; sfx honor `RenderOptions.master`; the sfx FM index is pinned in radians (Bessel sideband ratio); genesis tone3 rate table; `onSection` events from the sequencer; `seamDiffDb` null cases. In sfx: `noiseSweep` caps, noise start clamps (60 to 250 Hz boom on nes/gameboy, 300 to 1500 Hz steps) and FM modulator and bandwidth bounds.
+- Loop and level tests (core): seam below -40 dB on every fixture and chip demo and below -80 dB for an FM song with an LFO; one render has one `loop` event and `loops: 3` has three; FM key-on resets operator state; a full-volume square peaks -12 dBFS +-1.5 dB on all 8 chips; sfx honor `RenderOptions.master`; the sfx FM index is pinned in radians (Bessel sideband ratio); genesis tone3 rate table; `onSection` events from the sequencer; `seamDiffDb` null cases. In sfx: `noiseSweep` caps, noise start clamps (60 to 250 Hz boom on nes/gameboy, 300 to 1500 Hz steps) and FM modulator and bandwidth bounds.
 - Golden tests: for every fixture document, `renderSfx` / `renderSong` at 48000 and 44100 produce a Float32 output whose FNV-1a hash of the raw bytes matches `test/golden/<id>.json`. A changed golden must be updated on purpose: bump `ENGINE_VERSION` (section 6.2), run `UPDATE_GOLDEN=1 pnpm test` (it refuses to move hashes under an unbumped version), and review by listening (the orchestrator) or by analysis diff. The same test renders twice and asserts bit equality (determinism) and renders through `createSynth` in 128-frame blocks versus 64-frame blocks and asserts equality (block-size independence).
 - Normalize tests: every rule in section 2 has a test with the issue path and severity; round trip `normalize(normalize(x).value)` yields zero issues and deep-equal output; the compact row string form and the typed form normalize to the same thing; version greater than FORMAT_VERSION is an error.
 - MML tests: each grammar element; `formatMml(parseMml(x).events)` reparses to the same events; error positions.
@@ -1618,6 +1785,7 @@ The CLI depends on this package for the help text, `describe*` and the song buil
 | `chip_info` | channel ids, instrument kinds, sfx waves and limits of a chip |
 | `new_sfx`, `mutate_sfx` | generate an sfx for a category and chip (deterministic by seed), make variations |
 | `new_instrument`, `new_song` | build an instrument; build a song from MML per channel (refused with hints when a channel has MML and no instrument) |
+| `change_song_chip` | move a song to another chip with `rechipSong` (section 2.9): lead, bass, drums and harmony go to the channels that suit the new chip; the reply lists what moved, what was dropped and the new instruments |
 | `write_document`, `edit_document` | whole document, or JSON pointer changes applied in order; both are normalized as a whole and refused with the issue list when invalid |
 | `render_analyze` | render and measure; returns the compact analysis and checks against the targets in section 6.4 |
 | `view_analysis` | the waveform, spectrogram and (songs) scopes as PNG images; left out of the tool list when the model reports no image input |

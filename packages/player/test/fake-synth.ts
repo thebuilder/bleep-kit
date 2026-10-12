@@ -87,11 +87,21 @@ export class FakeSynth implements Synth {
     this.calls.push([name, ...args]);
   }
 
-  loadSong(song: unknown, instruments: unknown): void {
+  loadSong(song: unknown, instruments: unknown, samples?: unknown): void {
     if (this.opts.throwOn === "loadSong") {
       throw new Error("loadSong failed");
     }
-    this.record("loadSong", song, instruments);
+    if (samples === undefined) {
+      this.record("loadSong", song, instruments);
+    } else {
+      this.record("loadSong", song, instruments, samples);
+    }
+  }
+  loadSample(id: string, sample: unknown): void {
+    this.record("loadSample", id, sample);
+  }
+  unloadSample(id: string): void {
+    this.record("unloadSample", id);
   }
   unloadSong(): void {
     this.record("unloadSong");

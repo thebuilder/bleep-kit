@@ -125,7 +125,20 @@ function newInstrument(
     );
   }
   const raw = makeInstrument(kind, chip, preset, args.str("name") ?? id);
-  const n = normalizeInstrument(raw);
+  const userSample = args.str("sample");
+  if (userSample !== undefined) {
+    if (kind !== "sample" || !raw.sample) {
+      throw new CliError(
+        "usage",
+        "--sample only applies to sample instruments",
+        {
+          hint: "Add --kind sample (chips with sample channels: amiga, snes, custom).",
+        }
+      );
+    }
+    raw.sample = { ...raw.sample, userSample };
+  }
+  const n = normalizeInstrument(raw, pc.samples());
   requireOk({ ...n, ref: `instrument/${id}`, rel: docRel("instrument", id) });
   const rel = writeDoc(pc, "instrument", id, n.value);
   return {
@@ -248,6 +261,13 @@ export const newCommand: CommandSpec = {
       type: "string",
       valueName: "<kind>",
       values: CHANNEL_KINDS,
+    },
+    {
+      description:
+        "instrument: play the user sample samples/<id>.json (needs --kind sample; see `bleepkit import sample`)",
+      name: "sample",
+      type: "string",
+      valueName: "<id>",
     },
     {
       default: "lead",

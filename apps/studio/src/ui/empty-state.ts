@@ -3,7 +3,7 @@
 import { app } from "../app.ts";
 import { fire, h } from "../lib/dom.ts";
 import { icon } from "./icons.ts";
-import { pickMidiFile } from "./import-midi.ts";
+import { pickSongFile } from "./import-midi.ts";
 import { createSfx, createSong, pickCategory } from "./pickers.ts";
 
 interface Step {
@@ -34,8 +34,8 @@ const steps = (): Step[] => [
   {
     icon: "import",
     id: "midi",
-    label: "Import MIDI",
-    run: pickMidiFile,
+    label: "Import MIDI or MOD",
+    run: pickSongFile,
   },
   {
     icon: "headphones",

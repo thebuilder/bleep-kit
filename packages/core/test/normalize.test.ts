@@ -549,7 +549,7 @@ describe("effects", () => {
 
   it("rejects malformed effect codes", () => {
     // too short, too long, not hex, and letters or digits the code table does not use
-    for (const bad of ["", "zzz", "A0", "A0FF", "900", "A0G", "E00", "Z00"]) {
+    for (const bad of ["", "zzz", "A0", "A0FF", "A0G", "I00", "Z00"]) {
       expect(parseEffect(bad), bad).toBeNull();
     }
   });

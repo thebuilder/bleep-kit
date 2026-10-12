@@ -21,6 +21,37 @@ export interface DocSummary extends DocRef {
   name: string;
 }
 
+/**
+ * What the model may know about a user sample: everything except the audio. The data stays in the application (it is
+ * megabytes of base64); the model assigns samples to instruments by id.
+ */
+export interface SampleInfo {
+  baseNote: number;
+  bits: 8 | 16;
+  bytes: number;
+  finetune: number;
+  frames: number;
+  id: string;
+  loop: { end: number; start: number } | null;
+  name: string;
+  rate: number;
+  seconds: number;
+  volume: number;
+}
+
+/** What `resample` may be told: where the sample goes and how it is stored. */
+export interface ResampleOptions {
+  /** 8 crushes the sample to 8 bit. Default: the project chip's own (8 on amiga and genesis, 16 elsewhere). */
+  bits?: 8 | 16;
+  /** The new sample's id. */
+  id: string;
+  name?: string;
+  /** For an instrument: the note to play (default 60), which becomes the sample's base note. */
+  note?: number;
+  /** Sample rate to store at, 1000 to 96000. */
+  rate?: number;
+}
+
 export interface ProjectSummary {
   chip: ChipId;
   master: Project["master"];
@@ -71,6 +102,13 @@ export interface AgentHost {
    * when there was nothing to delete.
    */
   remove: (ref: DocRef) => Promise<{ deleted: boolean; missing: boolean }>;
+  /**
+   * Record what an sfx, a song or an instrument note sounds like as a new user sample, converted for the project's
+   * chip (the studio's Resample button). Resolves to the new sample's metadata; rejects when it cannot be made.
+   */
+  resample: (ref: DocRef, opts: ResampleOptions) => Promise<SampleInfo>;
+  /** The project's user samples, without their audio. */
+  samples: () => Promise<SampleInfo[]>;
   stop: () => Promise<void>;
   /**
    * Store a document that the tools have already normalized and found valid. Returns whether it was created or

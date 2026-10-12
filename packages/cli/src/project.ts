@@ -8,28 +8,33 @@ import {
   type Issue,
   normalizeInstrument,
   normalizeProject,
+  normalizeSample,
   normalizeSfx,
   normalizeSong,
   type Project,
   type Sfx,
   type Song,
+  type UserSample,
+  usedSamples,
 } from "@bleepkit/core";
 import { CliError, type Ctx, closest } from "./output.ts";
 
 export const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
-export const DOC_KINDS = ["sfx", "song", "instrument"] as const;
+export const DOC_KINDS = ["sfx", "song", "instrument", "sample"] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
 
 /** Folder (and ref prefix) of each document kind inside the project folder. */
 export const KIND_DIRS: Record<DocKind, string> = {
   instrument: "instruments",
+  sample: "samples",
   sfx: "sfx",
   song: "songs",
 };
 
 export interface DocValue {
   instrument: Instrument;
+  sample: UserSample;
   sfx: Sfx;
   song: Song;
 }
@@ -172,6 +177,8 @@ export interface ProjectCtx {
   reset: () => void;
   /** Absolute project folder. */
   root: string;
+  /** All user samples, normalized (cached per run). The audio stays base64. */
+  samples: () => Record<string, UserSample>;
   /** The seed for this run: --seed, else project.seed. */
   seed: number;
 }
@@ -260,6 +267,7 @@ export function openProjectRoot(
     );
   }
   let cache: Record<string, Instrument> | null = null;
+  let sampleCache: Record<string, UserSample> | null = null;
   return {
     instruments: () => {
       cache ??= loadAllInstruments(root);
@@ -269,8 +277,13 @@ export function openProjectRoot(
     project: loaded.project,
     reset: () => {
       cache = null;
+      sampleCache = null;
     },
     root,
+    samples: () => {
+      sampleCache ??= loadAllSamples(root);
+      return sampleCache;
+    },
     seed: seed ?? loaded.project.seed,
   };
 }
@@ -302,15 +315,51 @@ export function listIdsValid(root: string, kind: DocKind): string[] {
 export function normalizeDocument(
   kind: DocKind,
   raw: unknown,
-  instruments?: Record<string, Instrument>
+  context?: {
+    instruments?: Record<string, Instrument>;
+    samples?: Record<string, UserSample>;
+  }
 ) {
   if (kind === "sfx") {
     return normalizeSfx(raw);
   }
-  if (kind === "instrument") {
-    return normalizeInstrument(raw);
+  if (kind === "sample") {
+    return normalizeSample(raw);
   }
-  return normalizeSong(raw, instruments);
+  if (kind === "instrument") {
+    return normalizeInstrument(raw, context?.samples);
+  }
+  return normalizeSong(raw, context?.instruments, context?.samples);
+}
+
+/** What normalizing a document of this kind needs to know about the rest of the project. */
+export function docContext(
+  pc: ProjectCtx,
+  kind: DocKind
+): {
+  instruments?: Record<string, Instrument>;
+  samples?: Record<string, UserSample>;
+} {
+  if (kind === "song") {
+    return { instruments: pc.instruments(), samples: pc.samples() };
+  }
+  return kind === "instrument" ? { samples: pc.samples() } : {};
+}
+
+function loadAllSamples(root: string): Record<string, UserSample> {
+  const out: Record<string, UserSample> = {};
+  for (const id of listIdsValid(root, "sample")) {
+    try {
+      const rel = docRel("sample", id);
+      const n = normalizeSample(readJsonFile(path.join(root, rel), rel));
+      if (n.ok) {
+        out[id] = n.value;
+      }
+    } catch {
+      // reported by `validate`; an instrument that needs it plays silence and says so
+    }
+  }
+  return out;
 }
 
 function loadAllInstruments(root: string): Record<string, Instrument> {
@@ -381,11 +430,7 @@ export function loadDoc<K extends DocKind>(
     );
   }
   const raw = readJsonFile(abs, rel);
-  const n = normalizeDocument(
-    kind,
-    raw,
-    kind === "song" ? pc.instruments() : undefined
-  );
+  const n = normalizeDocument(kind, raw, docContext(pc, kind));
   return {
     abs,
     id,
@@ -439,6 +484,8 @@ export function writeDoc(
 const KIND_ALIASES: Record<string, DocKind> = {
   instrument: "instrument",
   instruments: "instrument",
+  sample: "sample",
+  samples: "sample",
   sfx: "sfx",
   song: "song",
   songs: "song",
@@ -466,7 +513,7 @@ export function parseRef(ref: string): ParsedRef {
       "usage",
       `unknown document kind "${prefix}" in reference "${ref}"`,
       {
-        hint: "Use sfx/<id>, song/<id> or instrument/<id>, for example sfx/coin.",
+        hint: "Use sfx/<id>, song/<id>, instrument/<id> or sample/<id>, for example sfx/coin.",
       }
     );
   }
@@ -588,4 +635,12 @@ export function instrumentsFor(
     }
   }
   return out;
+}
+
+/** The user samples an instrument set uses, by id (only the ones some sample instrument names). */
+export function samplesFor(
+  pc: ProjectCtx,
+  instruments: Record<string, Instrument>
+): Record<string, UserSample> {
+  return usedSamples(instruments, pc.samples());
 }

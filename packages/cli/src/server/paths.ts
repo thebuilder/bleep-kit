@@ -1,10 +1,16 @@
 // Which project paths the studio server may touch (architecture.md 6.3): project.json, sfx/*.json,
-// instruments/*.json, songs/*.json and anything under out/. Everything else is 403.
+// instruments/*.json, samples/*.json, songs/*.json and anything under out/. Everything else is 403.
 import fs from "node:fs";
 import path from "node:path";
 import { type DocKind, ID_PATTERN } from "../project.ts";
 
-export type FileKind = "instrument" | "project" | "render" | "sfx" | "song";
+export type FileKind =
+  | "instrument"
+  | "project"
+  | "render"
+  | "sample"
+  | "sfx"
+  | "song";
 
 export interface Classified {
   docKind: DocKind | null;
@@ -14,6 +20,7 @@ export interface Classified {
 
 const DOC_DIRS: Record<string, DocKind> = {
   instruments: "instrument",
+  samples: "sample",
   sfx: "sfx",
   songs: "song",
 };

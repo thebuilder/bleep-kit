@@ -1,9 +1,10 @@
 /* High level playback: the calls that combine the project's documents with the engine. Views and the sidebar use these. */
 import { app } from "./app.ts";
 import { engine } from "./engine/engine.ts";
-import type { Instrument, Sfx, Song } from "./lib/contract.ts";
+import type { Instrument, Sfx, Song, UserSample } from "./lib/contract.ts";
 import { chipChannels } from "./lib/core.ts";
 import { fire } from "./lib/dom.ts";
+import { framesOf, instrumentFor } from "./lib/sample-edit.ts";
 import { type Doc, project } from "./state/docs.ts";
 
 function unlockAudio(): void {
@@ -39,14 +40,29 @@ export function loadSongDoc(doc: Doc): readonly string[] {
 export function playSongValue(
   id: string,
   song: Song,
-  instruments: Record<string, Instrument>
+  instruments: Record<string, Instrument>,
+  samples: Record<string, UserSample> = {}
 ): void {
   unlockAudio();
+  // an example's samples live under ids of their own, so they never replace the project's samples of the same name
+  const tag = (sid: string) => `example:${sid}`;
+  const tagged = Object.fromEntries(
+    Object.entries(instruments).map(([iid, inst]) => {
+      const sid = inst.sample?.userSample;
+      return [
+        iid,
+        inst.sample && sid !== undefined && sid in samples
+          ? { ...inst, sample: { ...inst.sample, userSample: tag(sid) } }
+          : inst,
+      ];
+    })
+  );
   engine.loadSong(
     song,
-    instruments,
+    tagged,
     chipChannels(song).map((c) => c.id),
-    id
+    id,
+    Object.fromEntries(Object.entries(samples).map(([sid, s]) => [tag(sid), s]))
   );
   engine.playSong({});
 }
@@ -125,12 +141,45 @@ export function releaseNote(): void {
   }
 }
 
+/** The id of the instrument the sample editor and the sidebar play a sample through. */
+const samplePreviewId = (id: string): string => `sample-preview:${id}`;
+
+/**
+ * Hold `note` on a sample with no song around: through a sample instrument that plays it at its base note. The preview
+ * runs on the custom chip, which plays the sample at full quality; an Amiga song plays the 8 bit copy.
+ */
+export function previewSampleNote(doc: Doc, note: number): number {
+  unlockAudio();
+  const sample = doc.value as UserSample;
+  const inst = instrumentFor(doc.id, sample, null);
+  // a one shot sounds at once and rings out; the instrument's own envelope must not cut it short
+  inst.envelope = { attack: 0, decay: 0, release: 0.05, sustain: 1 };
+  return engine.previewNoteOn(samplePreviewId(doc.id), inst, note);
+}
+
+/** The play button of a sample row: its base note, held for the length of the sample (at most four seconds). */
+function playSampleDoc(doc: Doc): void {
+  const sample = doc.value as UserSample;
+  releaseNote();
+  heldChannel = previewSampleNote(doc, sample.baseNote);
+  const seconds = Math.min(
+    4,
+    Math.max(0.2, sample.loop ? 1.5 : sampleSeconds(sample))
+  );
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(releaseNote, seconds * 1000);
+}
+
+const sampleSeconds = (s: UserSample): number => framesOf(s) / s.rate;
+
 /** The play button on a sidebar row or a server `play` message. */
 export function playDoc(doc: Doc): void {
   if (doc.kind === "sfx") {
     playSfx(doc);
   } else if (doc.kind === "song") {
     playSongDoc(doc);
+  } else if (doc.kind === "sample") {
+    playSampleDoc(doc);
   } else {
     playInstrumentDoc(doc, 60, 0.7);
   }

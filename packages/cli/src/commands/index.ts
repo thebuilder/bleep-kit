@@ -9,6 +9,7 @@ import { mutateCommand } from "./mutate.ts";
 import { newCommand } from "./new.ts";
 import { playCommand } from "./play.ts";
 import { renderCommand } from "./render.ts";
+import { resampleCommand } from "./resample.ts";
 import { studioCommand } from "./studio.ts";
 import type { CommandSpec } from "./types.ts";
 import { validateCommand } from "./validate.ts";
@@ -21,6 +22,7 @@ const base: CommandSpec[] = [
   validateCommand,
   listCommand,
   renderCommand,
+  resampleCommand,
   analyzeCommand,
   describeCommand,
   playCommand,

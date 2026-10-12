@@ -37,6 +37,7 @@ function plainSfx(over: Partial<Sfx> = {}): Sfx {
 
 const CHIP_PHRASES: Record<ChipId, string> = {
   adlib: "the AdLib",
+  amiga: "the Amiga",
   c64: "the C64",
   custom: "custom chip",
   gameboy: "the Game Boy",

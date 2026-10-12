@@ -44,12 +44,33 @@ export function openModal(
   return close;
 }
 
+export interface ConfirmOptions {
+  /** Modal width class: "narrow" (the default) or "wide", for a question with lists. */
+  cls?: "narrow" | "wide";
+  /** Titled lists of lines under the question, such as what a change would move or drop. Empty lists are left out. */
+  lists?: { lines: string[]; title: string }[];
+  signal?: AbortSignal;
+}
+
+function listBlocks(lists: ConfirmOptions["lists"]): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (const { lines, title } of lists ?? []) {
+    if (lines.length > 0) {
+      out.push(
+        h("p", {}, title),
+        h("ul", { class: "muted" }, ...lines.map((l) => h("li", {}, l)))
+      );
+    }
+  }
+  return out;
+}
+
 /** A yes or no question in the studio's own style (never the browser's alert box). Escape or a click outside is "no",
  *  and so is `signal` aborting. */
 export function confirmDialog(
   message: string,
   okLabel: string,
-  opts: { signal?: AbortSignal } = {}
+  opts: ConfirmOptions = {}
 ): Promise<boolean> {
   return new Promise((resolve) => {
     let answered = false;
@@ -71,6 +92,7 @@ export function confirmDialog(
       "div",
       { class: "confirm" },
       h("p", {}, message),
+      ...listBlocks(opts.lists),
       h(
         "div",
         { class: "confirm-btns" },
@@ -78,7 +100,10 @@ export function confirmDialog(
         ok
       )
     );
-    close = openModal(content, { cls: "narrow", onClose: () => answer(false) });
+    close = openModal(content, {
+      cls: opts.cls ?? "narrow",
+      onClose: () => answer(false),
+    });
     // the assistant was stopped while its question was open: that is a no
     if (opts.signal?.aborted) {
       answer(false);

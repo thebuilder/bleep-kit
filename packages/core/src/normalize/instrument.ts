@@ -34,6 +34,7 @@ import {
   enumField,
   error,
   finish,
+  ID_RE,
   isRec,
   newCtx,
   nullableNumField,
@@ -532,7 +533,14 @@ function readFm(ctx: Ctx, v: unknown, chip: ChipId | null): FmPatch {
 function readSample(ctx: Ctx, v: unknown): SamplePatch {
   const p = "/sample";
   const s = optionalRec(ctx, v, p);
-  dropUnknown(ctx, s, p, ["generator", "params", "seed", "baseNote", "loop"]);
+  dropUnknown(ctx, s, p, [
+    "generator",
+    "params",
+    "seed",
+    "baseNote",
+    "loop",
+    "userSample",
+  ]);
   const generator = enumField(
     ctx,
     s,
@@ -562,7 +570,8 @@ function readSample(ctx: Ctx, v: unknown): SamplePatch {
     });
   }
   const loop = boolField(ctx, s, "loop", p, false);
-  if (loop && !spec.loops) {
+  const userSample = readUserSampleRef(ctx, s, p);
+  if (loop && !spec.loops && userSample === undefined) {
     warn(
       ctx,
       ptr(p, "loop"),
@@ -585,7 +594,25 @@ function readSample(ctx: Ctx, v: unknown): SamplePatch {
       def: 60,
     }),
     loop,
+    ...(userSample === undefined ? {} : { userSample }),
   };
+}
+
+/** The optional id of the user sample the instrument plays. */
+function readUserSampleRef(ctx: Ctx, s: Rec, p: string): string | undefined {
+  const v = s.userSample;
+  if (v === undefined || v === null) {
+    return undefined;
+  }
+  if (typeof v !== "string" || !ID_RE.test(v)) {
+    error(
+      ctx,
+      ptr(p, "userSample"),
+      `must be a sample id of lowercase letters, digits and dashes (was ${show(v)})`
+    );
+    return undefined;
+  }
+  return v;
 }
 
 /** Warn when a block that does not belong to the kind holds data. */
@@ -605,7 +632,28 @@ function ignoredBlock(
   }
 }
 
-export function normalizeInstrument(input: unknown): Normalized<Instrument> {
+/**
+ * Normalize an instrument document. With a `samples` map (user samples by id) a sample instrument that names a sample
+ * the project does not have gets a warning at `/sample/userSample` (the instrument plays silence until it exists).
+ */
+function warnMissingSample(
+  ctx: Ctx,
+  ref: string | undefined,
+  samples: Record<string, unknown> | undefined
+): void {
+  if (ref !== undefined && samples && !(ref in samples)) {
+    warn(
+      ctx,
+      "/sample/userSample",
+      `sample "${ref}" does not exist, the instrument is silent until it does`
+    );
+  }
+}
+
+export function normalizeInstrument(
+  input: unknown,
+  samples?: Record<string, unknown>
+): Normalized<Instrument> {
   const ctx = newCtx();
   if (!isRec(input)) {
     error(ctx, "", `must be an object (was ${show(input)})`);
@@ -736,6 +784,7 @@ export function normalizeInstrument(input: unknown): Normalized<Instrument> {
     value.fm = readFm(ctx, doc.fm, chip);
   } else if (kind === "sample") {
     value.sample = readSample(ctx, doc.sample);
+    warnMissingSample(ctx, value.sample.userSample, samples);
   }
   if (id !== undefined) {
     (value as Instrument & { id?: string }).id = id;

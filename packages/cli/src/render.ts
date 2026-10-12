@@ -32,6 +32,7 @@ import {
   loadDoc,
   type ProjectCtx,
   requireOk,
+  samplesFor,
   sha1Hex,
   stableStringify,
   writeFileAtomic,
@@ -202,6 +203,13 @@ function renderHash(
   eff: Effective
 ): string {
   const instruments = kind === "song" ? instrumentsFor(pc, value as Song) : {};
+  // The audio of a user sample is hashed, not embedded, so the hash input stays small.
+  const samples = Object.fromEntries(
+    Object.entries(samplesFor(pc, instruments)).map(([id, s]) => [
+      id,
+      { ...s, data: sha1Hex(s.data) },
+    ])
+  );
   return sha1Hex(
     stableStringify({
       doc: value,
@@ -210,6 +218,7 @@ function renderHash(
       instruments,
       kind,
       master: pc.project.master,
+      samples,
       v: PIPELINE_VERSION,
     })
   );
@@ -370,7 +379,11 @@ function doRender(
       return renderSfx(doc.value as Sfx, options);
     }
     const song = doc.value as Song;
-    return renderSong(song, instrumentsFor(pc, song), options);
+    const instruments = instrumentsFor(pc, song);
+    return renderSong(song, instruments, {
+      ...options,
+      samples: samplesFor(pc, instruments),
+    });
   } catch (error) {
     throw CliError.because(
       error,

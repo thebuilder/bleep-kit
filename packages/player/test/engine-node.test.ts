@@ -232,6 +232,31 @@ describe("EngineNode: scopes", () => {
     expect(Array.from(engine.scopes.at(-1, 0, 2))).toEqual([0, 1]);
   });
 
+  it("asks the worklet to stop its feed when inactive, and ignores the scope copies already on their way", async () => {
+    const { Node, as } = setup();
+    const engine = await createEngineNode(as);
+    const ramp = Float32Array.from({ length: 1024 }, (_, i) => i + 1);
+    const copy = {
+      buffers: [ramp],
+      frame: 1024,
+      master: [ramp, ramp],
+      type: "scope",
+    };
+    engine.setActive(false);
+    expect(Node.instances[0]?.port.sent).toEqual([
+      { active: false, type: "setFeed" },
+    ]);
+    Node.instances[0]?.port.emit(copy);
+    expect(engine.scopes.latest(0, 1)[0]).toBe(0);
+    engine.setActive(true);
+    expect(Node.instances[0]?.port.sent.at(-1)).toEqual({
+      active: true,
+      type: "setFeed",
+    });
+    Node.instances[0]?.port.emit(copy);
+    expect(engine.scopes.latest(0, 1)[0]).toBe(1024);
+  });
+
   it("uses a SharedArrayBuffer when the page is cross-origin isolated", async () => {
     vi.stubGlobal("crossOriginIsolated", true);
     const { Node, as } = setup();

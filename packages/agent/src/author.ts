@@ -20,6 +20,7 @@ export type Preset = InstrumentPreset;
 /** The kind a chip is mostly played with, used when `new instrument` gets no --kind. */
 const DEFAULT_KIND: Record<ChipId, ChannelKind> = {
   adlib: "fm",
+  amiga: "sample",
   c64: "sid",
   custom: "pulse",
   gameboy: "pulse",

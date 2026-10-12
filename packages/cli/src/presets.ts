@@ -11,6 +11,7 @@ import {
 /** lead and drums instrument kinds per chip; the bass kind is the chip's bass voice (init writes the three). */
 const STARTER_KINDS: Record<ChipId, [ChannelKind, ChannelKind]> = {
   adlib: ["fm", "fm"],
+  amiga: ["sample", "sample"],
   c64: ["sid", "sid"],
   custom: ["pulse", "noise"],
   gameboy: ["pulse", "noise"],

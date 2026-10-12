@@ -1,4 +1,5 @@
-import type { Sfx, Song } from "@bleepkit/core";
+import type { Instrument, Sfx, Song } from "@bleepkit/core";
+import { normalizeSong } from "@bleepkit/core";
 import { describe, expect, it } from "vitest";
 import { type AgentTool, createTools, MAX_TOOL_TEXT } from "../src/index.ts";
 import { analysisOf, seededHost, seedSong } from "./fake-host.ts";
@@ -437,5 +438,97 @@ describe("output size", () => {
     const out = await call("list_documents", { kind: "sfx" });
     expect(out.text.length).toBeLessThanOrEqual(MAX_TOOL_TEXT + 200);
     expect(out.text).toContain("and 321 more");
+  });
+});
+
+describe("change_song_chip", () => {
+  /** The seeded NES song with a second pulse line and drums, so there is something to place on every channel. */
+  function fuller() {
+    const ctx = setup();
+    seedSong(ctx.host);
+    const tune = ctx.host.docs.get("song/tune") as Song;
+    const song = normalizeSong(
+      {
+        ...tune,
+        channels: [
+          ...tune.channels,
+          {
+            id: "pulse2",
+            instrument: "lead",
+            kind: "pulse",
+            mml: "o5 l4 e g e g",
+          },
+          {
+            id: "noise",
+            instrument: "drums",
+            kind: "noise",
+            mml: "o3 l8 c r d r c r d r",
+          },
+        ],
+      },
+      {
+        bass: ctx.host.docs.get("instrument/bass") as Instrument,
+        drums: ctx.host.docs.get("instrument/drums") as Instrument,
+        lead: ctx.host.docs.get("instrument/lead") as Instrument,
+      }
+    );
+    ctx.host.docs.set("song/tune", song.value);
+    return ctx;
+  }
+
+  it("moves the song with its music, writes the new instruments first and reports what moved", async () => {
+    const { call, host } = fuller();
+    const out = await call("change_song_chip", {
+      chip: "genesis",
+      ref: "song/tune",
+    });
+    expect(out.isError).toBeUndefined();
+    const song = host.docs.get("song/tune") as Song;
+    expect(song.chip).toBe("genesis");
+    const withMusic = song.channels.filter((c) => c.mml).map((c) => c.id);
+    expect(withMusic.length).toBe(4);
+    expect(withMusic).toContain("psgNoise");
+    expect(out.text).toContain("pulse1 to fm");
+    expect(out.text).toContain("noise to psgNoise");
+    expect(out.text).toContain("New instruments:");
+    // the instruments the song plays exist in the project, and the first write was an instrument
+    const writes = host.calls.filter((c) => c.startsWith("write "));
+    expect(writes[0]).toMatch(/^write instrument\//);
+    expect(writes.at(-1)).toBe("write song/tune");
+    for (const c of song.channels) {
+      if (c.instrument) {
+        expect(host.docs.has(`instrument/${c.instrument}`)).toBe(true);
+      }
+    }
+    // the project's own instruments are untouched
+    expect((host.docs.get("instrument/lead") as Instrument).kind).toBe("pulse");
+  });
+
+  it("says so when the song already has the chip, and refuses what is not a song", async () => {
+    const { call, host } = fuller();
+    const same = await call("change_song_chip", {
+      chip: "nes",
+      ref: "song/tune",
+    });
+    expect(same.text).toContain("already uses nes");
+    const before = host.calls.length;
+    const sfx = await call("change_song_chip", {
+      chip: "gameboy",
+      ref: "sfx/coin",
+    });
+    expect(sfx.isError).toBe(true);
+    expect(host.calls.length).toBe(before);
+  });
+
+  it("makes edit_document send a chip change here instead of dropping channels", async () => {
+    const { call, host } = fuller();
+    const before = JSON.stringify(host.docs.get("song/tune"));
+    const out = await call("edit_document", {
+      changes: [{ path: "/chip", value: "genesis" }],
+      ref: "song/tune",
+    });
+    expect(out.isError).toBe(true);
+    expect(out.text).toContain("change_song_chip");
+    expect(JSON.stringify(host.docs.get("song/tune"))).toBe(before);
   });
 });

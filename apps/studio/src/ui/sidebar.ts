@@ -2,8 +2,9 @@
    and a play button on every row, so everything is previewable without opening it. */
 import { analysisHash, app, type Route } from "../app.ts";
 import { categoryColor, KIND_HEX } from "../lib/chips.ts";
-import type { Instrument, Sfx, Song } from "../lib/contract.ts";
+import type { Instrument, Sfx, Song, UserSample } from "../lib/contract.ts";
 import { fire, h, prefs } from "../lib/dom.ts";
+import { framesOf } from "../lib/sample-edit.ts";
 import { playDoc } from "../playback.ts";
 import {
   lengthLabel,
@@ -12,7 +13,8 @@ import {
 } from "../render-service.ts";
 import { type Doc, type DocKind, project } from "../state/docs.ts";
 import { icon } from "./icons.ts";
-import { pickMidiFile } from "./import-midi.ts";
+import { pickAudioFiles } from "./import-audio.ts";
+import { pickSongFile } from "./import-midi.ts";
 import {
   createInstrument,
   createSfx,
@@ -31,11 +33,18 @@ const SECTIONS: { kind: DocKind; title: string; ic: string; empty: string }[] =
       kind: "instrument",
       title: "Instruments",
     },
+    {
+      empty: "No samples yet.",
+      ic: "sample",
+      kind: "sample",
+      title: "Samples",
+    },
   ];
 
 /** The next step an empty section offers, as the words of its link. */
 const EMPTY_STEP: Record<DocKind, string> = {
   instrument: "Add an instrument",
+  sample: "Import a sample",
   sfx: "Make a sound effect",
   song: "Write a song",
 };
@@ -54,6 +63,11 @@ function rowFor(doc: Doc, cur: boolean): HTMLElement {
     ic = i.kind;
     color = KIND_HEX[i.kind];
     meta = i.kind;
+  } else if (doc.kind === "sample") {
+    const s = doc.value as UserSample;
+    ic = "sample";
+    color = KIND_HEX.sample;
+    meta = `${(framesOf(s) / s.rate).toFixed(1)}s`;
   } else {
     const s = doc.value as Song;
     meta = `${s.tempo} bpm`;
@@ -150,6 +164,8 @@ export function createSidebar(host: HTMLElement): {
       );
     } else if (kind === "song") {
       fire(createSong());
+    } else if (kind === "sample") {
+      pickAudioFiles();
     } else {
       pickKind((k) => fire(createInstrument(k)));
     }
@@ -182,13 +198,23 @@ export function createSidebar(host: HTMLElement): {
     add.addEventListener("click", () => onAdd(sec.kind));
     if (sec.kind === "song") {
       const midi = h("button", {
-        "aria-label": "Import MIDI",
+        "aria-label": "Import MIDI or MOD",
         class: "btn small",
-        title: "Import a MIDI file as a song",
+        title: "Import a MIDI file or a ProTracker module (.mod) as a song",
       });
-      midi.innerHTML = `${icon("import", 12)}MIDI`;
-      midi.addEventListener("click", pickMidiFile);
+      midi.innerHTML = `${icon("import", 12)}MIDI/MOD`;
+      midi.addEventListener("click", pickSongFile);
       return h("div", { class: "tree-h" }, tw, midi, add);
+    }
+    if (sec.kind === "sample") {
+      const imp = h("button", {
+        "aria-label": "Import sample",
+        class: "btn small",
+        title: "Import a WAV, MP3 or OGG file as a sample",
+      });
+      imp.innerHTML = `${icon("import", 12)}Import`;
+      imp.addEventListener("click", pickAudioFiles);
+      return h("div", { class: "tree-h" }, tw, imp);
     }
     return h("div", { class: "tree-h" }, tw, add);
   };

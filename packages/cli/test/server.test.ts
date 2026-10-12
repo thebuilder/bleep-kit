@@ -607,7 +607,7 @@ describe("/api/file", () => {
     const before = fs.readFileSync(file, "utf8");
     const current = readJson(file) as Json;
     const r = await api("PUT", "/api/file?path=project.json", {
-      json: { ...current, chip: "amiga" },
+      json: { ...current, chip: "atari" },
     });
     expect(r.status).toBe(422);
     expect(r.body.issues).toEqual([

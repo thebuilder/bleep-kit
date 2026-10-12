@@ -250,6 +250,7 @@ describe("init, new, list, validate", () => {
     // the voice a bass wants on each chip, and what is in it (not the exact numbers)
     const voices = {
       adlib: "fm",
+      amiga: "sample",
       c64: "sid",
       custom: "sid",
       gameboy: "wave",
@@ -291,7 +292,7 @@ describe("init, new, list, validate", () => {
   });
 
   it("init rejects a chip it does not know with exit 2 and lists the chips it does", async () => {
-    const r = await run(tempDir(), ["init", "--chip", "amiga"]);
+    const r = await run(tempDir(), ["init", "--chip", "atari"]);
     expect(r.code).toBe(2);
     for (const chip of CHIP_IDS) {
       expect(r.stderr, chip).toContain(chip);

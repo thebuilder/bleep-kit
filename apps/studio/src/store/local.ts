@@ -19,7 +19,7 @@ import {
 
 const JSON_EXT = /\.json$/;
 const ZIP_ROOT_FOLDER =
-  /^[^/]+\/(?=(project\.json|sfx\/|songs\/|instruments\/))/;
+  /^[^/]+\/(?=(project\.json|sfx\/|songs\/|instruments\/|samples\/))/;
 
 interface Row {
   bytes?: Uint8Array;
@@ -103,7 +103,7 @@ async function idbBackend(): Promise<FileBackend | null> {
 /** Where a dropped document belongs, told by which keys it has. */
 function folderOfShape(
   json: unknown
-): "sfx" | "instruments" | "songs" | "project" | null {
+): "sfx" | "instruments" | "songs" | "samples" | "project" | null {
   if (!json || typeof json !== "object") {
     return null;
   }
@@ -115,6 +115,9 @@ function folderOfShape(
   }
   if ("patterns" in json || "order" in json) {
     return "songs";
+  }
+  if ("data" in json && "rate" in json && "baseNote" in json) {
+    return "samples";
   }
   return "export" in json && "chip" in json ? "project" : null;
 }

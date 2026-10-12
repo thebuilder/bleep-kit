@@ -1,5 +1,6 @@
 // An in-memory AgentHost for the tool tests: documents in a map, a canned analysis, and a record of what the tools did.
 import {
+  type ChipId,
   defaultProject,
   type Instrument,
   makeInstrument,
@@ -15,6 +16,7 @@ import type {
   DocRef,
   ImageKind,
   ProjectSummary,
+  SampleInfo,
 } from "../src/index.ts";
 
 const key = (ref: DocRef): string => `${ref.kind}/${ref.id}`;
@@ -60,9 +62,11 @@ export function analysisOf(over: Partial<Analysis> = {}): Analysis {
 export interface FakeHost extends AgentHost {
   analysis: Analysis;
   calls: string[];
+  chip: ChipId;
   confirmDelete: boolean;
   docs: Map<string, AnyDoc>;
   open: DocRef | null;
+  sampleInfos: SampleInfo[];
 }
 
 function fakeHost(): FakeHost {
@@ -81,6 +85,7 @@ function fakeHost(): FakeHost {
       });
     },
     calls: [],
+    chip: "nes",
     confirmDelete: true,
     current: () => host.open,
     docs,
@@ -129,7 +134,7 @@ function fakeHost(): FakeHost {
     },
     project: () =>
       Promise.resolve<ProjectSummary>({
-        chip: "nes",
+        chip: host.chip,
         master: project.master,
         name: project.name,
         sampleRate: project.sampleRate,
@@ -146,6 +151,29 @@ function fakeHost(): FakeHost {
       }
       return Promise.resolve({ deleted: host.confirmDelete, missing: false });
     },
+    resample: (ref, opts) => {
+      host.calls.push(`resample ${key(ref)} ${opts.id}`);
+      if (!docs.has(key(ref))) {
+        return Promise.reject(new Error(`${key(ref)} does not exist`));
+      }
+      const info = {
+        baseNote: opts.note ?? 60,
+        bits: opts.bits ?? 8,
+        bytes: 100,
+        finetune: 0,
+        frames: 1000,
+        id: opts.id,
+        loop: null,
+        name: opts.name ?? opts.id,
+        rate: opts.rate ?? 11_025,
+        seconds: 0.09,
+        volume: 1,
+      };
+      host.sampleInfos.push(info);
+      return Promise.resolve(info);
+    },
+    sampleInfos: [],
+    samples: () => Promise.resolve(host.sampleInfos),
     stop: () => {
       host.calls.push("stop");
       return Promise.resolve();

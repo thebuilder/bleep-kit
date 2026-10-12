@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "name": "Amiga snare (909)",
+  "kind": "sample",
+  "chip": "amiga",
+  "volume": 1.0,
+  "sample": {
+    "generator": "snare909",
+    "params": {},
+    "seed": 6,
+    "baseNote": 60,
+    "loop": false
+  },
+  "envelope": {
+    "attack": 0,
+    "decay": 0,
+    "sustain": 1,
+    "release": 0.01
+  }
+}

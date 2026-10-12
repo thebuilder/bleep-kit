@@ -1,0 +1,1939 @@
+{
+  "version": 1,
+  "name": "Chipdisk (Amiga, D minor, 120 BPM)",
+  "chip": "amiga",
+  "tempo": 120,
+  "rowsPerBeat": 4,
+  "tickRate": 50,
+  "channels": [
+    {
+      "id": "ch1",
+      "kind": "sample",
+      "instrument": "ami-bass",
+      "volume": 1,
+      "pan": 0,
+      "mml": null,
+      "muted": false
+    },
+    {
+      "id": "ch2",
+      "kind": "sample",
+      "instrument": "ami-kick",
+      "volume": 1,
+      "pan": 0,
+      "mml": null,
+      "muted": false
+    },
+    {
+      "id": "ch3",
+      "kind": "sample",
+      "instrument": "ami-arp",
+      "volume": 1,
+      "pan": 0,
+      "mml": null,
+      "muted": false
+    },
+    {
+      "id": "ch4",
+      "kind": "sample",
+      "instrument": "ami-lead",
+      "volume": 1,
+      "pan": 0,
+      "mml": null,
+      "muted": false
+    }
+  ],
+  "patterns": {
+    "intro": {
+      "length": 64,
+      "tracks": {
+        "ch1": [
+          {
+            "row": 32,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 40,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 44,
+            "s": "C-3 ami-bass vF"
+          },
+          {
+            "row": 48,
+            "s": "C-2 ami-bass vF"
+          },
+          {
+            "row": 56,
+            "s": "C-2 ami-bass vF"
+          },
+          {
+            "row": 60,
+            "s": "G-2 ami-bass vF"
+          }
+        ],
+        "ch2": [
+          {
+            "row": 34,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 38,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 42,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 46,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 48,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 50,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 54,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 58,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 62,
+            "s": "C-4 ami-hat vA"
+          }
+        ],
+        "ch3": [
+          {
+            "row": 0,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 8,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 16,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 24,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 32,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 35,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 38,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 40,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 43,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 46,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 48,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 51,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 54,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 56,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 59,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 62,
+            "s": "C-4 ami-arp . 047"
+          }
+        ],
+        "ch4": [
+          {
+            "row": 0,
+            "s": "D-5 ami-lead vF 453"
+          },
+          {
+            "row": 14,
+            "s": "OFF"
+          }
+        ]
+      }
+    },
+    "a1": {
+      "length": 64,
+      "tracks": {
+        "ch1": [
+          {
+            "row": 0,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 2,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 3,
+            "s": "D-3 ami-bass vF"
+          },
+          {
+            "row": 6,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 8,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 10,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 11,
+            "s": "D-3 ami-bass vF"
+          },
+          {
+            "row": 14,
+            "s": "A-2 ami-bass vF"
+          },
+          {
+            "row": 16,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 18,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 19,
+            "s": "A#2 ami-bass vF"
+          },
+          {
+            "row": 22,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 24,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 26,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 27,
+            "s": "A#2 ami-bass vF"
+          },
+          {
+            "row": 30,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 32,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 34,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 35,
+            "s": "F-3 ami-bass vF"
+          },
+          {
+            "row": 38,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 40,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 42,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 43,
+            "s": "F-3 ami-bass vF"
+          },
+          {
+            "row": 46,
+            "s": "C-3 ami-bass vF"
+          },
+          {
+            "row": 48,
+            "s": "C-2 ami-bass vF"
+          },
+          {
+            "row": 50,
+            "s": "C-2 ami-bass vF"
+          },
+          {
+            "row": 51,
+            "s": "C-3 ami-bass vF"
+          },
+          {
+            "row": 54,
+            "s": "C-2 ami-bass vF"
+          },
+          {
+            "row": 56,
+            "s": "C-2 ami-bass vF"
+          },
+          {
+            "row": 58,
+            "s": "C-2 ami-bass vF"
+          },
+          {
+            "row": 59,
+            "s": "C-3 ami-bass vF"
+          },
+          {
+            "row": 62,
+            "s": "G-2 ami-bass vF"
+          }
+        ],
+        "ch2": [
+          {
+            "row": 0,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 2,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 4,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 6,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 8,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 10,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 12,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 14,
+            "s": "C-4 ami-hat vC"
+          },
+          {
+            "row": 15,
+            "s": "C-4 ami-hat v8"
+          },
+          {
+            "row": 16,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 18,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 20,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 22,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 24,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 26,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 28,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 30,
+            "s": "C-4 ami-hat vC"
+          },
+          {
+            "row": 31,
+            "s": "C-4 ami-hat v8"
+          },
+          {
+            "row": 32,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 34,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 36,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 38,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 40,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 42,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 44,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 46,
+            "s": "C-4 ami-hat vC"
+          },
+          {
+            "row": 47,
+            "s": "C-4 ami-hat v8"
+          },
+          {
+            "row": 48,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 50,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 52,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 54,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 56,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 58,
+            "s": "C-4 ami-kick vC"
+          },
+          {
+            "row": 60,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 62,
+            "s": "C-4 ami-ohat vA"
+          }
+        ],
+        "ch3": [
+          {
+            "row": 0,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 2,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 4,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 6,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 8,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 10,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 12,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 14,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 16,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 18,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 20,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 22,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 24,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 26,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 28,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 30,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 32,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 34,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 36,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 38,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 40,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 42,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 44,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 46,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 48,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 50,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 52,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 54,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 56,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 58,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 60,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 62,
+            "s": "C-4 ami-arp . 047"
+          }
+        ],
+        "ch4": [
+          {
+            "row": 0,
+            "s": "A-4 ami-lead vF 453"
+          },
+          {
+            "row": 6,
+            "s": "D-5 ami-lead vF"
+          },
+          {
+            "row": 8,
+            "s": "F-5 ami-lead vF 453"
+          },
+          {
+            "row": 12,
+            "s": "E-5 ami-lead vF"
+          },
+          {
+            "row": 14,
+            "s": "D-5 ami-lead vF"
+          },
+          {
+            "row": 16,
+            "s": "D-5 ami-lead vF 453"
+          },
+          {
+            "row": 22,
+            "s": "A#4 ami-lead vF"
+          },
+          {
+            "row": 24,
+            "s": "D-5 ami-lead vF"
+          },
+          {
+            "row": 28,
+            "s": "C-5 ami-lead vF"
+          },
+          {
+            "row": 30,
+            "s": "A#4 ami-lead vF"
+          },
+          {
+            "row": 32,
+            "s": "C-5 ami-lead vF 453"
+          },
+          {
+            "row": 38,
+            "s": "F-5 ami-lead vF"
+          },
+          {
+            "row": 40,
+            "s": "A-5 ami-lead vF 453"
+          },
+          {
+            "row": 44,
+            "s": "G-5 ami-lead vF"
+          },
+          {
+            "row": 46,
+            "s": "F-5 ami-lead vF"
+          },
+          {
+            "row": 48,
+            "s": "E-5 ami-lead vF 453"
+          },
+          {
+            "row": 56,
+            "s": "G-5 ami-lead vF"
+          },
+          {
+            "row": 58,
+            "s": "E-5 ami-lead vF"
+          },
+          {
+            "row": 60,
+            "s": "C-5 ami-lead vF"
+          },
+          {
+            "row": 62,
+            "s": "OFF"
+          }
+        ]
+      }
+    },
+    "a2": {
+      "length": 64,
+      "tracks": {
+        "ch1": [
+          {
+            "row": 0,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 2,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 3,
+            "s": "D-3 ami-bass vF"
+          },
+          {
+            "row": 6,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 8,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 10,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 11,
+            "s": "D-3 ami-bass vF"
+          },
+          {
+            "row": 14,
+            "s": "A-2 ami-bass vF"
+          },
+          {
+            "row": 16,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 18,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 19,
+            "s": "A#2 ami-bass vF"
+          },
+          {
+            "row": 22,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 24,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 26,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 27,
+            "s": "A#2 ami-bass vF"
+          },
+          {
+            "row": 30,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 32,
+            "s": "G-1 ami-bass vF"
+          },
+          {
+            "row": 34,
+            "s": "G-1 ami-bass vF"
+          },
+          {
+            "row": 35,
+            "s": "G-2 ami-bass vF"
+          },
+          {
+            "row": 38,
+            "s": "G-1 ami-bass vF"
+          },
+          {
+            "row": 40,
+            "s": "G-1 ami-bass vF"
+          },
+          {
+            "row": 42,
+            "s": "G-1 ami-bass vF"
+          },
+          {
+            "row": 43,
+            "s": "G-2 ami-bass vF"
+          },
+          {
+            "row": 46,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 48,
+            "s": "A-1 ami-bass vF"
+          },
+          {
+            "row": 50,
+            "s": "A-1 ami-bass vF"
+          },
+          {
+            "row": 51,
+            "s": "A-2 ami-bass vF"
+          },
+          {
+            "row": 54,
+            "s": "A-1 ami-bass vF"
+          },
+          {
+            "row": 56,
+            "s": "A-1 ami-bass vF"
+          },
+          {
+            "row": 58,
+            "s": "A-1 ami-bass vF"
+          },
+          {
+            "row": 59,
+            "s": "A-2 ami-bass vF"
+          },
+          {
+            "row": 62,
+            "s": "E-2 ami-bass vF"
+          }
+        ],
+        "ch2": [
+          {
+            "row": 0,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 2,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 4,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 6,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 8,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 10,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 12,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 14,
+            "s": "C-4 ami-hat vC"
+          },
+          {
+            "row": 15,
+            "s": "C-4 ami-hat v8"
+          },
+          {
+            "row": 16,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 18,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 20,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 22,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 24,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 26,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 28,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 30,
+            "s": "C-4 ami-hat vC"
+          },
+          {
+            "row": 31,
+            "s": "C-4 ami-hat v8"
+          },
+          {
+            "row": 32,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 34,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 36,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 38,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 40,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 42,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 44,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 46,
+            "s": "C-4 ami-hat vC"
+          },
+          {
+            "row": 47,
+            "s": "C-4 ami-hat v8"
+          },
+          {
+            "row": 48,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 50,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 52,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 54,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 56,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 58,
+            "s": "C-4 ami-kick vC"
+          },
+          {
+            "row": 60,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 62,
+            "s": "C-4 ami-ohat vA"
+          }
+        ],
+        "ch3": [
+          {
+            "row": 0,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 2,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 4,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 6,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 8,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 10,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 12,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 14,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 16,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 18,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 20,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 22,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 24,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 26,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 28,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 30,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 32,
+            "s": "G-3 ami-arp . 037"
+          },
+          {
+            "row": 34,
+            "s": "G-3 ami-arp . 037"
+          },
+          {
+            "row": 36,
+            "s": "G-3 ami-arp . 037"
+          },
+          {
+            "row": 38,
+            "s": "G-3 ami-arp . 037"
+          },
+          {
+            "row": 40,
+            "s": "G-3 ami-arp . 037"
+          },
+          {
+            "row": 42,
+            "s": "G-3 ami-arp . 037"
+          },
+          {
+            "row": 44,
+            "s": "G-3 ami-arp . 037"
+          },
+          {
+            "row": 46,
+            "s": "G-3 ami-arp . 037"
+          },
+          {
+            "row": 48,
+            "s": "A-3 ami-arp . 047"
+          },
+          {
+            "row": 50,
+            "s": "A-3 ami-arp . 047"
+          },
+          {
+            "row": 52,
+            "s": "A-3 ami-arp . 047"
+          },
+          {
+            "row": 54,
+            "s": "A-3 ami-arp . 047"
+          },
+          {
+            "row": 56,
+            "s": "A-3 ami-arp . 047"
+          },
+          {
+            "row": 58,
+            "s": "A-3 ami-arp . 047"
+          },
+          {
+            "row": 60,
+            "s": "A-3 ami-arp . 047"
+          },
+          {
+            "row": 62,
+            "s": "A-3 ami-arp . 047"
+          }
+        ],
+        "ch4": [
+          {
+            "row": 0,
+            "s": "A-5 ami-lead vF 453"
+          },
+          {
+            "row": 6,
+            "s": "F-5 ami-lead vF"
+          },
+          {
+            "row": 8,
+            "s": "D-5 ami-lead vF 453"
+          },
+          {
+            "row": 12,
+            "s": "F-5 ami-lead vF"
+          },
+          {
+            "row": 14,
+            "s": "A-5 ami-lead vF"
+          },
+          {
+            "row": 16,
+            "s": "A#5 ami-lead vF 453"
+          },
+          {
+            "row": 22,
+            "s": "A-5 ami-lead vF"
+          },
+          {
+            "row": 24,
+            "s": "F-5 ami-lead vF"
+          },
+          {
+            "row": 28,
+            "s": "D-5 ami-lead vF"
+          },
+          {
+            "row": 30,
+            "s": "F-5 ami-lead vF"
+          },
+          {
+            "row": 32,
+            "s": "G-5 ami-lead vF 453"
+          },
+          {
+            "row": 38,
+            "s": "A#5 ami-lead vF"
+          },
+          {
+            "row": 40,
+            "s": "D-6 ami-lead vF 453"
+          },
+          {
+            "row": 44,
+            "s": "A#5 ami-lead vF"
+          },
+          {
+            "row": 46,
+            "s": "G-5 ami-lead vF"
+          },
+          {
+            "row": 48,
+            "s": "A-5 ami-lead vF 453"
+          },
+          {
+            "row": 56,
+            "s": "E-5 ami-lead vF"
+          },
+          {
+            "row": 58,
+            "s": "A-5 ami-lead vF"
+          },
+          {
+            "row": 60,
+            "s": "C#6 ami-lead vF"
+          },
+          {
+            "row": 62,
+            "s": "A-5 ami-lead vF"
+          }
+        ]
+      }
+    },
+    "b": {
+      "length": 64,
+      "tracks": {
+        "ch1": [
+          {
+            "row": 0,
+            "s": "G-1 ami-bass vF E01"
+          },
+          {
+            "row": 8,
+            "s": "G-1 ami-bass vF"
+          },
+          {
+            "row": 12,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 16,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 24,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 28,
+            "s": "A-2 ami-bass vF"
+          },
+          {
+            "row": 32,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 40,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 44,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 48,
+            "s": "A-1 ami-bass vF E00"
+          },
+          {
+            "row": 56,
+            "s": "A-1 ami-bass vF"
+          },
+          {
+            "row": 60,
+            "s": "E-2 ami-bass vF"
+          }
+        ],
+        "ch2": [
+          {
+            "row": 0,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 4,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 8,
+            "s": "C-4 ami-snare vC"
+          },
+          {
+            "row": 12,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 16,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 20,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 24,
+            "s": "C-4 ami-snare vC"
+          },
+          {
+            "row": 28,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 32,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 36,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 40,
+            "s": "C-4 ami-snare vC"
+          },
+          {
+            "row": 44,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 48,
+            "s": "C-4 ami-snare v6"
+          },
+          {
+            "row": 50,
+            "s": "C-4 ami-snare v7"
+          },
+          {
+            "row": 52,
+            "s": "C-4 ami-snare v8"
+          },
+          {
+            "row": 54,
+            "s": "C-4 ami-snare v9"
+          },
+          {
+            "row": 56,
+            "s": "C-4 ami-snare vA"
+          },
+          {
+            "row": 58,
+            "s": "C-4 ami-snare vB"
+          },
+          {
+            "row": 60,
+            "s": "C-4 ami-snare vC"
+          },
+          {
+            "row": 61,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 62,
+            "s": "C-4 ami-snare vD"
+          },
+          {
+            "row": 63,
+            "s": "C-4 ami-snare vF"
+          }
+        ],
+        "ch3": [
+          {
+            "row": 0,
+            "s": "G-3 ami-arp . 037"
+          },
+          {
+            "row": 8,
+            "s": "G-3 ami-arp . 037"
+          },
+          {
+            "row": 16,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 24,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 32,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 40,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 48,
+            "s": "D-4 ami-arp"
+          },
+          {
+            "row": 50,
+            "s": "F-4 ami-arp"
+          },
+          {
+            "row": 52,
+            "s": "A-4 ami-arp"
+          },
+          {
+            "row": 54,
+            "s": "C-5 ami-arp"
+          },
+          {
+            "row": 56,
+            "s": "D-5 ami-arp"
+          },
+          {
+            "row": 58,
+            "s": "F-5 ami-arp"
+          },
+          {
+            "row": 60,
+            "s": "A-5 ami-arp"
+          },
+          {
+            "row": 62,
+            "s": "C-6 ami-arp"
+          }
+        ],
+        "ch4": [
+          {
+            "row": 0,
+            "s": "A#5 ami-lead vF 453"
+          },
+          {
+            "row": 16,
+            "s": "A-5 ami-lead vF 453"
+          },
+          {
+            "row": 32,
+            "s": "D-5 ami-stab vF"
+          },
+          {
+            "row": 38,
+            "s": "D-5 ami-stab vF"
+          },
+          {
+            "row": 40,
+            "s": "F-5 ami-lead vF"
+          },
+          {
+            "row": 44,
+            "s": "F-5 ami-stab vF"
+          },
+          {
+            "row": 48,
+            "s": "OFF"
+          }
+        ]
+      }
+    },
+    "c": {
+      "length": 64,
+      "tracks": {
+        "ch1": [
+          {
+            "row": 0,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 2,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 3,
+            "s": "D-3 ami-bass vF"
+          },
+          {
+            "row": 6,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 8,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 10,
+            "s": "D-2 ami-bass vF"
+          },
+          {
+            "row": 11,
+            "s": "D-3 ami-bass vF"
+          },
+          {
+            "row": 14,
+            "s": "A-2 ami-bass vF"
+          },
+          {
+            "row": 16,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 18,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 19,
+            "s": "A#2 ami-bass vF"
+          },
+          {
+            "row": 22,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 24,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 26,
+            "s": "A#1 ami-bass vF"
+          },
+          {
+            "row": 27,
+            "s": "A#2 ami-bass vF"
+          },
+          {
+            "row": 30,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 32,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 34,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 35,
+            "s": "F-3 ami-bass vF"
+          },
+          {
+            "row": 38,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 40,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 42,
+            "s": "F-2 ami-bass vF"
+          },
+          {
+            "row": 43,
+            "s": "F-3 ami-bass vF"
+          },
+          {
+            "row": 46,
+            "s": "C-3 ami-bass vF"
+          },
+          {
+            "row": 48,
+            "s": "C-2 ami-bass vF"
+          },
+          {
+            "row": 50,
+            "s": "C-2 ami-bass vF"
+          },
+          {
+            "row": 51,
+            "s": "C-3 ami-bass vF"
+          },
+          {
+            "row": 54,
+            "s": "C-2 ami-bass vF"
+          },
+          {
+            "row": 56,
+            "s": "C-2 ami-bass vF"
+          },
+          {
+            "row": 58,
+            "s": "C-2 ami-bass vF"
+          },
+          {
+            "row": 59,
+            "s": "C-3 ami-bass vF"
+          },
+          {
+            "row": 62,
+            "s": "G-2 ami-bass vF"
+          }
+        ],
+        "ch2": [
+          {
+            "row": 0,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 2,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 4,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 6,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 8,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 10,
+            "s": "C-4 ami-kick vC"
+          },
+          {
+            "row": 12,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 14,
+            "s": "C-4 ami-ohat vA"
+          },
+          {
+            "row": 16,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 18,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 20,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 22,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 24,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 26,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 28,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 30,
+            "s": "C-4 ami-hat vC"
+          },
+          {
+            "row": 31,
+            "s": "C-4 ami-hat v8"
+          },
+          {
+            "row": 32,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 34,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 36,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 38,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 40,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 42,
+            "s": "C-4 ami-kick vC"
+          },
+          {
+            "row": 44,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 46,
+            "s": "C-4 ami-ohat vA"
+          },
+          {
+            "row": 48,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 50,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 52,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 54,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 56,
+            "s": "C-4 ami-kick vF"
+          },
+          {
+            "row": 58,
+            "s": "C-4 ami-hat vA"
+          },
+          {
+            "row": 60,
+            "s": "C-4 ami-snare vF"
+          },
+          {
+            "row": 62,
+            "s": "C-4 ami-hat vC"
+          },
+          {
+            "row": 63,
+            "s": "C-4 ami-ohat v8"
+          }
+        ],
+        "ch3": [
+          {
+            "row": 0,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 2,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 4,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 6,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 8,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 10,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 12,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 14,
+            "s": "D-4 ami-arp . 037"
+          },
+          {
+            "row": 16,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 18,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 20,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 22,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 24,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 26,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 28,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 30,
+            "s": "A#3 ami-arp . 047"
+          },
+          {
+            "row": 32,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 34,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 36,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 38,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 40,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 42,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 44,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 46,
+            "s": "F-4 ami-arp . 047"
+          },
+          {
+            "row": 48,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 50,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 52,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 54,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 56,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 58,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 60,
+            "s": "C-4 ami-arp . 047"
+          },
+          {
+            "row": 62,
+            "s": "C-4 ami-arp . 047"
+          }
+        ],
+        "ch4": [
+          {
+            "row": 0,
+            "s": "D-6 ami-lead vF 453"
+          },
+          {
+            "row": 4,
+            "s": "A-5 ami-lead vF"
+          },
+          {
+            "row": 6,
+            "s": "F-5 ami-lead vF"
+          },
+          {
+            "row": 8,
+            "s": "A-5 ami-lead vF"
+          },
+          {
+            "row": 10,
+            "s": "D-6 ami-lead vF"
+          },
+          {
+            "row": 12,
+            "s": "A-5 ami-lead vF"
+          },
+          {
+            "row": 14,
+            "s": "D-6 ami-lead vF"
+          },
+          {
+            "row": 16,
+            "s": "A#5 ami-lead vF 453"
+          },
+          {
+            "row": 20,
+            "s": "F-5 ami-lead vF"
+          },
+          {
+            "row": 22,
+            "s": "D-5 ami-lead vF"
+          },
+          {
+            "row": 24,
+            "s": "F-5 ami-lead vF"
+          },
+          {
+            "row": 26,
+            "s": "A#5 ami-lead vF"
+          },
+          {
+            "row": 28,
+            "s": "D-6 ami-lead vF"
+          },
+          {
+            "row": 30,
+            "s": "A#5 ami-lead vF"
+          },
+          {
+            "row": 32,
+            "s": "C-6 ami-lead vF 453"
+          },
+          {
+            "row": 36,
+            "s": "A-5 ami-lead vF"
+          },
+          {
+            "row": 38,
+            "s": "F-5 ami-lead vF"
+          },
+          {
+            "row": 40,
+            "s": "A-5 ami-lead vF"
+          },
+          {
+            "row": 42,
+            "s": "C-6 ami-lead vF"
+          },
+          {
+            "row": 44,
+            "s": "A-5 ami-lead vF"
+          },
+          {
+            "row": 46,
+            "s": "C-6 ami-lead vF"
+          },
+          {
+            "row": 48,
+            "s": "G-5 ami-lead vF 453"
+          },
+          {
+            "row": 52,
+            "s": "E-5 ami-lead vF"
+          },
+          {
+            "row": 54,
+            "s": "G-5 ami-lead vF"
+          },
+          {
+            "row": 56,
+            "s": "C-6 ami-lead vF"
+          },
+          {
+            "row": 58,
+            "s": "G-5 ami-lead vF"
+          },
+          {
+            "row": 60,
+            "s": "E-5 ami-lead vF"
+          },
+          {
+            "row": 62,
+            "s": "OFF"
+          }
+        ]
+      }
+    }
+  },
+  "order": [
+    "intro",
+    "a1",
+    "a2",
+    "b",
+    "c"
+  ],
+  "loop": 1,
+  "master": {
+    "volume": 0.61,
+    "echo": null,
+    "reverb": null,
+    "amiga": {
+      "separation": 0.5,
+      "model": "a500",
+      "led": false
+    }
+  }
+}

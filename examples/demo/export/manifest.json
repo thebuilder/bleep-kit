@@ -92,6 +92,12 @@
     }
   },
   "songs": {
+    "amiga-chipdisk": {
+      "duration": 73,
+      "file": "amiga-chipdisk.ogg",
+      "loopEnd": 72,
+      "loopStart": 40
+    },
     "boss-hall": {
       "duration": 87.4,
       "file": "boss-hall.ogg",

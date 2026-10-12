@@ -1,6 +1,7 @@
 /* Parts: the notes of one MIDI track on one MIDI channel. This module groups a file into parts, reads the `--map`
    selectors, and decides which chip channel plays which part (explicit map first, then automatic). */
 
+import { median, partScore, pickBass } from "../songs/roles.ts";
 import type { Issue } from "../types.ts";
 import type { MidiFile, MidiNote } from "./parse.ts";
 import type { ChipPlan } from "./plan.ts";
@@ -41,15 +42,6 @@ export interface PartInfo {
 }
 
 const DRUM_CHANNEL = 9;
-const SCORE_SPAN = 36;
-
-function median(values: number[]): number {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 === 1
-    ? (sorted[mid] ?? 0)
-    : ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2;
-}
 
 function makePart(file: MidiFile, track: number, channel: number): Part {
   const notes = file.notes.filter(
@@ -57,7 +49,6 @@ function makePart(file: MidiFile, track: number, channel: number): Part {
   );
   const onsets = new Set(notes.map((n) => n.start)).size;
   const mid = median(notes.map((n) => n.note));
-  const lift = Math.max(-0.5, Math.min(0.5, (mid - 60) / SCORE_SPAN));
   return {
     channel,
     drums: channel === DRUM_CHANNEL,
@@ -66,7 +57,7 @@ function makePart(file: MidiFile, track: number, channel: number): Part {
     notes,
     onsets,
     ref: `t${track + 1}ch${channel + 1}`,
-    score: onsets * (1 + lift),
+    score: partScore(onsets, mid),
     track,
   };
 }
@@ -231,23 +222,6 @@ function applyMap(
     }
   }
   return parts.filter((p) => !claimed.has(p));
-}
-
-/**
- * The lowest busy candidate, when some part of the file (placed by the map or not) sits clearly above it; null
- * otherwise.
- */
-function pickBass(candidates: Part[], all: Part[]): Part | null {
-  const most = Math.max(0, ...all.map((p) => p.onsets));
-  const busy = candidates.filter((p) => p.onsets >= Math.max(4, most * 0.15));
-  const [lowest] = [...busy].sort(
-    (a, b) => a.median - b.median || b.onsets - a.onsets
-  );
-  if (!lowest) {
-    return null;
-  }
-  const above = all.some((p) => p !== lowest && p.median >= lowest.median + 5);
-  return above ? lowest : null;
 }
 
 function byScore(a: Part, b: Part): number {

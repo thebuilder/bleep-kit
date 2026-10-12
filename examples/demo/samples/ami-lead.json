@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "name": "Amiga lead (chiff and saw-pulse loop)",
+  "rate": 8287,
+  "baseNote": 65,
+  "finetune": -20,
+  "volume": 0.77,
+  "loop": {
+    "start": 192,
+    "end": 216
+  },
+  "bits": 8,
+  "data": "HPpR5zcW3CrT4Z2e2B2cq/Eo4r8lgQqhIhsuZBhDRiQ1t7PA89PD3sy37N2myL/kZEBvLT5TIzgU8vXj9snh1tHE3OC6xJS/YGxgQ0RNKzsp0szox8jK3LTBwc3Gw6SnWWRiRkNAPD8+3NDY0tTbz8XEwqu/uLawXllQVUZCQDs62tTTzs7Dz8a5trOvp7CuYVxTT01ISj44597V1crMzcfAt7Str6inYVxbWFNOSUQ84dzV0M7JyMW9vLizqqWgaWRfW1ZRTEdD39rW0czHwr65tK+qpaGc"
+}

@@ -13,6 +13,10 @@ import { LoadMeter, type NowFn } from "./load-meter.ts";
 
 /** Frames between `clock` messages (section 5.2). */
 export const CLOCK_FRAMES = 1024;
+/** Frames between `clock` messages while the feed is inactive (a hidden page): about a second. */
+const IDLE_CLOCK_SECONDS = 1;
+/** Events held for the next post at most; a burst beyond it drops the oldest (they are for display, never for sound). */
+export const MAX_PENDING_EVENTS = 1024;
 /** Frames of each scope ring posted when shared memory is not in use. */
 const SCOPE_POST_FRAMES = 1024;
 /** Blocks an `events` batch may wait before it is posted. */
@@ -21,6 +25,27 @@ const EVENT_FLUSH_COUNT = 64;
 /** Voice handles remembered for `release`; the oldest are forgotten beyond this. */
 const MAX_HANDLES = 256;
 const MAX_BLOCK = 128;
+
+type DocumentMessage = Extract<
+  ToWorklet,
+  {
+    type:
+      | "loadSample"
+      | "loadSfx"
+      | "loadSong"
+      | "unloadSample"
+      | "unloadSfx"
+      | "unloadSong";
+  }
+>;
+const DOCUMENT_TYPES: ReadonlySet<string> = new Set<DocumentMessage["type"]>([
+  "loadSample",
+  "loadSfx",
+  "loadSong",
+  "unloadSample",
+  "unloadSfx",
+  "unloadSong",
+]);
 
 export interface EnginePort {
   postMessage: (message: FromWorklet, transfer?: Transferable[]) => void;
@@ -115,6 +140,9 @@ export class BleepkitEngine {
   private blocksSinceFlush = 0;
   private framesSinceClock = CLOCK_FRAMES;
   private shared = false;
+  /** False while the page asked for no events and scope copies (`setFeed`), see ToWorklet. */
+  // `as boolean`: Biome types a field initialised with a literal as that literal, but setActive changes it
+  private active = true as boolean;
   private ended = false;
   private errorCooldown = 0;
   private lastError = "";
@@ -196,13 +224,23 @@ export class BleepkitEngine {
     return this.synth;
   }
 
-  private dispatch(msg: ToWorklet): void {
-    const synth = this.requireSynth();
+  /** The messages that load or drop a document (a song, a sample, an sfx). */
+  private dispatchDocument(synth: Synth, msg: DocumentMessage): void {
     switch (msg.type) {
       case "loadSong":
         loadChecked("the song", songProblem(msg.song), () =>
-          synth.loadSong(msg.song, msg.instruments)
+          synth.loadSong(msg.song, msg.instruments, msg.samples)
         );
+        break;
+      case "loadSample":
+        loadChecked(
+          `sample "${String(msg.id)}"`,
+          isRecord(msg.sample) ? null : "it is not an object",
+          () => synth.loadSample(msg.id, msg.sample)
+        );
+        break;
+      case "unloadSample":
+        synth.unloadSample(msg.id);
         break;
       case "unloadSong":
         synth.unloadSong();
@@ -214,9 +252,19 @@ export class BleepkitEngine {
           () => synth.loadSfx(msg.id, msg.sfx)
         );
         break;
-      case "unloadSfx":
+      default:
         synth.unloadSfx(msg.id);
         break;
+    }
+  }
+
+  private dispatch(msg: ToWorklet): void {
+    const synth = this.requireSynth();
+    if (DOCUMENT_TYPES.has(msg.type)) {
+      this.dispatchDocument(synth, msg as DocumentMessage);
+      return;
+    }
+    switch (msg.type) {
       case "play":
         this.ended = false;
         synth.play(defined({ loop: msg.loop, order: msg.order, row: msg.row }));
@@ -270,11 +318,25 @@ export class BleepkitEngine {
         synth.setScopeBuffer(msg.buffer);
         this.shared = msg.buffer !== null;
         break;
+      case "setFeed":
+        this.setFeed(synth, msg.active);
+        break;
       default:
         throw new Error(
           `unknown message type "${String((msg as { type?: unknown }).type)}"`
         );
     }
+  }
+
+  /** Switch the display feed. Going inactive drops what is queued; either way the page gets a fresh clock at once. */
+  private setFeed(synth: Synth, active: boolean): void {
+    this.active = active;
+    if (!active) {
+      this.pending = [];
+      this.blocksSinceFlush = 0;
+    }
+    this.postClock(synth, synth.frame, this.env.currentTime());
+    this.framesSinceClock = 0;
   }
 
   private trigger(
@@ -342,7 +404,10 @@ export class BleepkitEngine {
     this.drainEvents();
     this.flushEvents(startFrame, startTime, false);
     this.framesSinceClock += total;
-    if (this.framesSinceClock >= CLOCK_FRAMES) {
+    const clockEvery = this.active
+      ? CLOCK_FRAMES
+      : Math.max(CLOCK_FRAMES, this.env.sampleRate * IDLE_CLOCK_SECONDS);
+    if (this.framesSinceClock >= clockEvery) {
       this.framesSinceClock = 0;
       this.postClock(synth, startFrame, startTime);
     }
@@ -351,10 +416,15 @@ export class BleepkitEngine {
   private drainEvents(): void {
     const { out } = this;
     for (const e of out) {
-      this.pending.push(copyEvent(e));
       if (e.type === "end") {
         this.ended = true;
       }
+      if (this.active) {
+        this.pending.push(copyEvent(e));
+      }
+    }
+    if (this.pending.length > MAX_PENDING_EVENTS) {
+      this.pending.splice(0, this.pending.length - MAX_PENDING_EVENTS);
     }
     out.length = 0;
   }
@@ -392,7 +462,7 @@ export class BleepkitEngine {
       type: "clock",
     };
     this.post(message);
-    if (this.options.scopes !== false && !this.shared) {
+    if (this.active && this.options.scopes !== false && !this.shared) {
       this.postScopes(synth);
     }
   }

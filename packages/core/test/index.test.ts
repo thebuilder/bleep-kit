@@ -65,6 +65,7 @@ describe("@bleepkit/core entry point", () => {
       "genesis",
       "adlib",
       "snes",
+      "amiga",
       "custom",
     ]);
     expect(core.CHANNEL_KINDS).toEqual([
@@ -86,8 +87,8 @@ describe("@bleepkit/core entry point", () => {
       "fm",
     ]);
     expect(core.SFX_CATEGORIES).toHaveLength(13);
-    expect(core.EFFECT_TYPES).toHaveLength(20);
-    expect(core.SAMPLE_GENERATOR_IDS).toHaveLength(14);
+    expect(core.EFFECT_TYPES).toHaveLength(22);
+    expect(core.SAMPLE_GENERATOR_IDS).toHaveLength(21);
     expect(typeof core.ENGINE_VERSION).toBe("string");
     expect(Object.keys(core.CHIPS).sort()).toEqual([...core.CHIP_IDS].sort());
     expect(Object.keys(core.SAMPLE_GENERATORS).sort()).toEqual(

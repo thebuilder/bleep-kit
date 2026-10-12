@@ -14,18 +14,19 @@ import { openAssistantSettings } from "./assistant/settings-dialog.ts";
 import { type Backdrop, createBackdrop } from "./backdrop/index.ts";
 import { engine } from "./engine/engine.ts";
 import { chipTheme } from "./lib/chips.ts";
-import type { ChipId } from "./lib/contract.ts";
+import type { ChipId, Song, UserSample } from "./lib/contract.ts";
 import { choose, fire, formatTime, h, prefs } from "./lib/dom.ts";
 import { playRef, stopEverything } from "./playback.ts";
 import { markPristineIfSeeded, projectCommands } from "./project-actions.ts";
-import { type Doc, project } from "./state/docs.ts";
+import { type Doc, type DocKind, project } from "./state/docs.ts";
 import { LocalStore } from "./store/local.ts";
 import { probeServer, ServerStore } from "./store/server.ts";
 import type { ProjectStore } from "./store/store.ts";
 import { installDropdowns } from "./ui/dropdown.ts";
+import { exportMod } from "./ui/export-mod.ts";
 import { openHelp } from "./ui/help.ts";
 import { icon } from "./ui/icons.ts";
-import { installMidiDrop, pickMidiFile } from "./ui/import-midi.ts";
+import { installImportDrop, pickSongFile } from "./ui/import-midi.ts";
 import { modalOpen } from "./ui/modal.ts";
 import { openPalette } from "./ui/palette.ts";
 import {
@@ -42,6 +43,7 @@ import { mountExamples } from "./views/examples.ts";
 import { mountInstrument } from "./views/instrument.ts";
 import { mountPads } from "./views/pads.ts";
 import { mountProject } from "./views/project.ts";
+import { mountSample } from "./views/sample.ts";
 import { mountSfx } from "./views/sfx.ts";
 import { mountSong } from "./views/song.ts";
 import { addVisual, startLoop, tickOnce } from "./visuals/loop.ts";
@@ -61,11 +63,13 @@ const LOGO = `<svg class="logo" viewBox="0 0 8 8" shape-rendering="crispEdges" a
 
 const KIND_GROUP = {
   instrument: "Instrument",
+  sample: "Sample",
   sfx: "SFX",
   song: "Song",
 } as const;
 const KIND_ICON = {
   instrument: "instrument",
+  sample: "sample",
   sfx: "blip",
   song: "song",
 } as const;
@@ -151,6 +155,16 @@ export async function boot(root: HTMLElement): Promise<void> {
       project,
     };
   }
+  // user samples reach the worklet when an instrument that plays one is loaded, and again after every edit or delete
+  engine.useSamples((id) => project.get<UserSample>("sample", id)?.value);
+  project.subscribe((e) => {
+    if (
+      e.type === "list" ||
+      (e.type === "doc" && e.path.startsWith("samples/"))
+    ) {
+      engine.syncSamples();
+    }
+  });
   startLoop();
   const store = await openStore();
   project.onRemotePlay = playRef;
@@ -362,6 +376,7 @@ export async function boot(root: HTMLElement): Promise<void> {
       ...project.list("sfx"),
       ...project.list("song"),
       ...project.list("instrument"),
+      ...project.list("sample"),
     ];
     if (!all.length) {
       return;
@@ -375,7 +390,7 @@ export async function boot(root: HTMLElement): Promise<void> {
   }
   function openAnalysis(): void {
     const d = app.currentDoc();
-    if (d?.kind === "instrument") {
+    if (d?.kind === "instrument" || d?.kind === "sample") {
       app.toast("Analysis is for sound effects and songs");
     } else {
       app.navigate(analysisHash(d));
@@ -497,8 +512,24 @@ export async function boot(root: HTMLElement): Promise<void> {
         group: "File",
         icon: "import",
         id: "import-midi",
-        run: pickMidiFile,
-        title: "Import MIDI file",
+        run: pickSongFile,
+        title: "Import MIDI or MOD file",
+      },
+      {
+        enabled: () => {
+          const d = app.currentDoc();
+          return d?.kind === "song" && (d.value as Song).chip === "amiga";
+        },
+        group: "File",
+        icon: "export",
+        id: "export-mod",
+        run: () => {
+          const d = app.currentDoc();
+          if (d?.kind === "song") {
+            exportMod(d);
+          }
+        },
+        title: "Export the Amiga song as a .mod file",
       },
       {
         group: "New",
@@ -573,7 +604,7 @@ export async function boot(root: HTMLElement): Promise<void> {
         title: "Delete the current document",
       },
     ];
-    for (const kind of ["sfx", "song", "instrument"] as const) {
+    for (const kind of ["sfx", "song", "instrument", "sample"] as const) {
       for (const d of project.list(kind)) {
         cmds.push({
           group: KIND_GROUP[kind],
@@ -666,7 +697,7 @@ export async function boot(root: HTMLElement): Promise<void> {
     }
   });
 
-  installMidiDrop();
+  installImportDrop();
 
   /* ----- router ----- */
   const cleanups: (() => void)[] = [];
@@ -695,7 +726,7 @@ export async function boot(root: HTMLElement): Promise<void> {
         renderBadge(chip);
       },
     };
-    const missing = (kind: "sfx" | "song" | "instrument", id: string) => {
+    const missing = (kind: DocKind, id: string) => {
       app.toast(`There is no ${kind} named ${id}`);
       app.navigate("#/pads");
     };
@@ -721,6 +752,13 @@ export async function boot(root: HTMLElement): Promise<void> {
           return;
         }
         hooks = mountInstrument(ctx, r.id);
+        break;
+      case "sample":
+        if (!project.get("sample", r.id)) {
+          missing("sample", r.id);
+          return;
+        }
+        hooks = mountSample(ctx, r.id);
         break;
       case "analysis":
         hooks = mountAnalysis(ctx, r.ref);

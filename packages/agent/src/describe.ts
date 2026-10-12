@@ -1,11 +1,15 @@
-// Plain-text descriptions of songs and instruments (and the facts behind the song one), shared by the CLI's `describe`
+// Plain-text descriptions of songs, instruments and user samples (and the facts behind the song one), shared by the CLI's `describe`
 // and `new` commands and the assistant's tools. An sfx has its own in @bleepkit/sfx (`describeSfx`).
 import {
+  decodeSampleData,
   type Instrument,
   noteName,
   PPQ,
   parseMml,
+  peakOf,
   type Song,
+  sampleFrames,
+  type UserSample,
 } from "@bleepkit/core";
 
 const round = (value: number, digits: number): number => {
@@ -170,6 +174,24 @@ export function describeSong(song: Song): string {
   return `${parts.join(" ")}\nChannels:\n${lines.join("\n")}`;
 }
 
+/** A user sample in words: format, length, pitch, loop and level. The audio itself is never part of it. */
+export function describeSample(sample: UserSample): string {
+  const frames = sampleFrames(sample);
+  const peak = peakOf(decodeSampleData(sample));
+  const cents =
+    sample.finetune === 0
+      ? ""
+      : ` ${sample.finetune > 0 ? "+" : ""}${sample.finetune} cents`;
+  const loop = sample.loop
+    ? `loops frames ${sample.loop.start} to ${sample.loop.end} (${sample.loop.end - sample.loop.start} frames)`
+    : "plays once (no loop)";
+  return [
+    `${sample.name}: user sample, ${sample.bits} bit mono at ${sample.rate} Hz, ${fmtSeconds(frames / sample.rate)} (${frames} frames).`,
+    `Sounds at ${noteName(sample.baseNote)} (note ${sample.baseNote})${cents} when played at its own rate, volume ${sample.volume}, ${loop}.`,
+    `Peak ${peak > 0 ? `${round(20 * Math.log10(peak), 1)} dBFS` : "silent"}.`,
+  ].join(" ");
+}
+
 export function describeInstrument(inst: Instrument): string {
   const e = inst.envelope;
   const bits = [
@@ -193,7 +215,11 @@ export function describeInstrument(inst: Instrument): string {
     );
   }
   if (inst.sample) {
-    bits.push(`Sample generator ${inst.sample.generator}.`);
+    bits.push(
+      inst.sample.userSample === undefined
+        ? `Sample generator ${inst.sample.generator}.`
+        : `Plays the user sample "${inst.sample.userSample}" (samples/${inst.sample.userSample}.json).`
+    );
   }
   const macros = Object.entries(inst.macros)
     .filter(([, m]) => typeof m === "object" && m !== null && "values" in m)

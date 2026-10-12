@@ -58,6 +58,16 @@ export const SAMPLE_SPECS: Readonly<
       tone: p("Tone", 0, 1, 0.5),
     },
   },
+  clap909: {
+    id: "clap909",
+    label: "Clap 909",
+    loops: false,
+    params: {
+      decay: p("Decay (s)", 0.08, 0.7, 0.26),
+      spread: p("Spread", 0, 1, 0.6),
+      tone: p("Brightness", 0, 1, 0.55),
+    },
+  },
   crash: {
     id: "crash",
     label: "Crash",
@@ -67,12 +77,30 @@ export const SAMPLE_SPECS: Readonly<
       tone: p("Brightness", 0, 1, 0.6),
     },
   },
+  crash909: {
+    id: "crash909",
+    label: "Crash 909",
+    loops: false,
+    params: {
+      decay: p("Decay (s)", 0.4, 3.5, 1.4),
+      tone: p("Brightness", 0, 1, 0.7),
+    },
+  },
   hat: {
     id: "hat",
     label: "Hat",
     loops: false,
     params: {
       decay: p("Decay (s)", 0.01, 0.5, 0.06),
+      open: p("Open", 0, 1, 0),
+      tone: p("Brightness", 0, 1, 0.6),
+    },
+  },
+  hat909: {
+    id: "hat909",
+    label: "Hat 909",
+    loops: false,
+    params: {
       open: p("Open", 0, 1, 0),
       tone: p("Brightness", 0, 1, 0.6),
     },
@@ -89,6 +117,29 @@ export const SAMPLE_SPECS: Readonly<
       sweep: p("Sweep", 0, 1, 0.6),
     },
   },
+  kick808: {
+    id: "kick808",
+    label: "Kick 808",
+    loops: false,
+    params: {
+      click: p("Click", 0, 1, 0.1),
+      decay: p("Decay (s)", 0.2, 1.8, 0.8),
+      drive: p("Drive", 0, 1, 0.25),
+      pitch: p("Pitch (Hz)", 30, 80, 46),
+    },
+  },
+  kick909: {
+    id: "kick909",
+    label: "Kick 909",
+    loops: false,
+    params: {
+      click: p("Click", 0, 1, 0.55),
+      decay: p("Decay (s)", 0.08, 0.9, 0.32),
+      drive: p("Drive", 0, 1, 0.5),
+      pitch: p("Pitch (Hz)", 38, 90, 52),
+      sweep: p("Sweep", 0, 1, 0.7),
+    },
+  },
   lead: {
     id: "lead",
     label: "Lead",
@@ -97,6 +148,17 @@ export const SAMPLE_SPECS: Readonly<
       bright: p("Brightness", 0, 1, 0.6),
       duty: p("Pulse width", 0.05, 0.5, 0.25),
       vibrato: p("Vibrato", 0, 1, 0.4),
+    },
+  },
+  orchestra: {
+    id: "orchestra",
+    label: "Orchestra hit",
+    loops: false,
+    params: {
+      bright: p("Brightness", 0, 1, 0.6),
+      decay: p("Decay (s)", 0.12, 1.2, 0.42),
+      detune: p("Detune", 0, 1, 0.35),
+      width: p("Chord width", 0, 1, 0.7),
     },
   },
   organ: {
@@ -140,6 +202,17 @@ export const SAMPLE_SPECS: Readonly<
       noise: p("Noise", 0, 1, 0.6),
       snap: p("Snap", 0, 1, 0.5),
       tone: p("Tone (Hz)", 120, 400, 190),
+    },
+  },
+  snare909: {
+    id: "snare909",
+    label: "Snare 909",
+    loops: false,
+    params: {
+      decay: p("Decay (s)", 0.08, 0.6, 0.24),
+      noise: p("Noise", 0, 1, 0.8),
+      snap: p("Snap", 0, 1, 0.6),
+      tone: p("Tone (Hz)", 140, 320, 200),
     },
   },
   strings: {

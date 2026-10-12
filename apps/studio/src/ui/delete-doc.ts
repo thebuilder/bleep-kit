@@ -2,7 +2,7 @@
    stop what the engine holds of it, and keep a toast with Undo that writes the same document back. */
 import { app } from "../app.ts";
 import { engine } from "../engine/engine.ts";
-import type { Instrument, Sfx, Song } from "../lib/contract.ts";
+import type { Instrument, Sfx, Song, UserSample } from "../lib/contract.ts";
 import { fire, h } from "../lib/dom.ts";
 import { releaseNote, stopEverything } from "../playback.ts";
 import { type Doc, project } from "../state/docs.ts";
@@ -22,7 +22,22 @@ function songsUsing(id: string): Doc[] {
   });
 }
 
+/** The instruments that play user sample `id`. */
+function instrumentsPlaying(id: string): Doc[] {
+  return project
+    .list("instrument")
+    .filter((d) => (d.value as Instrument).sample?.userSample === id);
+}
+
 function question(doc: Doc, name: string): string {
+  if (doc.kind === "sample") {
+    const used = instrumentsPlaying(doc.id).length;
+    const warn =
+      used > 0
+        ? ` ${used === 1 ? "One instrument plays" : `${used} instruments play`} it and will fall silent.`
+        : "";
+    return `Delete the sample "${name}"? Its file is removed from the project.${warn}`;
+  }
   if (doc.kind === "instrument") {
     const used = songsUsing(doc.id).length;
     const warn =
@@ -46,7 +61,8 @@ export async function deleteDocument(
   const value = JSON.parse(JSON.stringify(doc.value)) as
     | Sfx
     | Song
-    | Instrument;
+    | Instrument
+    | UserSample;
   const { kind, id } = doc;
   const name = value.name || id;
   if (

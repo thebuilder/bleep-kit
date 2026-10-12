@@ -3,6 +3,15 @@
 import { choose, clamp, fmtNum, h, prefs } from "../lib/dom.ts";
 import { icon } from "./icons.ts";
 
+/** Bind a name input to a document edit. Typing in it must not fire the view's single key shortcuts. */
+export function bindName(
+  input: HTMLInputElement,
+  setName: (name: string) => void
+): void {
+  input.addEventListener("keydown", (e) => e.stopPropagation());
+  input.addEventListener("input", () => setName(input.value));
+}
+
 export interface Group {
   body: HTMLElement;
   el: HTMLElement;
@@ -268,6 +277,8 @@ export function textField(
     value: string;
     onInput: (v: string) => void;
     placeholder?: string;
+    /** A line of explanation under the input. */
+    hint?: string;
   }
 ): HTMLInputElement {
   const id = `f${Math.random().toString(36).slice(2, 8)}`;
@@ -280,9 +291,16 @@ export function textField(
   }) as HTMLInputElement;
   input.addEventListener("input", () => o.onInput(input.value));
   input.addEventListener("keydown", (e) => e.stopPropagation());
-  body.append(
-    h("div", { class: "fld" }, h("label", { for: id }, o.label), input)
+  const row = h(
+    "div",
+    { class: "fld" },
+    h("label", { for: id }, o.label),
+    input
   );
+  if (o.hint) {
+    row.append(h("div", { class: "hint wide" }, o.hint));
+  }
+  body.append(row);
   return input;
 }
 

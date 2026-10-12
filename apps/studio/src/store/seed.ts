@@ -250,6 +250,7 @@ const INSTRUMENTS: [string, Instrument][] = [
     send: { echo: 0.3, reverb: 0.1 },
   }),
   preset("snes-bass", "SNES bass", "sample", "snes", "bass"),
+  preset("amiga-bass", "Amiga bass", "sample", "amiga", "bass"),
 ];
 
 /* ---------- the demo song ---------- */

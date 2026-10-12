@@ -105,7 +105,13 @@ export function mountExamples(ctx: ViewCtx): ViewHooks {
         return inst ? [[id, inst] as const] : [];
       })
     );
-    playSongValue(exampleKey(ex.id), ex.song, instruments);
+    const samples = Object.fromEntries(
+      ex.sampleIds.flatMap((id) => {
+        const sample = catalog.samples[id];
+        return sample ? [[id, sample] as const] : [];
+      })
+    );
+    playSongValue(exampleKey(ex.id), ex.song, instruments, samples);
     follow(ex.chip);
   }
 
@@ -159,7 +165,13 @@ export function mountExamples(ctx: ViewCtx): ViewHooks {
       add({ songs: [ex] }, ({ docs, plan }) => {
         const song = docs.find((d) => d.kind === "song");
         const n = plan.instruments.size;
-        app.toast(`Added ${song?.id ?? ex.id} with ${plural(n, "instrument")}`);
+        const withSamples =
+          plan.samples.size > 0
+            ? ` and ${plural(plan.samples.size, "sample")}`
+            : "";
+        app.toast(
+          `Added ${song?.id ?? ex.id} with ${plural(n, "instrument")}${withSamples}`
+        );
         if (song) {
           app.navigate(`#/song/${encodeURIComponent(song.id)}`);
         }

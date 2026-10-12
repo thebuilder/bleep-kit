@@ -1,8 +1,8 @@
 /* Exporting when there is no studio server: render every sound in the browser, encode it, build the manifest and
    zip the lot, laid out like the game project (public/audio/..., src/audio.ts). With a server, the CLI's export does this. */
 import { encodeAudio } from "./encode-service.ts";
+import { zipLayout } from "./export-paths.ts";
 import {
-  cleanPath,
   type Manifest,
   manifestJson,
   manifestTs,
@@ -116,7 +116,12 @@ async function exportSong(ctx: ExportCtx, d: { id: string; value: unknown }) {
     e.events = evName;
   }
   if (p.export.embed) {
-    e.data = { instruments: ctx.instruments, song: d.value as Song };
+    const samples = project.samplesFor(ctx.instruments);
+    e.data = {
+      instruments: ctx.instruments,
+      ...(Object.keys(samples).length > 0 ? { samples } : {}),
+      song: d.value as Song,
+    };
   }
   ctx.manifest.songs[d.id] = e;
 }
@@ -128,8 +133,9 @@ export async function exportInBrowser(
   const sfx = project.list("sfx");
   const songs = project.list("song");
   const total = sfx.length + songs.length;
+  const layout = zipLayout(p.export);
   const ctx: ExportCtx = {
-    dir: cleanPath(p.export.dir),
+    dir: layout.dir,
     entries: [],
     instruments: project.instruments() as Record<string, Instrument>,
     manifest: {
@@ -156,7 +162,7 @@ export async function exportInBrowser(
   }
   onProgress(total, total, "manifest");
   putEntry(ctx, `${ctx.dir}/manifest.json`, manifestJson(ctx.manifest));
-  putEntry(ctx, cleanPath(p.export.manifest), manifestTs(ctx.manifest));
+  putEntry(ctx, layout.manifest, manifestTs(ctx.manifest));
   const zip = writeZip(ctx.entries);
   return {
     bytes: zip.length,

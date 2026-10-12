@@ -7,6 +7,7 @@ import { runExport } from "../exporter.ts";
 import { CliError, type ErrorCode } from "../output.ts";
 import {
   DOC_KINDS,
+  docContext,
   etagOf,
   KIND_DIRS,
   loadProjectFile,
@@ -423,7 +424,7 @@ async function putFile(
       : normalizeDocument(
           cls.docKind ?? "sfx",
           body.json,
-          cls.docKind === "song" ? pc.instruments() : undefined
+          docContext(pc, cls.docKind ?? "sfx")
         );
   if (!n.ok) {
     sendJson(res, 422, {

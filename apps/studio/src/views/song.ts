@@ -26,7 +26,7 @@ import {
   parseMml,
   patternToMml,
 } from "../lib/core.ts";
-import { choose, clamp, debounce, h, prefs, reflow } from "../lib/dom.ts";
+import { choose, clamp, debounce, fire, h, prefs, reflow } from "../lib/dom.ts";
 import {
   auditionSongNote,
   loadSongDoc,
@@ -36,7 +36,9 @@ import {
 } from "../playback.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
+import { changeSongChip } from "../ui/change-chip.ts";
 import { deleteButton } from "../ui/delete-doc.ts";
+import { amigaFields } from "../ui/export-mod.ts";
 import {
   type Group,
   group,
@@ -45,6 +47,7 @@ import {
   textField,
   toggleField,
 } from "../ui/fields.ts";
+import { genesisFields } from "../ui/genesis-fields.ts";
 import { icon } from "../ui/icons.ts";
 import { showIssues } from "../ui/issues.ts";
 import { createPiano, keyToOffset } from "../ui/piano.ts";
@@ -1349,7 +1352,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     });
     selectField<ChipId>(gs.body, {
       label: "Chip",
-      onInput: (v) => retarget(v),
+      onInput: (v) => fire(retarget(v)),
       options: CHIP_IDS.map((chip) => ({
         label: CHIP_THEME[chip].short,
         value: chip,
@@ -1511,6 +1514,23 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     if (s.master.reverb) {
       reverbFields(gm, s.master.reverb, why);
     }
+    if (s.chip === "amiga") {
+      amigaFields(
+        gm.body,
+        s,
+        doc,
+        (fn, key) => project.edit<Song>(doc(), fn, key),
+        buildInspector
+      );
+    }
+    if (s.chip === "genesis") {
+      genesisFields(
+        gm.body,
+        s,
+        (fn, key) => project.edit<Song>(doc(), fn, key),
+        buildInspector
+      );
+    }
     return gm.el;
   }
 
@@ -1651,38 +1671,15 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     );
   }
 
-  function retarget(chip: ChipId): void {
-    const s = song();
-    const next = { ...s, chip } as Song;
-    const profile = chipChannels(next);
-    project.edit<Song>(doc(), (d) => {
-      d.chip = chip;
-      const old = d.channels;
-      d.channels = profile.map((pc) => {
-        const prior =
-          old.find((o) => o.id === pc.id) ??
-          old.find((o) => o.kind === pc.kind);
-        return {
-          id: pc.id,
-          instrument: prior?.instrument ?? null,
-          kind: pc.kind,
-          mml: prior?.mml ?? null,
-          muted: prior?.muted ?? false,
-          pan: prior?.pan ?? 0,
-          volume: prior?.volume ?? 1,
-        };
-      });
-      for (const p of Object.values(d.patterns)) {
-        const keep: typeof p.tracks = {};
-        for (const [cid, rows] of Object.entries(p.tracks)) {
-          if (d.channels.some((c) => c.id === cid)) {
-            keep[cid] = rows;
-          }
-        }
-        p.tracks = keep;
-      }
-    });
-    rebuildAll();
+  /** The Chip control: ask, move the channels to the ones that suit the new chip (one undo step), then redraw. */
+  async function retarget(chip: ChipId): Promise<void> {
+    const changed = await changeSongChip(doc(), chip);
+    if (changed) {
+      rebuildAll();
+    } else {
+      // the person said no: the control goes back to the chip the song has
+      buildInspector();
+    }
   }
 
   /* ----- rebuild ----- */

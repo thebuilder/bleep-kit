@@ -27,6 +27,7 @@ export const sfx = {
 } as const;
 
 export const songs = {
+  "amiga-chipdisk": { duration: 73, file: "amiga-chipdisk.ogg", loopEnd: 72, loopStart: 40 },
   "boss-hall": { duration: 87.4, file: "boss-hall.ogg", loopEnd: 86.4, loopStart: 48 },
   "dungeon-march": { duration: 74.333333, file: "dungeon-march.ogg", loopEnd: 73.333333, loopStart: 40 },
   "grid-battle": { duration: 71.4, file: "grid-battle.ogg", loopEnd: 70.4, loopStart: 38.4 },
@@ -132,6 +133,12 @@ export const manifest = {
     },
   },
   songs: {
+    "amiga-chipdisk": {
+      duration: 73,
+      file: "amiga-chipdisk.ogg",
+      loopEnd: 72,
+      loopStart: 40,
+    },
     "boss-hall": {
       duration: 87.4,
       file: "boss-hall.ogg",

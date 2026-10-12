@@ -1,6 +1,7 @@
-/* Import MIDI: the file picker behind the sidebar button and the palette command, the drop target for .mid files, and
-   the small dialog that asks which chip the song is for. The conversion itself is core's `midiToSong`; this file
-   creates the instruments and the song through the project store and opens the song. */
+/* Import a song or a recording: the file picker behind the sidebar button and the palette command, the drop target for
+   .mid, .mod and audio files, and the small dialog that asks which chip a MIDI song is for. The MIDI conversion is
+   core's `midiToSong`; this file creates the instruments and the song through the project store and opens the song.
+   A .mod goes to import-mod.ts and a WAV, MP3 or OGG to import-audio.ts. */
 import { app } from "../app.ts";
 import type { ChipId } from "../lib/contract.ts";
 import { CHIP_IDS } from "../lib/contract.ts";
@@ -12,9 +13,12 @@ import {
 } from "../lib/core.ts";
 import { fire, h } from "../lib/dom.ts";
 import { project } from "../state/docs.ts";
+import { importAudioFiles } from "./import-audio.ts";
+import { isModName, openModFile } from "./import-mod.ts";
 import { openModal } from "./modal.ts";
 
 const MIDI_NAME = /\.midi?$/i;
+const AUDIO_FILE = /\.(wav|wave|mp3|ogg|oga|flac|m4a|aac|opus)$/i;
 
 interface Source {
   bytes: Uint8Array;
@@ -187,15 +191,19 @@ function openImportDialog(src: Source): void {
 }
 
 async function openFile(file: File): Promise<void> {
+  if (isModName(file.name)) {
+    await openModFile(file);
+    return;
+  }
   openImportDialog({
     bytes: new Uint8Array(await file.arrayBuffer()),
     name: file.name,
   });
 }
 
-/** Opens the system file picker for a .mid file. */
-export function pickMidiFile(): void {
-  const input = h("input", { accept: ".mid,.midi", type: "file" });
+/** Opens the system file picker for a MIDI file or a ProTracker module. */
+export function pickSongFile(): void {
+  const input = h("input", { accept: ".mid,.midi,.mod", type: "file" });
   input.addEventListener("change", () => {
     const file = input.files?.[0];
     if (file) {
@@ -212,8 +220,9 @@ let dropInstalled = false;
 const carriesFiles = (e: DragEvent): boolean =>
   Array.from(e.dataTransfer?.types ?? []).includes("Files");
 
-/** A .mid file dropped anywhere on the window opens the import dialog. Other dropped files are ignored, not opened. */
-export function installMidiDrop(): void {
+/** A .mid or .mod file dropped anywhere on the window opens the import dialog, and audio files become samples. Other
+ *  dropped files are ignored, not opened. */
+export function installImportDrop(): void {
   if (dropInstalled) {
     return;
   }
@@ -233,9 +242,14 @@ export function installMidiDrop(): void {
     }
     // without this the browser would navigate away from the studio to the dropped file
     e.preventDefault();
-    const midi = files.find((f) => MIDI_NAME.test(f.name));
-    if (midi) {
-      fire(openFile(midi));
+    const song = files.find((f) => MIDI_NAME.test(f.name) || isModName(f.name));
+    if (song) {
+      fire(openFile(song));
+      return;
+    }
+    const audio = files.filter((f) => AUDIO_FILE.test(f.name));
+    if (audio.length > 0) {
+      fire(importAudioFiles(audio));
     }
   });
 }

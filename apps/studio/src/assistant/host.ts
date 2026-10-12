@@ -11,14 +11,16 @@ import type {
   DocSummary,
   ImageKind,
   Measured,
+  SampleInfo,
 } from "@bleepkit/agent";
 import { app } from "../app.ts";
-import type { Instrument, Sfx } from "../lib/contract.ts";
-import { hashString } from "../lib/core.ts";
+import type { Instrument, Sfx, UserSample } from "../lib/contract.ts";
+import { base64ByteLength, hashString, sampleFrames } from "../lib/core.ts";
 import { playDoc, stopEverything } from "../playback.ts";
 import { analyzeAsync, sourceOf } from "../render-service.ts";
 import { type Doc, project } from "../state/docs.ts";
 import { deleteDocument } from "../ui/delete-doc.ts";
+import { resampleDoc } from "../ui/resample.ts";
 import type { AnalysisBundle } from "../workers/render.ts";
 import { pngBase64 } from "./png.ts";
 
@@ -48,6 +50,26 @@ function detailOf(d: Doc): string | null {
 const nameOf = (d: Doc): string => (d.value as { name?: string }).name || d.id;
 
 const KINDS: DocKind[] = ["sfx", "song", "instrument"];
+
+const round3 = (n: number): number => Math.round(n * 1000) / 1000;
+
+/** What the model may know about a sample: everything but the audio. */
+function sampleInfo(id: string, s: UserSample): SampleInfo {
+  const frames = sampleFrames(s);
+  return {
+    baseNote: s.baseNote,
+    bits: s.bits,
+    bytes: base64ByteLength(s.data),
+    finetune: s.finetune,
+    frames,
+    id,
+    loop: s.loop ? { ...s.loop } : null,
+    name: s.name,
+    rate: s.rate,
+    seconds: round3(frames / s.rate),
+    volume: round3(s.volume),
+  };
+}
 
 let turns = 0;
 
@@ -89,7 +111,7 @@ export function createStudioHost(): StudioHost {
     },
     current() {
       const d = app.currentDoc();
-      return d ? { id: d.id, kind: d.kind } : null;
+      return d && d.kind !== "sample" ? { id: d.id, kind: d.kind } : null;
     },
     endTurn() {
       group = "";
@@ -124,7 +146,7 @@ export function createStudioHost(): StudioHost {
           out.push({
             detail: detailOf(d),
             id: d.id,
-            kind: d.kind,
+            kind: k,
             name: nameOf(d),
           });
         }
@@ -153,7 +175,7 @@ export function createStudioHost(): StudioHost {
     },
     read(ref) {
       const doc = docOf(ref);
-      return Promise.resolve(doc ? clone(doc.value) : null);
+      return Promise.resolve(doc ? (clone(doc.value) as AnyDoc) : null);
     },
     async remove(ref) {
       const doc = docOf(ref);
@@ -169,6 +191,30 @@ export function createStudioHost(): StudioHost {
         app.navigate("#/pads");
       }
       return { deleted, missing: false };
+    },
+    async resample(ref, opts) {
+      const doc = docOf(ref);
+      if (!doc) {
+        throw new Error(`${ref.kind}/${ref.id} does not exist`);
+      }
+      const made = await resampleDoc(doc, {
+        id: opts.id,
+        open: false,
+        ...(opts.bits === undefined ? {} : { bits: opts.bits }),
+        ...(opts.name === undefined ? {} : { name: opts.name }),
+        ...(opts.note === undefined ? {} : { note: opts.note }),
+        ...(opts.rate === undefined ? {} : { rate: opts.rate }),
+      });
+      const sample = project.samples()[made.id];
+      if (!sample) {
+        throw new Error(`sample/${made.id} was not created`);
+      }
+      return sampleInfo(made.id, sample);
+    },
+    samples() {
+      return Promise.resolve(
+        Object.entries(project.samples()).map(([id, s]) => sampleInfo(id, s))
+      );
     },
     stop() {
       stopEverything();
