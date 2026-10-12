@@ -256,6 +256,154 @@
     select {
       padding-right: 4px;
     }
+    /* ----- pixel dropdowns (src/ui/dropdown.ts): a button in place of each <select>, which stays as the hidden source
+       of truth, and a listbox in the top layer ----- */
+    .dd-native {
+      position: absolute !important;
+      width: 1px !important;
+      height: 1px !important;
+      min-height: 0 !important;
+      padding: 0 !important;
+      margin: -1px !important;
+      overflow: hidden;
+      white-space: nowrap;
+      pointer-events: none;
+      border: 0;
+      opacity: 0;
+      clip-path: inset(50%);
+    }
+    .dd {
+      display: inline-flex;
+      gap: 4px;
+      align-items: center;
+      justify-content: space-between;
+      min-width: 0;
+      max-width: 100%;
+      min-height: 30px;
+      padding: 4px 2px 4px 8px;
+      text-align: left;
+      cursor: pointer;
+      background: #14131d;
+      border: 1px solid var(--line);
+      border-radius: var(--r);
+      box-shadow: inset 2px 2px 0 rgba(0, 0, 0, 0.35);
+    }
+    .dd[hidden] {
+      display: none;
+    }
+    .dd:hover {
+      border-color: var(--muted);
+    }
+    .dd[aria-expanded="true"] {
+      border-color: var(--accent);
+    }
+    .dd:disabled:not(.off) {
+      cursor: default;
+      opacity: 0.5;
+    }
+    .dd:disabled:hover {
+      border-color: var(--line);
+    }
+    /* the current text and every option's text share one cell, so the button is as wide as the longest option, as a
+       native select is, and does not jump when the choice changes */
+    .dd-val {
+      display: grid;
+      flex: 1;
+      min-width: 0;
+    }
+    .dd-cur,
+    .dd-sz > span {
+      grid-area: 1 / 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .dd-sz {
+      display: contents;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    .dd-chev,
+    .dd-tick {
+      display: inline-flex;
+      flex: none;
+      width: 16px;
+      height: 16px;
+      image-rendering: pixelated;
+    }
+    .dd-chev {
+      color: var(--muted);
+    }
+    .dd:hover .dd-chev,
+    .dd[aria-expanded="true"] .dd-chev {
+      color: var(--fg);
+    }
+    .dd[aria-expanded="true"] .dd-chev svg {
+      transform: rotate(180deg);
+    }
+    .dd-pop {
+      position: fixed;
+      inset: auto;
+      z-index: 10000;
+      box-sizing: border-box;
+      width: max-content;
+      max-width: calc(100vw - 12px);
+      padding: 2px;
+      margin: 0;
+      overflow: hidden auto;
+      overscroll-behavior: contain;
+      font-size: 14px;
+      color: var(--fg);
+      outline: none;
+      scrollbar-color: var(--line) var(--panel);
+      background: var(--panel);
+      border: 1px solid var(--muted);
+      border-radius: var(--r);
+      box-shadow:
+        0 0 0 1px #000,
+        4px 4px 0 rgba(0, 0, 0, 0.45);
+    }
+    .dd-pop:focus-visible {
+      outline: none;
+      background: var(--panel);
+    }
+    .dd-opt {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+      min-height: 26px;
+      padding: 3px 10px 3px 4px;
+      color: var(--fg);
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .dd-opt .dd-tick {
+      visibility: hidden;
+    }
+    .dd-opt[aria-selected="true"] {
+      color: var(--accent);
+    }
+    .dd-opt[aria-selected="true"] .dd-tick {
+      visibility: visible;
+    }
+    .dd-opt.act {
+      background: var(--raised);
+      box-shadow: inset 2px 0 0 var(--muted);
+    }
+    .dd-opt[aria-selected="true"].act {
+      box-shadow: inset 2px 0 0 var(--accent);
+    }
+    .dd-opt[aria-disabled="true"] {
+      color: var(--muted);
+      cursor: default;
+      opacity: 0.5;
+    }
+    @media (pointer: coarse) {
+      .dd-opt {
+        min-height: 40px;
+      }
+    }
     input[type="number"] {
       padding-right: 6px;
       padding-left: 6px;
@@ -1763,6 +1911,7 @@
       color: var(--muted);
     }
     .asst-row select,
+    .asst-row .dd,
     .asst-row input[type="password"],
     .asst-row input[type="text"] {
       width: 100%;
@@ -3558,9 +3707,10 @@
       min-height: 24px;
       padding: 1px 6px;
     }
-    .macro-t select {
+    .macro-t select,
+    .macro-t .dd {
       min-height: 24px;
-      padding: 0 4px;
+      padding: 0 2px 0 4px;
       font-size: 12px;
     }
     .flagchip.on.rel {

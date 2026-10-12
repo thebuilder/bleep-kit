@@ -22,6 +22,7 @@ import { type Doc, project } from "./state/docs.ts";
 import { LocalStore } from "./store/local.ts";
 import { probeServer, ServerStore } from "./store/server.ts";
 import type { ProjectStore } from "./store/store.ts";
+import { installDropdowns } from "./ui/dropdown.ts";
 import { openHelp } from "./ui/help.ts";
 import { icon } from "./ui/icons.ts";
 import { installMidiDrop, pickMidiFile } from "./ui/import-midi.ts";
@@ -95,6 +96,8 @@ const logoBarHeight = (level: number, i: number, time: number): number =>
   );
 
 export async function boot(root: HTMLElement): Promise<void> {
+  // every <select> the views build gets the pixel dropdown (ui/dropdown.ts)
+  installDropdowns();
   root.innerHTML = `
     <div class="app" id="shell">
       <header class="top">
