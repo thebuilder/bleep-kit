@@ -1749,24 +1749,32 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       if (ev.channel < 0) {
         continue;
       }
-      const n = clamp(Math.round(ev.note), KEY_LO, KEY_HI);
       if (ev.type === "noteOn") {
-        keys.light(n, colorOf(ev.channelId), true, f.time);
-        const lit = litNotes.get(ev.channel) ?? new Set<number>();
-        lit.add(n);
-        litNotes.set(ev.channel, lit);
-        if (ev.hz > 0) {
-          hzOf.set(ev.channel, ev.hz);
-        }
-        const at = evPos?.order === orderIdx ? evPos.row : playRow;
-        pulseCell(ev.channelId, at);
+        noteStarted(ev, f.time);
       } else if (ev.type === "noteOff") {
-        for (const k of litNotes.get(ev.channel) ?? []) {
-          keys.release(k, f.time);
-        }
-        litNotes.delete(ev.channel);
+        noteEnded(ev.channel, f.time);
       }
     }
+  }
+  /** Light the key of a note that starts, remember it for the channel's noteOff, and pulse its cell. */
+  function noteStarted(ev: EngineEvent, time: number): void {
+    const n = clamp(Math.round(ev.note), KEY_LO, KEY_HI);
+    keys.light(n, colorOf(ev.channelId), true, time);
+    const lit = litNotes.get(ev.channel) ?? new Set<number>();
+    lit.add(n);
+    litNotes.set(ev.channel, lit);
+    if (ev.hz > 0) {
+      hzOf.set(ev.channel, ev.hz);
+    }
+    const at = evPos?.order === orderIdx ? evPos.row : playRow;
+    pulseCell(ev.channelId, at);
+  }
+  /** A channel holds one note, so its noteOff puts out every key it lit. */
+  function noteEnded(channel: number, time: number): void {
+    for (const k of litNotes.get(channel) ?? []) {
+      keys.release(k, time);
+    }
+    litNotes.delete(channel);
   }
 
   /** The order list marks the pattern that plays; with follow on, the grid moves to it. */
