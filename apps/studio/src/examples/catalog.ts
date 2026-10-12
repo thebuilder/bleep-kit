@@ -11,10 +11,12 @@ import {
   PPQ,
   type Sfx,
   type Song,
+  type UserSample,
 } from "../lib/contract.ts";
 import {
   compileSong,
   normalizeInstrument,
+  normalizeSample,
   normalizeSfx,
   normalizeSong,
 } from "../lib/core.ts";
@@ -33,9 +35,15 @@ const RAW_INSTRUMENTS = import.meta.glob(
   { eager: true, import: "default" }
 ) as Record<string, unknown>;
 
+const RAW_SAMPLES = import.meta.glob(
+  "../../../../examples/demo/samples/*.json",
+  { eager: true, import: "default" }
+) as Record<string, unknown>;
+
 /** The kind of game each chip's examples were made for: the demo has one set per chip. */
 export const GAME_STYLES: Record<ChipId, string> = {
   adlib: "Dark-fantasy shooter",
+  amiga: "Demoscene tracker tune",
   c64: "Arcade chase",
   custom: "Anything goes",
   gameboy: "Handheld adventure",
@@ -51,6 +59,8 @@ export interface ExampleSong {
   id: string;
   /** Ids of the example instruments the song uses (channel defaults, row switches, MML `@id`). */
   instrumentIds: string[];
+  /** Ids of the example user samples those instruments play. */
+  sampleIds: string[];
   name: string;
   /** One pass through the song (the order list once, tempo changes included). */
   seconds: number;
@@ -81,6 +91,8 @@ export interface ExampleCatalog {
   /** Every instrument of the demo, by id. */
   instruments: Record<string, Instrument>;
   /** The sound effects, grouped by set in the order of the chips. */
+  /** The user samples of the demo, by id. */
+  samples: Record<string, UserSample>;
   sets: ExampleSet[];
   sfx: ExampleSfx[];
   songs: ExampleSong[];
@@ -119,6 +131,15 @@ export function referencedInstruments(song: Song): string[] {
   return [...new Set([...fromChannels, ...fromRows].filter(Boolean))].sort();
 }
 
+/** The user sample ids the given instruments play. */
+export function sampleIdsOf(
+  ids: readonly string[],
+  instruments: Record<string, Instrument>
+): string[] {
+  const out = ids.map((id) => instruments[id]?.sample?.userSample ?? "");
+  return [...new Set(out.filter(Boolean))].sort();
+}
+
 /** Seconds of one pass through a song, following its tempo changes. */
 function songSeconds(
   song: Song,
@@ -145,18 +166,24 @@ function build(): ExampleCatalog {
   for (const [path, json] of Object.entries(RAW_INSTRUMENTS)) {
     instruments[idOf(path)] = normalizeInstrument(json).value;
   }
+  const samples: Record<string, UserSample> = {};
+  for (const [path, json] of Object.entries(RAW_SAMPLES)) {
+    samples[idOf(path)] = normalizeSample(json).value;
+  }
   const songs = Object.entries(RAW_SONGS)
     .map(([path, json]): ExampleSong => {
-      const song = normalizeSong(json, instruments).value;
+      const song = normalizeSong(json, instruments, samples).value;
       const { detail, name } = splitName(song.name);
+      const instrumentIds = referencedInstruments(song).filter(
+        (id) => id in instruments
+      );
       return {
         chip: song.chip,
         detail,
         id: idOf(path),
-        instrumentIds: referencedInstruments(song).filter(
-          (id) => id in instruments
-        ),
+        instrumentIds,
         name,
+        sampleIds: sampleIdsOf(instrumentIds, instruments),
         seconds: songSeconds(song, instruments),
         song,
         style: GAME_STYLES[song.chip],
@@ -193,7 +220,7 @@ function build(): ExampleCatalog {
     }
     set.sfx.push(s);
   }
-  return { instruments, sets, sfx, songs };
+  return { instruments, samples, sets, sfx, songs };
 }
 
 let cached: ExampleCatalog | null = null;

@@ -88,6 +88,49 @@ const SCENES: Record<ChipId, () => ReturnType<typeof base>> = {
         type: "vignette",
       },
     ]),
+  /* a dusk sky with copper bars and a red glow, like a demoscene intro */
+  amiga: () =>
+    base([
+      {
+        params: {
+          bands: 10,
+          bottom: "#5a2a6a",
+          meteors: 1,
+          mid: "#22225a",
+          stars: 60,
+          style: "gradient",
+          top: "#080a26",
+          twinkle: 0.6,
+        },
+        type: "sky",
+      },
+      {
+        params: {
+          bands: 5,
+          c1: "#ff5a4a",
+          c2: "#4a7aff",
+          height: 30,
+          intensity: 0.6,
+          speed: 0.7,
+          wave: 0.4,
+          y: 0.5,
+        },
+        type: "aurora",
+      },
+      pulse({
+        base: 0.12,
+        color: "#ff7a5a",
+        flash: "#ffe0d0",
+        radius: 100,
+        x: 0.5,
+        y: 0.55,
+      }),
+      { params: { chroma: 0, flicker: 0.02, scanlines: 0.2 }, type: "crt" },
+      {
+        params: { color: "#000000", size: 0.6, steps: 4, strength: 0.4 },
+        type: "vignette",
+      },
+    ]),
   /* a blue-purple nebula */
   c64: () =>
     base([

@@ -137,7 +137,7 @@ export const analyzeCommand: CommandSpec = {
     } else {
       const pc = openProject(ctx);
       const r = resolveRef(pc, target, ["sfx", "song", "instrument"]);
-      if (r.kind === "instrument") {
+      if (r.kind === "instrument" || r.kind === "sample") {
         throw new CliError("usage", `${r.ref} has no render of its own`, {
           hint: "Analyze a song or sfx that uses it.",
         });

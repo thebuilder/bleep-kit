@@ -4,6 +4,7 @@ import { CHIPS } from "../chips/index.ts";
 import { defaultSong } from "../normalize/defaults.ts";
 import { effectFromByte } from "../normalize/effects.ts";
 import { normalizeSong } from "../normalize/index.ts";
+import type { Role } from "../songs/roles.ts";
 import type {
   ChipChannel,
   ChipId,
@@ -17,7 +18,6 @@ import { type ChordHost, type ChordStats, placeChords } from "./chords.ts";
 import {
   type Built,
   drumInstrument,
-  type Role,
   roleInstrument,
   roleOf,
 } from "./instruments.ts";

@@ -222,14 +222,19 @@ describe("a clean project", () => {
       [...document.querySelectorAll(".empty-card .btn")].map(
         (b) => b.textContent
       )
-    ).toEqual(["New SFX", "New song", "Import MIDI", "Open examples"]);
+    ).toEqual(["New SFX", "New song", "Import MIDI or MOD", "Open examples"]);
     expect(document.querySelectorAll(".pad[data-id]")).toHaveLength(0);
     // the sidebar sections each name their next step
     expect(
       [...document.querySelectorAll("#side [data-empty]")].map(
         (b) => b.textContent
       )
-    ).toEqual(["Make a sound effect", "Write a song", "Add an instrument"]);
+    ).toEqual([
+      "Make a sound effect",
+      "Write a song",
+      "Add an instrument",
+      "Import a sample",
+    ]);
 
     // every other view renders, and a missing document goes back to the pads
     await go("#/project", () => document.getElementById("pGo") !== null);

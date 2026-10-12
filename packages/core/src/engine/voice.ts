@@ -2,6 +2,7 @@
    sample playback, then the envelope, chip volume quantization and (for sfx) the program and its effects.
    Nothing in render() allocates. */
 
+import { quantizeRate as amigaQuantizeRate } from "../chips/amiga.ts";
 import {
   C64_CLOCK_HZ,
   hzToPeriod as c64HzToPeriod,
@@ -14,6 +15,7 @@ import {
   quantizeWaveHz as gbQuantizeWaveHz,
 } from "../chips/gameboy.ts";
 import {
+  quantizeDacRate as genesisQuantizeDacRate,
   quantizeHz as genesisQuantizeHz,
   quantizeNoiseRate as genesisQuantizeNoiseRate,
   quantizeTone3NoiseRate as genesisQuantizeTone3Rate,
@@ -143,6 +145,7 @@ const CI_GB = CHIP_INDEX.gameboy;
 const CI_C64 = CHIP_INDEX.c64;
 const CI_GENESIS = CHIP_INDEX.genesis;
 const CI_ADLIB = CHIP_INDEX.adlib;
+const CI_AMIGA = CHIP_INDEX.amiga;
 
 const SMOOTH_SECONDS = 0.0005;
 const PAN_SECONDS = 0.003;
@@ -309,8 +312,11 @@ export class Voice {
         break;
       case CI_GENESIS:
         this.quantMode = Q_LOG;
+        // the DAC (a sample on fm6) is scaled by the driver in fine steps, like an FM channel's total level
         this.quantTable =
-          this.src === SRC_FM ? logQuantTable(0.75, 128) : logQuantTable(2, 16);
+          this.src === SRC_FM || this.src === SRC_SAMPLE
+            ? logQuantTable(0.75, 128)
+            : logQuantTable(2, 16);
         break;
       case CI_ADLIB:
         this.quantMode = Q_LOG;
@@ -386,7 +392,9 @@ export class Voice {
     this.sendReverb = rt.sendReverb;
     this.fmRt = rt.fm;
     this.sample = rt.sample;
-    if (this.src === SRC_FM) {
+    if (this.src === SRC_FM || this.isDac()) {
+      // an FM voice has its operators' envelopes; the DAC has none at all: the sample plays at its own level, and a
+      // note off stops the stream at once
       setEnvelopeParams(this.env, MIN_ATTACK, 10, 1, 0.001, this.sr);
     } else {
       setEnvelopeParams(
@@ -571,7 +579,16 @@ export class Voice {
       case SRC_SAMPLE:
         if (this.sample) {
           const base = noteToHz(this.sample.baseNote);
-          this.sampleStep = (hz / base) * (this.sample.rate / sr);
+          const rate = (hz / base) * this.sample.rate;
+          // Paula plays the data at clock / period frames per second, with a whole number for the period; a Genesis
+          // driver streams it to the DAC at 8 to 26 kHz, a whole number of Z80 cycles per sample
+          let played = rate;
+          if (this.chipIdx === CI_AMIGA) {
+            played = amigaQuantizeRate(rate);
+          } else if (this.chipIdx === CI_GENESIS) {
+            played = genesisQuantizeDacRate(rate);
+          }
+          this.sampleStep = played / sr;
         }
         break;
       default:
@@ -588,7 +605,7 @@ export class Voice {
     }
   }
 
-  /** Pan -1..1, snapped per chip pan mode. */
+  /** Pan -1..1, snapped per chip pan mode ("fixed" channels get their final pan from the channel). */
   setPan(p: number, immediate: boolean): void {
     let v = Math.min(1, Math.max(-1, p));
     const mode = this.profile.constraints.pan;
@@ -1244,10 +1261,44 @@ export class Voice {
     f.phase[1] = pc;
   }
 
+  /** Whether this voice is the Genesis DAC: a sample source on the YM2612's sixth channel in PCM mode. */
+  isDac(): boolean {
+    return this.chipIdx === CI_GENESIS && this.src === SRC_SAMPLE && !this.isSfx;
+  }
+
+  /** Paula and the YM2612 DAC: each output frame takes the sample under the read position, no interpolation (the
+      aliasing is the sound). */
+  private renderSampleNearest(s: SampleRt, x: Float32Array, n: number): void {
+    const data = s.data;
+    const len = data.length;
+    let pos = this.samplePos;
+    const step = this.sampleStep;
+    for (let i = 0; i < n; i += 1) {
+      if (s.loops && pos >= s.loopEnd) {
+        pos = s.loopStart + (pos - s.loopEnd);
+      }
+      if (pos >= len) {
+        x[i] = 0;
+        pos += step;
+        if (!s.loops && this.sampleEndAt < 0) {
+          this.sampleEndAt = i;
+        }
+        continue;
+      }
+      x[i] = data[pos | 0] ?? 0;
+      pos += step;
+    }
+    this.samplePos = pos;
+  }
+
   private renderSample(x: Float32Array, n: number): void {
     const s = this.sample;
     if (!s) {
       x.fill(0, 0, n);
+      return;
+    }
+    if (this.chipIdx === CI_AMIGA || this.chipIdx === CI_GENESIS) {
+      this.renderSampleNearest(s, x, n);
       return;
     }
     const data = s.data;

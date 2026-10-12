@@ -19,6 +19,7 @@ import {
   createSynth,
   ENGINE_VERSION,
   normalizeInstrument,
+  normalizeSong,
   renderInstrumentNote,
   renderSfx,
   renderSong,
@@ -38,7 +39,15 @@ import {
 const GOLDEN = fileURLToPath(new URL("./golden/", import.meta.url));
 const UPDATE = process.env.UPDATE_GOLDEN === "1";
 const RATES = [48_000, 44_100] as const;
-const CHIPS = ["gameboy", "c64", "genesis", "adlib", "snes", "custom"] as const;
+const CHIPS = [
+  "gameboy",
+  "c64",
+  "genesis",
+  "adlib",
+  "snes",
+  "amiga",
+  "custom",
+] as const;
 const INSTRUMENT_FILES = [
   "instrument-lead",
   "instrument-bass",
@@ -51,6 +60,7 @@ const GOLDEN_IDS: readonly string[] = [
   "sfx-coin",
   "song-title",
   ...CHIPS.flatMap((chip) => [`demo-${chip}`, `demo-${chip}-sfx`]),
+  "demo-genesis-dac",
   ...INSTRUMENT_FILES,
 ];
 
@@ -100,6 +110,7 @@ function writeGolden(id: string, path: string, now: GoldenFile): void {
 const SONG_IDS: readonly string[] = [
   "song-title",
   ...CHIPS.map((chip) => `demo-${chip}`),
+  "demo-genesis-dac",
 ];
 const ratesOf = (id: string): readonly number[] =>
   SONG_IDS.includes(id) ? [48_000] : RATES;
@@ -247,6 +258,24 @@ describe("golden renders", () => {
       );
     });
   }
+
+  /* The Genesis with FM6 switched to the DAC: sample drums on fm6 and an FM bass. */
+  it("demo-genesis-dac song", () => {
+    const raw = fixtureJson("demo-genesis-dac.json") as {
+      instruments: Record<string, unknown>;
+      song: unknown;
+    };
+    const instruments = Object.fromEntries(
+      Object.entries(raw.instruments).map(([id, inst]) => [
+        id,
+        normalizeInstrument(inst).value,
+      ])
+    );
+    const song = normalizeSong(raw.song, instruments).value;
+    checkGolden("demo-genesis-dac", (sampleRate) =>
+      renderSong(song, instruments, { sampleRate, tail: 0.5 })
+    );
+  });
 
   for (const file of INSTRUMENT_FILES) {
     it(file, () => {

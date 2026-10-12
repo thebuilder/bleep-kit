@@ -13,6 +13,11 @@ export {
   resultToInterleaved,
 } from "./tools/buffers.ts";
 export {
+  type Captured,
+  type CaptureOptions,
+  captureSample,
+} from "./tools/capture.ts";
+export {
   encodeMp3,
   encodeOgg,
   MP3_ENCODER_DELAY,
@@ -27,7 +32,13 @@ export {
   spectrogramImage,
   waveformImage,
 } from "./tools/images.ts";
-export { type PitchPoint, type PitchTrack, trackPitch } from "./tools/pitch.ts";
+export {
+  detectSamplePitch,
+  type PitchPoint,
+  type PitchTrack,
+  type SamplePitch,
+  trackPitch,
+} from "./tools/pitch.ts";
 export { type Deflate, encodePng, type PngImage } from "./tools/png.ts";
 export {
   fft,

@@ -13,6 +13,7 @@ import type {
   Song,
   SongPosition,
   ToWorklet,
+  UserSample,
 } from "../lib/contract.ts";
 import { renderInstrumentNote, renderSfx, renderSong } from "../lib/core.ts";
 
@@ -73,6 +74,7 @@ class FakeEngine implements EngineNodeLike {
   private readonly instruments = new Map<string, Instrument>();
   private readonly renderCache = new Map<string, RenderResult>();
   private readonly scopeBuffers = new Map<string, Float32Array>();
+  private readonly userSamples = new Map<string, UserSample>();
   private song: Song | null = null;
   private songInstruments: Record<string, Instrument> = {};
   private limiter = true as boolean;
@@ -130,7 +132,15 @@ class FakeEngine implements EngineNodeLike {
   /* ----- messages ----- */
 
   private readonly handlers: Handlers = {
+    loadSample: (m) => {
+      this.userSamples.set(m.id, m.sample);
+      this.renderCache.clear();
+    },
     loadSfx: (m) => this.sfxDocs.set(m.id, m.sfx),
+    unloadSample: (m) => {
+      this.userSamples.delete(m.id);
+      this.renderCache.clear();
+    },
     loadSong: (m) => {
       this.song = m.song;
       this.songInstruments = m.instruments;
@@ -230,6 +240,7 @@ class FakeEngine implements EngineNodeLike {
           master: this.renderMaster(),
           release: 0.4,
           sampleRate: this.sr,
+          samples: this.sampleRecord(),
         })
     );
     this.releaseHeld((v) => v.channel === m.channel, 0.02);
@@ -253,6 +264,10 @@ class FakeEngine implements EngineNodeLike {
 
   /** Volume is the output gain node's job here (it follows the slider live), so renders ask for unity. */
   private readonly renderMaster = () => ({ limiter: this.limiter, volume: 1 });
+
+  private sampleRecord(): Record<string, UserSample> {
+    return Object.fromEntries(this.userSamples);
+  }
 
   private cacheKey(kind: string, doc: unknown, extra = ""): string {
     return `${kind}:${extra}:${this.limiter}:${JSON.stringify(doc)}`;
@@ -424,6 +439,7 @@ class FakeEngine implements EngineNodeLike {
         renderSong(song, insts, {
           master: this.renderMaster(),
           sampleRate: this.sr,
+          samples: this.sampleRecord(),
           stems: true,
           tail: 0.5,
         })

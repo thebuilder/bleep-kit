@@ -18,6 +18,16 @@ const DRUMS: readonly SampleGeneratorId[] = [
   "clap",
   "crash",
 ];
+/* Seven more for techno: three drums with a 909 or 808 character, a clap, a hat, a crash and an orchestra hit. */
+const TECHNO: readonly SampleGeneratorId[] = [
+  "kick909",
+  "kick808",
+  "snare909",
+  "clap909",
+  "hat909",
+  "crash909",
+  "orchestra",
+];
 /* Pitched generators with a definite fundamental at C-4. Bell is an inharmonic FM tone (ratio 3.5), so it has no
    fundamental to measure and is left out. */
 const PITCHED: readonly SampleGeneratorId[] = [
@@ -38,6 +48,13 @@ const NOISY: readonly SampleGeneratorId[] = [
   "crash",
   "pluck",
   "choir",
+  "kick909",
+  "kick808",
+  "snare909",
+  "clap909",
+  "hat909",
+  "crash909",
+  "orchestra",
 ];
 const LOOPING: readonly SampleGeneratorId[] = [
   "bass",
@@ -141,9 +158,10 @@ function acfHz(
 }
 
 describe("sample generators", () => {
-  it("the generators are the six drums and eight tonal instruments of the contract", () => {
+  it("the generators are the six drums, eight tonal instruments and seven techno sounds of the contract", () => {
     const documented = [
       ...DRUMS,
+      ...TECHNO,
       "pluck",
       "bass",
       "pad",
@@ -296,7 +314,7 @@ describe("sample generators", () => {
   });
 
   it("drums are normalized to a 0.95 peak", () => {
-    for (const id of DRUMS) {
+    for (const id of [...DRUMS, ...TECHNO]) {
       expect(peak([make(id).data]), id).toBeCloseTo(0.95, 3);
     }
   });
@@ -327,10 +345,16 @@ describe("sample generators", () => {
     expect(withDecay.sort()).toEqual([
       "bell",
       "clap",
+      "clap909",
       "crash",
+      "crash909",
       "hat",
       "kick",
+      "kick808",
+      "kick909",
+      "orchestra",
       "snare",
+      "snare909",
       "tom",
     ]);
     for (const id of withDecay) {
@@ -344,6 +368,49 @@ describe("sample generators", () => {
       const window = (x: GeneratedSample) => rms(x.data, 9600, 14_400);
       expect(window(long), id).toBeGreaterThan(window(short) * 10 + 0.01);
     }
+  });
+
+  it("the 909 kick starts high and falls to its pitch, with a click the 808 kick does not have", () => {
+    const k9 = make("kick909");
+    const k8 = make("kick808");
+    const crossings = (a: Float32Array, from: number, to: number): number => {
+      let c = 0;
+      for (let i = from + 1; i < to; i += 1) {
+        if ((a[i] ?? 0) >= 0 !== (a[i - 1] ?? 0) >= 0) {
+          c += 1;
+        }
+      }
+      return c / ((to - from) / 48_000);
+    };
+    // zero crossings per second over 12 to 30 ms against 150 to 200 ms: the sweep has fallen by half or more
+    const early = crossings(k9.data, 576, 1440);
+    const late = crossings(k9.data, 7200, 9600);
+    expect(early).toBeGreaterThan(late * 1.8);
+    // the 808 boom settles on its own pitch (46 Hz) and rings longer than the 909
+    const boom = acfHz(k8.data, k8.sampleRate, 9000, 8192, 30, 90);
+    expect(boom).toBeGreaterThan(40);
+    expect(boom).toBeLessThan(54);
+    expect(k8.data.length).toBeGreaterThan(k9.data.length * 1.5);
+    // the click: the first 3 ms of the 909 hold more high frequency content than the 808's
+    const hf = (a: Float32Array): number => {
+      let sum = 0;
+      for (let i = 1; i < 144; i += 1) {
+        sum += Math.abs((a[i] ?? 0) - (a[i - 1] ?? 0));
+      }
+      return sum;
+    };
+    expect(hf(k9.data)).toBeGreaterThan(hf(k8.data));
+  });
+
+  it("the open hat rings longer than the closed hat, and the orchestra hit is a pitched stack on C-4", () => {
+    const closed = make("hat909", 1, 48_000, { open: 0 });
+    const open = make("hat909", 1, 48_000, { open: 1 });
+    expect(open.data.length).toBeGreaterThan(closed.data.length * 5);
+    const orch = make("orchestra");
+    expect(orch.baseNote).toBe(60);
+    // the root (C-4, 261.6 Hz) is in the stack: the autocorrelation of the body peaks near it
+    const hz = acfHz(orch.data, 48_000, 2400, 8192, 200, 340);
+    expect(Math.abs(1200 * Math.log2(hz / 261.6256))).toBeLessThan(40);
   });
 
   it("a different seed gives different samples for every generator that draws noise", () => {

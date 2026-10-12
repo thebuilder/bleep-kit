@@ -20,6 +20,8 @@ export interface ChannelHost {
     instId: string
   ) => void;
   instrument: (id: string) => InstRt | undefined;
+  /** The Amiga LED filter switch (the E effect). */
+  setLed: (on: boolean) => void;
   sidFilterTrigger: (f: SidPatch["filter"]) => void;
   readonly tickRate: number;
 }
@@ -43,6 +45,10 @@ export class Channel {
   userVolume = 1;
   userPan: number | null = null;
   muted = false;
+  /** Scales the channel's hardware pan (Amiga stereo separation): 1 is hard left and right, 0 is the middle. */
+  separation = 1;
+  /** Start offset of the next sample note in 256 frame units (the 9xx effect), or -1. */
+  sampleOffset = -1;
   /** Set by the synth: a solo is active and this channel is not part of it. */
   silenced = false;
 
@@ -178,6 +184,7 @@ export class Channel {
     this.velocity = velocity;
     this.delayLeft = -1;
     this.nsFresh = false;
+    this.sampleOffset = -1;
     let delay = 0;
     for (const e of fx) {
       if (e.type === "delay") {
@@ -209,6 +216,7 @@ export class Channel {
     }
     // there is no new note for a slide set here to wait for: it moves the sounding one
     this.nsFresh = false;
+    this.sampleOffset = -1;
     if (this.playing) {
       this.apply(false);
     }
@@ -248,6 +256,10 @@ export class Channel {
     this.retrigCount = 0;
     const wasActive = v.active;
     v.noteOn(rt, note, frame);
+    if (this.sampleOffset >= 0 && v.sample) {
+      v.samplePos = Math.min(this.sampleOffset * 256, v.sample.data.length);
+    }
+    this.sampleOffset = -1;
     if (rt.src === SRC_SID && rt.inst.sid) {
       const f = rt.inst.sid.filter;
       v.sidRouted = f.mode !== "off";
@@ -345,6 +357,12 @@ export class Channel {
       case "retrigger":
         this.retrigEvery = xx;
         this.retrigCount = 0;
+        break;
+      case "filter":
+        this.host.setLed(xx !== 0);
+        break;
+      case "sampleOffset":
+        this.sampleOffset = xx;
         break;
       default:
         break;
@@ -500,6 +518,9 @@ export class Channel {
 
   /** The pan: a pan effect wins, else song, instrument and macro together, and the user's pan over those. */
   private panOf(rt: InstRt, v: Voice): number {
+    if (this.info.pan !== undefined) {
+      return this.info.pan * this.separation;
+    }
     if (this.panOverride !== null) {
       return this.panOverride;
     }

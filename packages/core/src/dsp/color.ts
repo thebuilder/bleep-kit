@@ -2,6 +2,7 @@
    DAC curve, sample rate reduction, bit depth and the one-pole filters. NES voices feed two mixer groups (pulse and
    triangle/noise) because the real APU mixes them non-linearly. */
 
+import { AMIGA_LED_HZ, AMIGA_LED_Q } from "../chips/amiga.ts";
 import { CHIPS } from "../chips/index.ts";
 import type { ChipId, ChipProfile } from "../types.ts";
 
@@ -19,6 +20,7 @@ const SID_ASYMMETRY = 0.03;
  */
 const CHIP_GAIN: Readonly<Record<ChipId, number>> = {
   adlib: 0.413,
+  amiga: 0.413,
   c64: 0.418,
   custom: 0.412,
   gameboy: 0.344,
@@ -47,6 +49,11 @@ interface ChanState {
   hpx: number;
   hpy: number;
   lpy: number;
+  /** The Amiga LED filter (a biquad): the last two inputs and outputs. */
+  lx1: number;
+  lx2: number;
+  ly1: number;
+  ly2: number;
 }
 
 function newChan(): ChanState {
@@ -60,6 +67,10 @@ function newChan(): ChanState {
     hpx: 0,
     hpy: 0,
     lpy: 0,
+    lx1: 0,
+    lx2: 0,
+    ly1: 0,
+    ly2: 0,
   };
 }
 
@@ -73,6 +84,10 @@ function resetChan(c: ChanState): void {
   c.hpx = 0;
   c.hpy = 0;
   c.lpy = 0;
+  c.lx1 = 0;
+  c.lx2 = 0;
+  c.ly1 = 0;
+  c.ly2 = 0;
 }
 
 /** 4-tap gaussian kernel weights for a fractional position, as the SNES interpolator does (a soft, dull blur). */
@@ -120,8 +135,12 @@ export class ChipBus {
   private readonly holdStep: number;
   private readonly gaussian: boolean;
   private readonly bits: number;
-  private readonly lpA: number;
+  private lpA: number;
+  private readonly lpAFixed: number;
   private readonly hpA: number;
+  /** Amiga LED filter: biquad coefficients b0, b1, b2, a1, a2 (a0 = 1), and whether it is switched on. */
+  private readonly led = new Float64Array(5);
+  private ledOn = false;
   private readonly tailFrames: number;
   private readonly gwTable: Float64Array;
 
@@ -140,6 +159,10 @@ export class ChipBus {
       c.lowpassHz !== null && c.lowpassHz < sampleRate * 0.45
         ? 1 - Math.exp((-2 * Math.PI * c.lowpassHz) / sampleRate)
         : 0;
+    this.lpAFixed = this.lpA;
+    if (chip === "amiga") {
+      this.ledCoefficients(sampleRate);
+    }
     this.hpA =
       c.highpassHz === null
         ? 0
@@ -153,6 +176,29 @@ export class ChipBus {
         this.gwTable[s * 4 + k] = tmp[k] ?? 0;
       }
     }
+  }
+
+  /** RBJ lowpass biquad for the LED filter. */
+  private ledCoefficients(sampleRate: number): void {
+    const w = (2 * Math.PI * AMIGA_LED_HZ) / sampleRate;
+    const alpha = Math.sin(w) / (2 * AMIGA_LED_Q);
+    const cw = Math.cos(w);
+    const a0 = 1 + alpha;
+    this.led[0] = (1 - cw) / 2 / a0;
+    this.led[1] = (1 - cw) / a0;
+    this.led[2] = (1 - cw) / 2 / a0;
+    this.led[3] = (-2 * cw) / a0;
+    this.led[4] = (1 - alpha) / a0;
+  }
+
+  /** Amiga only: the A500 has the fixed 4.4 kHz output filter, the A1200 does not; the LED filter switches on and off. */
+  configureAmiga(a500: boolean, led: boolean): void {
+    this.lpA = a500 ? this.lpAFixed : 0;
+    this.ledOn = led;
+  }
+
+  setLed(on: boolean): void {
+    this.ledOn = on;
   }
 
   /** Zero the input arrays the first time a voice feeds the bus in a block. */
@@ -230,6 +276,20 @@ export class ChipBus {
           st.lpy = 0;
         }
         x = st.lpy;
+      }
+      if (this.ledOn) {
+        const l = this.led;
+        const y =
+          (l[0] ?? 0) * x +
+          (l[1] ?? 0) * st.lx1 +
+          (l[2] ?? 0) * st.lx2 -
+          (l[3] ?? 0) * st.ly1 -
+          (l[4] ?? 0) * st.ly2;
+        st.lx2 = st.lx1;
+        st.lx1 = x;
+        st.ly2 = st.ly1;
+        st.ly1 = y < 1e-12 && y > -1e-12 ? 0 : y;
+        x = st.ly1;
       }
       if (hpA > 0) {
         const y = hpA * (st.hpy + x - st.hpx);

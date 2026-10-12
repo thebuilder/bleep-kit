@@ -5,10 +5,10 @@ import type { Issue, Project } from "../lib/contract.ts";
 import { hashString } from "../lib/core.ts";
 import { choose } from "../lib/dom.ts";
 
-const DOC_PATH = /^(sfx|instruments|songs)\/[^/]+\.json$/;
+const DOC_PATH = /^(sfx|instruments|songs|samples)\/[^/]+\.json$/;
 const JSON_EXT = /\.json$/;
 
-export type FileKind = "project" | "sfx" | "instrument" | "song" | "render";
+export type FileKind = "project" | "sfx" | "instrument" | "song" | "sample" | "render";
 
 export interface FileEntry {
   etag: string;
@@ -85,6 +85,7 @@ export function kindOfPath(path: string): FileKind | null {
       [
         [m[1] === "sfx", "sfx" as const],
         [m[1] === "instruments", "instrument" as const],
+        [m[1] === "samples", "sample" as const],
       ],
       "song" as const
     );
@@ -94,10 +95,14 @@ export function kindOfPath(path: string): FileKind | null {
 
 const DIR_OF = {
   instrument: "instruments",
+  sample: "samples",
   sfx: "sfx",
   song: "songs",
 } as const;
-export const pathFor = (kind: "sfx" | "instrument" | "song", id: string) =>
+export const pathFor = (
+  kind: "sfx" | "instrument" | "song" | "sample",
+  id: string
+) =>
   `${DIR_OF[kind]}/${id}.json`;
 export const idOfPath = (path: string) =>
   (path.split("/").pop() ?? "").replace(JSON_EXT, "");

@@ -2,7 +2,13 @@
    later task, so callers always get a promise. It also remembers how long each sound really lasted when it was last
    rendered, which is what the pads and the editor show: the envelope times only say how long the sound is asked to
    run, and a chip can gate it off sooner (the NES triangle) or let the tail ring on. */
-import type { Instrument, RenderResult, Sfx, Song } from "./lib/contract.ts";
+import type {
+  Instrument,
+  RenderResult,
+  Sfx,
+  Song,
+  UserSample,
+} from "./lib/contract.ts";
 import { workerLink } from "./lib/worker-link.ts";
 import { type Doc, project } from "./state/docs.ts";
 import type {
@@ -81,14 +87,39 @@ export function sourceOf(doc: Doc, note = 60): Source {
     return { sfx: doc.value as Sfx, type: "sfx" };
   }
   if (doc.kind === "song") {
+    const instruments = project.instruments();
     return {
-      instruments: project.instruments(),
+      instruments,
+      samples: project.samplesFor(instruments),
       song: doc.value as Song,
       type: "song",
     };
   }
-  return { inst: doc.value as Instrument, note, type: "note" };
+  const inst = doc.value as Instrument;
+  return {
+    inst,
+    note,
+    samples: project.samplesFor({ inst }),
+    type: "note",
+  };
 }
+
+/** A short stand-in for a user sample in a cache key: its identity, since a sample is only ever replaced, not mutated. */
+const tags = new WeakMap<UserSample, number>();
+let nextTag = 1;
+function sampleTag(sample: UserSample): number {
+  let tag = tags.get(sample);
+  if (tag === undefined) {
+    tag = nextTag;
+    nextTag += 1;
+    tags.set(sample, tag);
+  }
+  return tag;
+}
+const samplesKey = (samples: Record<string, UserSample> | undefined): string =>
+  Object.entries(samples ?? {})
+    .map(([id, s]) => `${id}#${sampleTag(s)}`)
+    .join(",");
 
 /** The project's master as it is now, and a key for it: a render made under another master is another render. */
 const masterNow = (): RenderMaster => ({ ...project.project.master });
@@ -154,9 +185,10 @@ export const renderSongAsync = (
   stems = false
 ): Promise<RenderResult> => {
   const master = masterNow();
+  const samples = project.samplesFor(instruments);
   return run(
-    { instruments, kind: "song", master, rate, song, stems },
-    `song:${rate}:${stems}:${masterKey(master)}:${JSON.stringify([song, instruments])}`
+    { instruments, kind: "song", master, rate, samples, song, stems },
+    `song:${rate}:${stems}:${masterKey(master)}:${samplesKey(samples)}:${JSON.stringify([song, instruments])}`
   ) as Promise<RenderResult>;
 };
 
@@ -168,7 +200,9 @@ export function analyzeAsync(
   rate = 44_100
 ): Promise<AnalysisBundle> {
   const master = masterNow();
-  const key = `ana:${rate}:${width}:${masterKey(master)}:${file}:${JSON.stringify(source)}`;
+  const samples = source.type === "sfx" ? undefined : source.samples;
+  const lean = samples ? { ...source, samples: undefined } : source;
+  const key = `ana:${rate}:${width}:${masterKey(master)}:${file}:${samplesKey(samples)}:${JSON.stringify(lean)}`;
   // the images are big, so they are not kept in the cache
   return (
     run(

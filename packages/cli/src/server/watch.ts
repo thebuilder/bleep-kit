@@ -42,10 +42,10 @@ function settle(state: ApiState, rel: string): void {
   state.hub.broadcast(msg);
 }
 
-const WATCHED_TOP = new Set(["sfx", "instruments", "songs", "out"]);
+const WATCHED_TOP = new Set(["sfx", "instruments", "samples", "songs", "out"]);
 
 /**
- * Watches project.json, the three document folders and out/** with one non-recursive fs.watch per directory.
+ * Watches project.json, the four document folders and out/** with one non-recursive fs.watch per directory.
  * (A recursive fs.watch on Linux is a JS emulation that loses track of a file once an atomic save replaces its
  * inode, which is exactly how this server and many editors write files; directory watchers see every replace.)
  */

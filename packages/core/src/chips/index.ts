@@ -6,6 +6,7 @@ import type {
   Song,
 } from "../types.ts";
 import { ADLIB } from "./adlib.ts";
+import { AMIGA } from "./amiga.ts";
 import { C64 } from "./c64.ts";
 import { CUSTOM } from "./custom.ts";
 import { GAMEBOY } from "./gameboy.ts";
@@ -15,6 +16,7 @@ import { SNES } from "./snes.ts";
 
 export const CHIPS: Readonly<Record<ChipId, ChipProfile>> = {
   adlib: ADLIB,
+  amiga: AMIGA,
   c64: C64,
   custom: CUSTOM,
   gameboy: GAMEBOY,
@@ -27,13 +29,30 @@ export function chipProfile(id: ChipId): ChipProfile {
   return CHIPS[id];
 }
 
+/** The hardware channels of a chip, for a song with the given master settings: the profile's channels, except that a
+    Genesis song with the DAC on has its sixth FM channel switched to PCM ("sample", no FM). */
+export function hardwareChannels(
+  chip: ChipId,
+  master?: { genesis?: { dac: boolean } }
+): readonly ChipChannel[] {
+  const channels = CHIPS[chip].channels;
+  if (chip !== "genesis" || !master?.genesis?.dac) {
+    return channels;
+  }
+  return channels.map((c) =>
+    c.id === "fm6"
+      ? { id: c.id, kind: "sample" as const, label: "FM 6 (DAC)" }
+      : c
+  );
+}
+
 /** The channels a song runs on: the profile's channels (in profile order, so a channel index is stable per chip),
     or the song's own declared channels for "custom". */
 export function chipChannels(
-  song: Pick<Song, "chip" | "channels">
+  song: Pick<Song, "chip" | "channels"> & { master?: { genesis?: { dac: boolean } } }
 ): readonly ChipChannel[] {
   if (song.chip !== "custom") {
-    return CHIPS[song.chip].channels;
+    return hardwareChannels(song.chip, song.master);
   }
   return song.channels.map((c) => ({ id: c.id, kind: c.kind, label: c.id }));
 }
@@ -51,6 +70,7 @@ const ALL_WAVES: readonly SfxWave[] = [
 /** Sfx waves a chip allows (section 2.4). The first entry is the fallback for a disallowed wave. */
 export const CHIP_SFX_WAVES: Readonly<Record<ChipId, readonly SfxWave[]>> = {
   adlib: ["fm", "square", "sine", "saw"],
+  amiga: ["sine", "triangle", "saw", "square", "noise"],
   c64: ["square", "saw", "triangle", "noise"],
   custom: ALL_WAVES,
   gameboy: ["square", "wave", "noise"],

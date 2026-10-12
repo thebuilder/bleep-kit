@@ -2,7 +2,7 @@
    process() in 128-frame blocks, collecting events. The limiter's lookahead delay is trimmed so audio lines up with
    event frames. Pure functions of their inputs: two calls give bit-identical output. */
 
-import { CHIPS, chipChannels } from "../chips/index.ts";
+import { CHIPS, chipChannels, hardwareChannels } from "../chips/index.ts";
 import { defaultSong } from "../normalize/defaults.ts";
 import type {
   ChipId,
@@ -317,7 +317,7 @@ export function renderSong(
   const stemCount = opts?.stems ? chipChannels(song).length : 0;
   const run = newRun(sr, opts?.seed ?? 1, Math.min(stemCount, 10), 1);
   const synth = run.synth;
-  synth.loadSong(song, instruments);
+  synth.loadSong(song, instruments, opts?.samples);
   applyRenderMaster(synth, opts);
   const tl = compileSong(song, instruments);
   const latency = synth.latency;
@@ -343,15 +343,24 @@ export function renderInstrumentNote(
   const duration = opts?.duration ?? 0.5;
   const release = opts?.release ?? 0.5;
   let chip: ChipId = opts?.chip ?? inst.chip ?? "custom";
-  let index = CHIPS[chip].channels.findIndex((c) => c.kind === inst.kind);
+  // a sample on the Genesis plays through the DAC, which is FM channel 6 switched to PCM
+  const dac = chip === "genesis" && inst.kind === "sample";
+  const channels = hardwareChannels(chip, dac ? { genesis: { dac } } : undefined);
+  let index = channels.findIndex((c) => c.kind === inst.kind);
   if (index < 0) {
     chip = "custom";
     index = CHIPS.custom.channels.findIndex((c) => c.kind === inst.kind);
   }
   const song = defaultSong(chip);
+  if (dac && chip === "genesis") {
+    song.master.genesis = { dac };
+    song.channels = song.channels.map((c) =>
+      c.id === "fm6" ? { ...c, kind: "sample" } : c
+    );
+  }
   const run = newRun(sr, seed, 0, 1);
   const synth = run.synth;
-  synth.loadSong(song, { inst });
+  synth.loadSong(song, { inst }, opts?.samples);
   applyRenderMaster(synth, opts);
   const latency = synth.latency;
   synth.noteOn(Math.max(0, index), note, 1, "inst");

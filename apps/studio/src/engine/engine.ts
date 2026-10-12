@@ -10,6 +10,7 @@ import type {
   Sfx,
   Song,
   SongPosition,
+  UserSample,
 } from "../lib/contract.ts";
 import { fire } from "../lib/dom.ts";
 import type { EngineNodeLike } from "./types.ts";
@@ -55,6 +56,13 @@ class Engine {
   private readonly local: EngineEvent[] = [];
   private readonly sfxKeys = new Map<string, string>();
   private readonly instKeys = new Map<string, string>();
+  /** The user samples the worklet holds, by id (the object identity tells when one was edited). */
+  private readonly sampleRefs = new Map<string, UserSample>();
+  /** Where user samples come from: the project (set by the shell). */
+  private sampleSource: (id: string) => UserSample | undefined = () =>
+    undefined;
+  /** Samples that belong to the loaded song rather than the project (an example), under ids that cannot clash. */
+  private extraSamples = new Map<string, UserSample>();
   private songKey = "";
   /** The document id of the song the worklet holds ("" when none, or when it was not loaded from a document). */
   private songId = "";
@@ -163,6 +171,55 @@ class Engine {
     }
   }
 
+  /* ----- user samples ----- */
+
+  /** Tell the engine where to find a user sample by id. Samples are sent to the worklet when an instrument that plays
+   *  one is loaded, and again whenever the sample object changes. */
+  useSamples(source: (id: string) => UserSample | undefined): void {
+    this.sampleSource = source;
+  }
+
+  /** Make the worklet's copy of sample `id` match the project: send it when new or edited, drop it when gone. */
+  private ensureSample(id: string): void {
+    const now = this.extraSamples.get(id) ?? this.sampleSource(id);
+    if (now === undefined) {
+      if (this.sampleRefs.delete(id)) {
+        this.node?.send({ id, type: "unloadSample" });
+      }
+      return;
+    }
+    if (this.sampleRefs.get(id) !== now) {
+      this.sampleRefs.set(id, now);
+      this.node?.send({ id, sample: now, type: "loadSample" });
+    }
+  }
+
+  /** Bring every sample the worklet already holds up to date (after an edit or a delete in the sample editor). */
+  syncSamples(): void {
+    for (const id of [...this.sampleRefs.keys()]) {
+      this.ensureSample(id);
+    }
+  }
+
+  private setExtraSamples(extra: Record<string, UserSample>): void {
+    const old = [...this.extraSamples.keys()];
+    this.extraSamples = new Map(Object.entries(extra));
+    for (const id of old) {
+      if (!this.extraSamples.has(id)) {
+        this.ensureSample(id);
+      }
+    }
+  }
+
+  private ensureSamplesOf(instruments: Iterable<Instrument>): void {
+    for (const inst of instruments) {
+      const id = inst.sample?.userSample;
+      if (id !== undefined) {
+        this.ensureSample(id);
+      }
+    }
+  }
+
   /** Resume the AudioContext; call it from a user gesture. */
   async unlock(): Promise<void> {
     if (this.ctx && this.ctx.state !== "running") {
@@ -264,11 +321,15 @@ class Engine {
     song: Song,
     instruments: Record<string, Instrument>,
     _channelIds: readonly string[],
-    songId = ""
+    songId = "",
+    extraSamples: Record<string, UserSample> = {}
   ): void {
     if (!this.node) {
       return;
     }
+    this.setExtraSamples(extraSamples);
+    // samples go first: the worklet compiles the song's instruments against the samples it holds
+    this.ensureSamplesOf(Object.values(instruments));
     const key = JSON.stringify([song, instruments]);
     this.tempo = song.tempo;
     this.songId = songId;
@@ -361,6 +422,7 @@ class Engine {
     if (!this.node) {
       return;
     }
+    this.ensureSamplesOf([inst]);
     const key = JSON.stringify(inst);
     if (this.instKeys.get(id) !== key) {
       this.instKeys.set(id, key);

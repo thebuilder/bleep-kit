@@ -41,6 +41,7 @@ import { dutySvg } from "../ui/fm.ts";
 import { buildFmPanel } from "../ui/fm-panel.ts";
 import { icon } from "../ui/icons.ts";
 import { showIssues } from "../ui/issues.ts";
+import { openResample } from "../ui/resample.ts";
 import {
   type MacroEditor,
   type MacroSpec,
@@ -111,6 +112,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
           <label class="fsel"><span>Test note</span><select id="iNote" aria-label="Test note"></select></label>
           <label class="sel num"><span>Seconds</span><input type="number" id="iDur" min="0.1" max="8" step="0.1" aria-label="Test note length"></label>
           <button class="btn primary big" id="iPlay" title="Play the test note (Space)">${icon("play", 16)}<span>Play</span></button>
+          <button class="btn" id="iResample" title="Record the test note as a user sample">${icon("sample", 14)}<span>Resample</span></button>
           <label class="tgl-row" title="Play the test note after each change"><span class="tgl"><input type="checkbox" id="iAuto"><span></span></span><small>Play on every change</small></label>
         </div>
       </div>
@@ -663,9 +665,67 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
     }
   }
 
+  /** The "Plays" choice of a sample instrument: a generated sample, or one of the project's user samples. Returns true
+      when a user sample is chosen, which hides the generator controls. */
+  function buildSampleSource(body: HTMLElement): boolean {
+    const s = inst().sample;
+    const list = project.list("sample");
+    if (!s || (list.length === 0 && s.userSample === undefined)) {
+      return false;
+    }
+    const known = list.some((d) => d.id === s.userSample);
+    const fb = h("div", { class: "fields two" });
+    body.append(fb);
+    selectField<string>(fb, {
+      label: "Plays",
+      onInput: (v) => {
+        edit((x) => {
+          if (x.sample && v === "") {
+            // biome-ignore lint/performance/noDelete: the field is absent for a generated sample (exactOptionalPropertyTypes)
+            delete x.sample.userSample;
+          } else if (x.sample) {
+            x.sample.userSample = v;
+          }
+        }, "suser");
+        buildKindPanel();
+      },
+      options: [
+        { label: "A generated sample", value: "" },
+        ...list.map((d) => ({
+          label: (d.value as { name?: string }).name || d.id,
+          value: d.id,
+        })),
+        ...(s.userSample !== undefined && !known
+          ? [{ label: `${s.userSample} (missing)`, value: s.userSample }]
+          : []),
+      ],
+      value: s.userSample ?? "",
+    });
+    if (s.userSample !== undefined) {
+      const open = h("a", {
+        class: "linkish",
+        href: `#/sample/${encodeURIComponent(s.userSample)}`,
+      });
+      open.textContent = known ? "Open the sample" : "No such sample in this project";
+      fb.append(h("div", { class: "fld" }, open));
+      body.append(
+        h(
+          "p",
+          { class: "muted" },
+          "The sample's own base note, loop, fine tune and volume apply. This instrument's transpose, fine tune and volume stack on top."
+        )
+      );
+    }
+    return s.userSample !== undefined;
+  }
+
   function buildSample(body: HTMLElement): void {
     const s = inst().sample;
     if (!s) {
+      return;
+    }
+    if (buildSampleSource(body)) {
+      sampleCanvas = null;
       return;
     }
     sampleCanvas = h("canvas", {
@@ -1143,6 +1203,9 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
 
   /* ----- wiring ----- */
   q("#iPlay").addEventListener("click", play);
+  q("#iResample").addEventListener("click", () =>
+    openResample(doc(), { duration: testDur, note: testNote })
+  );
   q("#iOctDn").addEventListener("click", () => setOctave(octave - 1));
   q("#iOctUp").addEventListener("click", () => setOctave(octave + 1));
   noteSel.addEventListener("change", () => {

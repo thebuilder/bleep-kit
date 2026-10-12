@@ -133,14 +133,16 @@ describe("importing a MIDI file", () => {
     const heads = [...document.querySelectorAll<HTMLElement>("#side .tree-h")];
     const songs = heads.find((el) => el.textContent?.includes("Songs"));
     expect(
-      songs?.querySelector('button[aria-label="Import MIDI"]')
+      songs?.querySelector('button[aria-label="Import MIDI or MOD"]')
     ).not.toBeNull();
     expect(
       songs?.querySelector('button[aria-label="New Songs"]')
     ).not.toBeNull();
     // the other sections have only their New button
     const sfx = heads.find((el) => el.textContent?.includes("SFX"));
-    expect(sfx?.querySelector('button[aria-label="Import MIDI"]')).toBeNull();
+    expect(
+      sfx?.querySelector('button[aria-label="Import MIDI or MOD"]')
+    ).toBeNull();
 
     document.body.dispatchEvent(
       new KeyboardEvent("keydown", { bubbles: true, ctrlKey: true, key: "k" })
@@ -153,7 +155,7 @@ describe("importing a MIDI file", () => {
     const titles = [...document.querySelectorAll(".overlay .cmd .nm")].map(
       (n) => n.textContent
     );
-    expect(titles[0]).toBe("Import MIDI file");
+    expect(titles[0]).toBe("Import MIDI or MOD file");
     closeOverlays();
   });
 
@@ -191,6 +193,7 @@ describe("importing a MIDI file", () => {
       "genesis",
       "adlib",
       "snes",
+      "amiga",
     ]);
     // it starts on the project's chip (the starter project is NES)
     expect(dialogSelect()?.value).toBe("nes");

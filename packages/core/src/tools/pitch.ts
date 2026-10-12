@@ -232,3 +232,62 @@ export function medianPitch(
   }
   return ((values[mid - 1] ?? 0) + (values[mid] ?? 0)) / 2;
 }
+
+export interface SamplePitch {
+  /** Offset from `note` in cents, -50 to 50. */
+  cents: number;
+  /** 0 to 1: how steady the pitch was over the frames used. */
+  confidence: number;
+  hz: number;
+  /** The nearest MIDI note. */
+  note: number;
+}
+
+/** Longest stretch looked at: the first 1.5 seconds from the loudest point's start is plenty for a pitch. */
+const SAMPLE_PITCH_SECONDS = 1.5;
+
+/**
+ * The pitch of a recorded sample, for its base note: YIN over the loudest second and a half, the median of the clear
+ * frames. Null when nothing is pitched (noise, drums) or the sample is too short to tell.
+ */
+export function detectSamplePitch(
+  mono: Float32Array,
+  sampleRate: number
+): SamplePitch | null {
+  if (mono.length < 1024 || !(sampleRate > 0)) {
+    return null;
+  }
+  const win = Math.min(
+    mono.length,
+    Math.round(sampleRate * SAMPLE_PITCH_SECONDS)
+  );
+  const step = Math.max(1, Math.floor(win / 4));
+  let start = 0;
+  let loud = -1;
+  for (let at = 0; at <= Math.max(0, mono.length - win); at += step) {
+    let sum = 0;
+    const end = Math.min(mono.length, at + win);
+    for (let i = at; i < end; i += 1) {
+      sum += (mono[i] ?? 0) * (mono[i] ?? 0);
+    }
+    if (sum > loud) {
+      loud = sum;
+      start = at;
+    }
+  }
+  const part = mono.subarray(start, Math.min(mono.length, start + win));
+  const window = part.length >= 4096 ? 2048 : 1024;
+  const track = trackPitch(part, sampleRate, { hop: 256, window });
+  const hz = medianPitch(track, 0.8) ?? medianPitch(track, 0.6);
+  if (hz === null) {
+    return null;
+  }
+  const exact = 69 + 12 * Math.log2(hz / 440);
+  const note = Math.round(exact);
+  const good = track.filter((p) => p.hz !== null && p.confidence >= 0.6);
+  const confidence =
+    good.length === 0
+      ? 0
+      : good.reduce((s, p) => s + p.confidence, 0) / Math.max(1, track.length);
+  return { cents: Math.round((exact - note) * 100), confidence, hz, note };
+}

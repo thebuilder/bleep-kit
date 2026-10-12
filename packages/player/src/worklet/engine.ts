@@ -201,8 +201,18 @@ export class BleepkitEngine {
     switch (msg.type) {
       case "loadSong":
         loadChecked("the song", songProblem(msg.song), () =>
-          synth.loadSong(msg.song, msg.instruments)
+          synth.loadSong(msg.song, msg.instruments, msg.samples)
         );
+        break;
+      case "loadSample":
+        loadChecked(
+          `sample "${String(msg.id)}"`,
+          isRecord(msg.sample) ? null : "it is not an object",
+          () => synth.loadSample(msg.id, msg.sample)
+        );
+        break;
+      case "unloadSample":
+        synth.unloadSample(msg.id);
         break;
       case "unloadSong":
         synth.unloadSong();

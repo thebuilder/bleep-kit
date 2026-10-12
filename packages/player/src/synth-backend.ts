@@ -181,6 +181,7 @@ export class SynthBackend {
     playRamp(fade.gain, ramp);
     engine.send({
       instruments: data.instruments,
+      ...(data.samples ? { samples: data.samples } : {}),
       song: data.song,
       type: "loadSong",
     });

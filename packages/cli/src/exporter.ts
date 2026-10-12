@@ -25,6 +25,7 @@ import {
   listIdsValid,
   loadDoc,
   type ProjectCtx,
+  samplesFor,
   sha1Hex,
   toPosix,
   writeFileAtomic,
@@ -245,6 +246,17 @@ function copyEvents(x: Run, t: Target): void {
   }
 }
 
+/** The song, its instruments and the user samples those use, for synth mode in a game. */
+function embeddedSong(x: Run, song: Song): NonNullable<ManifestSong["data"]> {
+  const instruments = instrumentsFor(x.pc, song);
+  const samples = samplesFor(x.pc, instruments);
+  return {
+    instruments,
+    ...(Object.keys(samples).length > 0 ? { samples } : {}),
+    song,
+  };
+}
+
 function recordManifestEntry(
   x: Run,
   t: Target,
@@ -270,9 +282,7 @@ function recordManifestEntry(
   const shift = format === "mp3" ? mp3Shift(meta.rate) : 0;
   const song = doc.value as Song;
   x.songs[t.id] = {
-    ...(x.embed
-      ? { data: { instruments: instrumentsFor(x.pc, song), song } }
-      : {}),
+    ...(x.embed ? { data: embeddedSong(x, song) } : {}),
     duration: seconds(meta.duration),
     ...(x.wantEvents ? { events: `${t.id}.events.json` } : {}),
     file: fileName,

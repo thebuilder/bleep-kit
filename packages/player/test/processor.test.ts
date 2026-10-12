@@ -69,6 +69,10 @@ describe("processor: startup and messages", () => {
     const lead = { name: "lead" };
     send({ instruments: { lead }, song, type: "loadSong" });
     send({ type: "unloadSong" });
+    const tone = { name: "tone" };
+    send({ id: "tone", sample: tone, type: "loadSample" });
+    send({ id: "tone", type: "unloadSample" });
+    send({ instruments: { lead }, samples: { tone }, song, type: "loadSong" });
     send({ id: "coin", sfx: { name: "coin" }, type: "loadSfx" });
     send({ id: "coin", type: "unloadSfx" });
     send({ loop: true, order: 1, row: 2, type: "play" });
@@ -90,6 +94,9 @@ describe("processor: startup and messages", () => {
     expect(t.synth().calls).toEqual([
       ["loadSong", song, { lead }],
       ["unloadSong"],
+      ["loadSample", "tone", tone],
+      ["unloadSample", "tone"],
+      ["loadSong", song, { lead }, { tone }],
       ["loadSfx", "coin", { name: "coin" }],
       ["unloadSfx", "coin"],
       ["play", { loop: true, order: 1, row: 2 }],

@@ -1,6 +1,6 @@
 /* Building blocks for the category files. A category is a table of flavors (a "pew" and a "beam" are both lasers);
    each flavor has a weight per chip, so an adlib laser leans on FM and an NES laser never touches a filter. */
-import { CHIP_IDS, type ChipId, noteToHz } from "@bleepkit/core";
+import { type ChipId, noteToHz } from "@bleepkit/core";
 import type { Ctx } from "../build.ts";
 import { sweepFor } from "../pitch.ts";
 import { between, intBetween, logBetween, round, weighted } from "../util.ts";
@@ -12,7 +12,7 @@ export interface Flavor {
   weights: Readonly<Record<ChipId, number>>;
 }
 
-/** Weights in chip order: nes, gameboy, c64, genesis, adlib, snes, custom. */
+/** Weights in chip order: nes, gameboy, c64, genesis, adlib, snes, custom, then amiga (default: the SNES weights, both play samples). */
 export function w(
   nes: number,
   gameboy: number,
@@ -20,14 +20,10 @@ export function w(
   genesis: number,
   adlib: number,
   snes: number,
-  custom: number
+  custom: number,
+  amiga: number = snes
 ): Record<ChipId, number> {
-  const list = [nes, gameboy, c64, genesis, adlib, snes, custom];
-  const out = {} as Record<ChipId, number>;
-  for (const [i, id] of CHIP_IDS.entries()) {
-    out[id] = list[i] ?? 0;
-  }
-  return out;
+  return { adlib, amiga, c64, custom, gameboy, genesis, nes, snes };
 }
 
 export function runFlavors(ctx: Ctx, flavors: readonly Flavor[]): void {

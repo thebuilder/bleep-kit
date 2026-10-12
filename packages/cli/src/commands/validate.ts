@@ -5,6 +5,7 @@ import { CliError } from "../output.ts";
 import {
   DOC_KINDS,
   type DocKind,
+  docContext,
   docRel,
   ID_PATTERN,
   listIds,
@@ -44,11 +45,7 @@ function check(pc: ProjectCtx, kind: DocKind, id: string): ValidationEntry {
     });
     return { issues, ok: false, ref };
   }
-  const n = normalizeDocument(
-    kind,
-    raw,
-    kind === "song" ? pc.instruments() : undefined
-  );
+  const n = normalizeDocument(kind, raw, docContext(pc, kind));
   issues.push(...n.issues);
   return { issues, ok: issues.every((i) => i.severity !== "error"), ref };
 }

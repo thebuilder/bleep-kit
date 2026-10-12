@@ -30,6 +30,7 @@ Show one with: bleepkit help formats <section>
   sfx/<id>.json           one-shot sound effect (sfxr style parameters)
   instruments/<id>.json   an instrument: envelope, macros, kind specific patch
   songs/<id>.json         channels + patterns (tracker rows) and/or MML text per channel
+  samples/<id>.json       a user sample: mono recording (base64 PCM) imported by the person; played by sample instruments
   out/                    renders (wav masters, .events.json, .meta.json, analysis png); never edit
 
 Rules for every document
@@ -47,7 +48,8 @@ Enumerations
   sfx category ${SFX_CATEGORIES.join(" | ")}
   sfx wave     ${SFX_WAVES.join(" | ")}
   Chips: nes (2 pulse, triangle, noise) | gameboy (2 pulse, wave, noise) | c64 (3 sid voices) |
-         genesis (6 fm + 3 psg pulse + psgNoise) | adlib (9 fm, 2 operator) | snes (8 sample channels) | custom (any)`;
+         genesis (6 fm + 3 psg pulse + psgNoise) | adlib (9 fm, 2 operator) | snes (8 sample channels) |
+         amiga (4 sample channels, Paula: 8 bit, hard panned ch1 ch4 left and ch2 ch3 right) | custom (any)`;
 
 const project = `PROJECT  project.json
 { "version": 1, "name": "Deep Reach", "chip": "genesis", "sampleRate": 48000, "seed": 7,
@@ -108,6 +110,11 @@ const instrument = `INSTRUMENT  instruments/<id>.json
                "sustainRate": 0..31, "release": 0..15, "keyScale": 0..3, "waveform": 0..7, "fixedHz": null } x2 or x4 ] }
   sample patch (snes): { "generator": kick|snare|hat|tom|clap|crash|pluck|bass|pad|organ|bell|strings|choir|lead,
     "params": {}, "seed": 3, "baseNote": 60, "loop": false }
+  user sample: "sample": { ..., "userSample": "<id of samples/<id>.json>" } plays the person's own recording (the
+    generator fields are then ignored; the sample's base note, loop, finetune and volume apply). Sample instruments play
+    on amiga, snes and custom. You never see the audio: list_samples / read_sample show the metadata and
+    set_instrument_sample points an instrument at a sample. The person imports samples in the studio (WAV, MP3, OGG) or with
+    \`bleepkit import sample file.wav\` (WAV only).
   sid patch: { "waveforms": ["tri"|"saw"|"pulse"|"noise", ...], "pulseWidth": 0..1, "pwmRate": 0..20, "pwmDepth": 0..1,
     "ring": false, "sync": false, "filter": { "mode": "off"|"lp"|"bp"|"hp", "cutoff": 0..1, "resonance": 0..1, "sweep": 0 } }
 Start with \`bleepkit new instrument <id> --kind pulse --preset lead\` (presets: lead bass bass-pulse drums pad bell; bass picks the chip's bass voice when --kind is left out).`;
@@ -123,7 +130,7 @@ const song = `SONG  songs/<id>.json
   "order": ["intro"], "loop": 0, "master": { "volume": 0.8, "echo": null, "reverb": null } }
   tempo 20..400 BPM (quarter notes) | rowsPerBeat 1..16 (a row is 1/rowsPerBeat of a beat) | tickRate 50 or 60
   channels: ids must belong to the chip (nes: pulse1 pulse2 triangle noise; gameboy: pulse1 pulse2 wave noise;
-    c64: voice1..3; genesis: fm1..6 psg1..3 psgNoise; adlib: fm1..9; snes: ch1..8); "custom" declares its own.
+    c64: voice1..3; genesis: fm1..6 psg1..3 psgNoise; adlib: fm1..9; snes: ch1..8; amiga: ch1..4); "custom" declares its own.
     instrument = id used until a row or MML @id switches it; it must exist and match the channel kind.
     mml = a text melody for this channel (see: help formats mml); when set, pattern tracks for it are ignored.
   patterns: length 1..256 rows; tracks are sparse row lists per channel id, sorted by row.
@@ -162,6 +169,8 @@ const effects = `EFFECTS  tracker codes (<letter><two hex digits>); typed form {
   Xxx pan           00 left, 80 center, FF right
   Wxx send          echo send level xx/255 (chips with master effects)
   Hxx retrigger     retrigger the note every xx ticks
+  Exx filter        amiga: 01 switches the LED lowpass filter on, 00 off (other chips ignore it)
+  9xx sampleOffset  sample channels: start the next note xx*256 frames into the sample
   Persistent effects (arp, vibrato, tremolo, volSlide, slides, portamento, retrigger) stay on until the same letter
   appears with 00, and stop at a note off. Effect types: ${EFFECT_TYPES.join(" ")}.`;
 
@@ -215,4 +224,9 @@ Have a MIDI file? bleepkit import tune.mid --chip nes   makes songs/tune.json pl
 what was converted (chords spread over free channels or turned into 0xy arpeggios, --chords auto|spread|arpeggio|top) and what the
 chip could not play (notes dropped, parts left out). Re-run with --map "1=pulse1,2=triangle,10=noise" or --rows-per-beat 8 to steer it,
 then render --analyze --images and look at the scopes.
+Have a ProTracker module? bleepkit import song.mod   makes songs/song.json for amiga (or custom for 6CHN and 8CHN), one
+sample instrument per used sample and samples/<id>.json for each; the report lists effects that were converted and ones
+that could not be. An amiga song goes back out with bleepkit export mod song/<id> (what does not fit is reported).
+Have a recording? bleepkit import sample hit.wav --base-note C-4   makes samples/hit.json (resampled and 8 bit for amiga),
+then point a sample instrument at it. MP3 and OGG are imported in the studio.
 Every command has an example: bleepkit <command> --help.`;

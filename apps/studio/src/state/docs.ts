@@ -8,11 +8,13 @@ import type {
   Project,
   Sfx,
   Song,
+  UserSample,
 } from "../lib/contract.ts";
 import {
   defaultProject,
   normalizeInstrument,
   normalizeProject,
+  normalizeSample,
   normalizeSfx,
   normalizeSong,
 } from "../lib/core.ts";
@@ -28,8 +30,11 @@ import {
   type WriteResult,
 } from "../store/store.ts";
 
-export type DocKind = "sfx" | "instrument" | "song";
-export type AnyDoc = Sfx | Instrument | Song;
+export type DocKind = "sfx" | "instrument" | "song" | "sample";
+export type AnyDoc = Sfx | Instrument | Song | UserSample;
+
+/** A sample document holds its audio as base64 (megabytes), so it keeps a short undo history. */
+const SAMPLE_HISTORY = 12;
 
 export interface Doc<T = AnyDoc> {
   conflict: { etag: string; json: unknown } | null;
@@ -67,6 +72,8 @@ const SAVE_DELAY = 800;
 const KIND_ALIASES: Partial<Record<string, DocKind[]>> = {
   instrument: ["instrument"],
   instruments: ["instrument"],
+  sample: ["sample"],
+  samples: ["sample"],
   sfx: ["sfx"],
   song: ["song"],
   songs: ["song"],
@@ -133,7 +140,11 @@ class ProjectState {
     };
     this.projectDoc.history.reset(text);
     const wanted = info.files.filter(
-      (f) => f.kind === "sfx" || f.kind === "instrument" || f.kind === "song"
+      (f) =>
+        f.kind === "sfx" ||
+        f.kind === "instrument" ||
+        f.kind === "song" ||
+        f.kind === "sample"
     );
     const loaded = await Promise.all(
       wanted.map(async (f) => {
@@ -144,8 +155,8 @@ class ProjectState {
         }
       })
     );
-    // instruments first: songs are normalized against them
-    for (const kind of ["sfx", "instrument", "song"] as const) {
+    // samples, then instruments, then songs: each is normalized against the ones before it
+    for (const kind of ["sample", "sfx", "instrument", "song"] as const) {
       for (const item of loaded) {
         if (item && item.f.kind === kind) {
           this.ingest(kind, item.f.path, item.file.json, item.file.etag);
@@ -173,6 +184,30 @@ class ProjectState {
     const out: Record<string, Instrument> = {};
     for (const d of this.list("instrument")) {
       out[d.id] = d.value as Instrument;
+    }
+    return out;
+  }
+
+  samples(): Record<string, UserSample> {
+    const out: Record<string, UserSample> = {};
+    for (const d of this.list("sample")) {
+      out[d.id] = d.value as UserSample;
+    }
+    return out;
+  }
+
+  /** The user samples the given instruments play (a song or a render only needs those). */
+  samplesFor(
+    instruments: Record<string, Instrument>
+  ): Record<string, UserSample> {
+    const all = this.samples();
+    const out: Record<string, UserSample> = {};
+    for (const inst of Object.values(instruments)) {
+      const id = inst.sample?.userSample;
+      const sample = id === undefined ? undefined : all[id];
+      if (id !== undefined && sample) {
+        out[id] = sample;
+      }
     }
     return out;
   }
@@ -222,10 +257,14 @@ class ProjectState {
     if (kind === "sfx") {
       return normalizeSfx(json);
     }
-    if (kind === "instrument") {
-      return normalizeInstrument(json);
+    if (kind === "sample") {
+      return normalizeSample(json);
     }
-    return normalizeSong(json, this.instruments());
+    const samples = this.samples();
+    if (kind === "instrument") {
+      return normalizeInstrument(json, samples);
+    }
+    return normalizeSong(json, this.instruments(), samples);
   }
 
   private ingest(
@@ -242,7 +281,9 @@ class ProjectState {
       dirty: false,
       etag,
       flashAt: 0,
-      history: prev?.history ?? createHistory(),
+      history:
+        prev?.history ??
+        createHistory(kind === "sample" ? SAMPLE_HISTORY : undefined),
       id: idOfPath(path),
       issues: n.issues,
       kind,
@@ -586,7 +627,12 @@ class ProjectState {
       this.emit({ type: "project" });
       return;
     }
-    if (kind !== "sfx" && kind !== "instrument" && kind !== "song") {
+    if (
+      kind !== "sfx" &&
+      kind !== "instrument" &&
+      kind !== "song" &&
+      kind !== "sample"
+    ) {
       return;
     }
     const doc = this.docs.get(m.path);

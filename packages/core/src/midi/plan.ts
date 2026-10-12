@@ -21,6 +21,13 @@ const samples = (to: number): string[] =>
 
 export const PLANS: Readonly<Record<Exclude<ChipId, "custom">, ChipPlan>> = {
   adlib: { bass: "fm1", drums: "fm9", drumsFlex: true, melodic: fm(2, 8) },
+  // Paula: channels 1 and 4 sound left, 2 and 3 right, so the bass and drums sit left and the melody right
+  amiga: {
+    bass: "ch1",
+    drums: "ch4",
+    drumsFlex: true,
+    melodic: ["ch2", "ch3"],
+  },
   c64: {
     bass: "voice2",
     drums: "voice3",

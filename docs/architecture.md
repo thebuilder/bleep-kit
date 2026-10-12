@@ -104,6 +104,8 @@ function mmlToTrack(src: string, rowsPerBeat: number, opts?: MmlOptions): { rows
 function patternToMml(rows: readonly Row[], rowsPerBeat: number): string;
 function midiToSong(bytes: Uint8Array, opts?: MidiToSongOptions): MidiImport;   // section 2.8
 function parseMidi(bytes: Uint8Array): MidiFile;
+function rechipSong(song: Song, instruments: Record<string, Instrument>, toChip: ChipId): RechipResult;   // section 2.9
+function describeRechip(result: RechipResult): { moved: string[]; dropped: string[]; adjusted: string[] };
 function parseMidiMap(text: string): { map: Record<string, string>; issues: Issue[] };   // "1=pulse1,10=noise"
 function makeInstrument(kind: ChannelKind, chip: ChipId | null, preset: InstrumentPreset, name: string): Instrument;
 function parseEffect(code: string): Effect | null;                  // "A0F" -> { type: "volSlide", x: 0, y: 15 }
@@ -213,6 +215,7 @@ src/notes.ts              note names and frequencies
 src/normalize/            issues.ts (Issue, Normalized, helpers), project.ts, sfx.ts, instrument.ts, song.ts, effects.ts (fx string <-> typed), index.ts
 src/mml/                  lexer.ts, parser.ts, format.ts, index.ts
 src/midi/                 parse.ts (SMF reader), parts.ts (parts, --map selectors, automatic placement), plan.ts (per chip channel plan, ranges, GM drums), reduce.ts (rows, one note at a time, range), build.ts (patterns), instruments.ts, convert.ts (midiToSong), index.ts
+src/songs/                roles.ts (lead, bass, harmony, drums: the measures the MIDI importer and rechipSong share), instrument-roles.ts (what an instrument is for, the drum kit), rechip.ts (rechipSong, section 2.9) with rechip-facts.ts, rechip-assign.ts, rechip-registry.ts, rechip-map.ts, rechip-merge.ts
 src/presets.ts            instrument presets shared by the CLI (`new instrument`, `init`), the MIDI importer and the studio starter project
 src/presets-bass.ts       the bass presets, one real bass per chip (section 2.5)
 src/chips/                nes.ts, gameboy.ts, c64.ts, genesis.ts, adlib.ts, snes.ts, custom.ts, index.ts
@@ -1113,6 +1116,31 @@ Volume and range. Velocity 1 to 127 becomes the volume column 1 to 15, written w
 
 Instruments. `instruments` holds new instruments built from the shared presets under ids `midi-<chip>-<role>` (`lead`, `harmony`, `bass`, `drums`; a PSG square among FM voices is `midi-genesis-harmony-pulse`; the sample chip's drums are `midi-snes-kick` and so on). None exists in the project yet by design: callers write the ones the project lacks and keep any that exist, so a second import for the same chip reuses them.
 
+### 2.9 Changing a song's chip
+
+`rechipSong(song, instruments, toChip)` moves a song to another chip without losing its music. It is pure (nothing it is given is changed) and returns `{ song, instruments, created, moves, dropped, adjusted }`: the new song; the instruments it needs (the ones given, untouched, plus the new ones, whose ids are in `created`); `moves` (`{ from, to, note }` per channel with notes: the role it was given); `dropped` (`{ from, notes, reason }`: what did not fit); `adjusted` (`{ channel, message }`: notes moved by octaves, effects removed or converted, the echo removed). `describeRechip` turns the three lists into sentences for the studio dialog, the toast and the assistant. The old behavior (keep the channels whose id the new chip also has) dropped everything between chips with different channel ids, such as NES `pulse1/pulse2/triangle/noise` to Genesis `fm1..psgNoise`. The same chip, and `custom` (which declares its own channels, so every channel stays), change nothing but the chip id.
+
+Roles. Each channel with notes gets a role from its kind and its notes, with the measures of the MIDI importer (`songs/roles.ts`, shared with `midi/parts.ts`): a noise channel, or one whose notes play drum instruments (a noise voice, a drum sample, a SID voice on the noise waveform, or an instrument whose id or name says drum, kick, snare, hat and so on), is `drums`; of the rest the lowest busy channel is the `bass` (at least 4 onsets and 15 percent of the busiest channel's, when another channel has a median 5 or more semitones higher); the busiest high channel (onsets weighted a little towards high pitch) is the `lead`; the others are `harmony`. Busyness counts the notes of one play of the song (a pattern in the order twice counts twice), MML notes once.
+
+Channels. Roles choose channels by kind suitability, a table in `songs/rechip-assign.ts` that knows channel kinds and nothing about chips, so a new chip works without editing it. Higher is better, a missing kind is 0:
+
+| role | triangle | wave | pulse | fm | sid | sample | noise |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| drums | 0 | 0 | 0 | 5 | 5 | 6 | 10 |
+| bass | 10 | 9 | 3 | 8 | 6 | 7 | 0 |
+| lead | 3 | 4 | 10 | 9 | 8 | 7 | 0 |
+| harmony | 2 | 4 | 10 | 9 | 8 | 7 | 0 |
+
+A pulse with a fixed duty (a PSG square) counts 1.5 less, so an FM voice leads on the Genesis. Parts are placed in the order lead, bass, drums, then harmony by busyness; each takes the free channel of the best fit (the first of equals in the chip's channel order, the last for drums). A chip with more channels leaves the extra ones empty. With fewer, a part that finds no channel is written into the rests of the placed melodic channel with the fewest notes whose kind can play it (pattern rows only: a note goes where the host is silent and lasts until the host's next note, and every note on the merged channel then names its instrument and volume), and what does not fit is dropped and reported with its count. Drums and MML channels are dropped whole. Tempo, jump, skip and halt effects found on a part that is not placed whole are moved to the first placed channel that has no MML.
+
+Notes. A pitched channel is moved by whole octaves when more than a fifth of its notes are outside the new channel's range (`channelRange`, `midi/plan.ts`), and single stray notes are folded in by octaves (the importer's `chooseShift` and `foldInto`); both are reported. Volumes and rows are kept. Drums on a sample channel pick a drum sample per hit (kick, snare, hat, crash) from the note or from the sample they played; a sample drum going to a noise, SID or FM drum channel plays the pitch of its drum (kick 36, snare 62, hat 84).
+
+Effects. `V` (duty) means the duty index on a pulse, a wave index, a waveform mask on SID and the algorithm on FM, so it is kept between channels of the same kind, converted to the nearest duty when the new chip's duty list differs, and removed when the new channel has a fixed duty, has no duty, is another kind, or the value is beyond what the target has (FM algorithm 0 to 1 on two operators). Pan (`X`) goes where the chip has free or hard panning, send (`W`) where it has master effects, `filter` (the Amiga's LED filter switch) on the Amiga and `sampleOffset` on sample channels; the rest are kept. A song with echo or reverb moved to a chip without master effects loses them (reported). Each removal is counted in `adjusted`.
+
+Instruments. Every moved part plays an instrument of its channel's kind. In order: the instrument it played, when its kind fits (and, for FM, its operator count); a project instrument of the right kind whose id or name says the role (`lead`, `bass`, `drums`, `harmony`, and the like; a triangle is a bass and a noise instrument drums by kind), preferring one made for the chip, then a chip-less one; otherwise a new one from the per-chip presets (`makeInstrument`, the same builders as the MIDI importer, `midi/instruments.ts`) under a free id `<chip>-<role>` (then `-<kind>`, then a number), or `<chip>-<drum>` for a sample drum. Instruments the move ends up not using are not created. Existing instruments are never changed or deleted.
+
+The studio asks first (the confirm dialog of delete, listing moves, drops, adjustments and new instruments; a song with no notes changes at once), creates the new instruments, applies the song in one edit (one undo step) and shows a summary toast with Undo. The assistant's `change_song_chip` tool uses the same function, and `edit_document` refuses a `/chip` change on a song and points to it. The CLI has no command that changes a song's chip (`import --chip` and `new song --chip` choose the chip when the document is made).
+
 ## 3. Engine design
 
 ### 3.1 Clocks and rates
@@ -1618,6 +1646,7 @@ The CLI depends on this package for the help text, `describe*` and the song buil
 | `chip_info` | channel ids, instrument kinds, sfx waves and limits of a chip |
 | `new_sfx`, `mutate_sfx` | generate an sfx for a category and chip (deterministic by seed), make variations |
 | `new_instrument`, `new_song` | build an instrument; build a song from MML per channel (refused with hints when a channel has MML and no instrument) |
+| `change_song_chip` | move a song to another chip with `rechipSong` (section 2.9): lead, bass, drums and harmony go to the channels that suit the new chip; the reply lists what moved, what was dropped and the new instruments |
 | `write_document`, `edit_document` | whole document, or JSON pointer changes applied in order; both are normalized as a whole and refused with the issue list when invalid |
 | `render_analyze` | render and measure; returns the compact analysis and checks against the targets in section 6.4 |
 | `view_analysis` | the waveform, spectrogram and (songs) scopes as PNG images; left out of the tool list when the model reports no image input |

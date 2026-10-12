@@ -35,6 +35,7 @@ import {
 } from "../ui/fields.ts";
 import { icon } from "../ui/icons.ts";
 import { showIssues } from "../ui/issues.ts";
+import { openResample } from "../ui/resample.ts";
 import { presetTable, type WaveGrid, waveGrid } from "../ui/wavegrid.ts";
 import { surface } from "../visuals/canvas.ts";
 import { addVisual } from "../visuals/loop.ts";
@@ -119,6 +120,7 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
       <div class="ed-foot">
         <button class="btn small" id="sSpecBtn" aria-pressed="false">${icon("chart", 12)}<span>Spectrogram</span></button>
         <button class="btn small" id="sAna">${icon("chart", 12)}<span>Analyse</span></button>
+        <button class="btn small" id="sResample" title="Record this sound as a user sample">${icon("sample", 12)}<span>Resample</span></button>
       </div>
     </div>`;
   const q = <T extends HTMLElement>(sel: string) =>
@@ -898,6 +900,7 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
   q("#sAna").addEventListener("click", () =>
     app.navigate(`#/analysis/sfx/${id}`)
   );
+  q("#sResample").addEventListener("click", () => openResample(doc()));
   autoIn.addEventListener("change", () => {
     playOnChange = autoIn.checked;
     prefs.set("sfx-play-change", playOnChange);

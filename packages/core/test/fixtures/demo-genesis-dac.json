@@ -1,0 +1,407 @@
+{
+  "song": {
+    "version": 1,
+    "name": "Demo genesis dac",
+    "chip": "genesis",
+    "tempo": 140,
+    "rowsPerBeat": 4,
+    "tickRate": 60,
+    "channels": [
+      {
+        "id": "fm1",
+        "kind": "fm",
+        "instrument": "bass",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm2",
+        "kind": "fm",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm3",
+        "kind": "fm",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm4",
+        "kind": "fm",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm5",
+        "kind": "fm",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "fm6",
+        "kind": "sample",
+        "instrument": "kick",
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "psg1",
+        "kind": "pulse",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "psg2",
+        "kind": "pulse",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "psg3",
+        "kind": "pulse",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      },
+      {
+        "id": "psgNoise",
+        "kind": "noise",
+        "instrument": null,
+        "volume": 1,
+        "pan": 0,
+        "mml": null,
+        "muted": false
+      }
+    ],
+    "patterns": {
+      "a": {
+        "length": 32,
+        "tracks": {
+          "fm1": [
+            {
+              "row": 0,
+              "s": "C-2 bass"
+            },
+            {
+              "row": 6,
+              "s": "C-2"
+            },
+            {
+              "row": 8,
+              "s": "G-1"
+            },
+            {
+              "row": 14,
+              "s": "OFF"
+            },
+            {
+              "row": 16,
+              "s": "A#1"
+            },
+            {
+              "row": 22,
+              "s": "A#1"
+            },
+            {
+              "row": 24,
+              "s": "C-2"
+            },
+            {
+              "row": 30,
+              "s": "OFF"
+            }
+          ],
+          "fm6": [
+            {
+              "row": 0,
+              "s": "C-4 kick"
+            },
+            {
+              "row": 2,
+              "s": "C-5 hat"
+            },
+            {
+              "row": 4,
+              "s": "C-4 kick"
+            },
+            {
+              "row": 6,
+              "s": "C-5 hat"
+            },
+            {
+              "row": 8,
+              "s": "C-4 snare"
+            },
+            {
+              "row": 10,
+              "s": "C-5 hat"
+            },
+            {
+              "row": 12,
+              "s": "C-4 kick"
+            },
+            {
+              "row": 14,
+              "s": "C-5 hat"
+            },
+            {
+              "row": 16,
+              "s": "C-4 kick"
+            },
+            {
+              "row": 18,
+              "s": "C-5 hat"
+            },
+            {
+              "row": 20,
+              "s": "C-4 kick"
+            },
+            {
+              "row": 22,
+              "s": "C-5 hat"
+            },
+            {
+              "row": 24,
+              "s": "C-4 snare"
+            },
+            {
+              "row": 26,
+              "s": "C-5 hat"
+            },
+            {
+              "row": 28,
+              "s": "C-4 kick"
+            },
+            {
+              "row": 30,
+              "s": "C-5 hat"
+            }
+          ]
+        }
+      }
+    },
+    "order": [
+      "a"
+    ],
+    "loop": 0,
+    "master": {
+      "volume": 0.8,
+      "echo": null,
+      "reverb": null,
+      "genesis": {
+        "dac": true
+      }
+    }
+  },
+  "instruments": {
+    "bass": {
+      "version": 1,
+      "name": "Bass",
+      "kind": "fm",
+      "chip": "genesis",
+      "volume": 0.9,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.2,
+        "release": 0.08,
+        "sustain": 0.8
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": {
+        "algorithm": 4,
+        "feedback": 6,
+        "lfo": null,
+        "ops": [
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 0.6,
+            "attack": 31,
+            "decay": 11,
+            "sustainLevel": 0.12,
+            "sustainRate": 0,
+            "release": 8,
+            "keyScale": 1,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 0.9,
+            "attack": 31,
+            "decay": 5,
+            "sustainLevel": 0.8,
+            "sustainRate": 0,
+            "release": 8,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 0,
+            "detune": 0,
+            "level": 0.3,
+            "attack": 31,
+            "decay": 11,
+            "sustainLevel": 0.1,
+            "sustainRate": 0,
+            "release": 8,
+            "keyScale": 1,
+            "waveform": 0,
+            "fixedHz": null
+          },
+          {
+            "mult": 1,
+            "detune": 0,
+            "level": 0.5,
+            "attack": 31,
+            "decay": 5,
+            "sustainLevel": 0.85,
+            "sustainRate": 0,
+            "release": 8,
+            "keyScale": 0,
+            "waveform": 0,
+            "fixedHz": null
+          }
+        ]
+      },
+      "sample": null
+    },
+    "kick": {
+      "version": 1,
+      "name": "Kick",
+      "kind": "sample",
+      "chip": "genesis",
+      "volume": 1,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.4,
+        "sustain": 1,
+        "release": 0.1
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": null,
+      "sample": {
+        "generator": "kick909",
+        "params": {},
+        "seed": 3,
+        "baseNote": 60,
+        "loop": false
+      }
+    },
+    "snare": {
+      "version": 1,
+      "name": "Snare",
+      "kind": "sample",
+      "chip": "genesis",
+      "volume": 0.9,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.4,
+        "sustain": 1,
+        "release": 0.1
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": null,
+      "sample": {
+        "generator": "snare909",
+        "params": {},
+        "seed": 3,
+        "baseNote": 60,
+        "loop": false
+      }
+    },
+    "hat": {
+      "version": 1,
+      "name": "Hat",
+      "kind": "sample",
+      "chip": "genesis",
+      "volume": 0.6,
+      "pan": 0,
+      "transpose": 0,
+      "finetune": 0,
+      "envelope": {
+        "attack": 0,
+        "decay": 0.4,
+        "sustain": 1,
+        "release": 0.1
+      },
+      "macros": {},
+      "send": {
+        "echo": 0,
+        "reverb": 0
+      },
+      "pulse": null,
+      "wave": null,
+      "noise": null,
+      "sid": null,
+      "fm": null,
+      "sample": {
+        "generator": "hat909",
+        "params": {},
+        "seed": 3,
+        "baseNote": 60,
+        "loop": false
+      }
+    }
+  }
+}

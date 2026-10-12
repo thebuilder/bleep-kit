@@ -10,6 +10,7 @@ export type Route =
   | { view: "sfx"; id: string }
   | { view: "song"; id: string }
   | { view: "instrument"; id: string }
+  | { view: "sample"; id: string }
   | { view: "analysis"; ref: string }
   | { view: "examples" }
   | { view: "project"; export?: boolean };
@@ -30,6 +31,9 @@ export function parseRoute(hash: string): Route {
   }
   if (v === "instrument" && a) {
     return { id: a, view: "instrument" };
+  }
+  if (v === "sample" && a) {
+    return { id: a, view: "sample" };
   }
   if (v === "analysis") {
     // no ref: the view lists the sounds to pick from
@@ -52,6 +56,7 @@ export function routeHash(r: Route): string {
     case "sfx":
     case "song":
     case "instrument":
+    case "sample":
       return `#/${r.view}/${encodeURIComponent(r.id)}`;
     case "analysis":
       return r.ref ? `#/analysis/${r.ref}` : "#/analysis";
@@ -66,7 +71,7 @@ export function routeHash(r: Route): string {
 
 /** Where "open the analysis" goes: the sound or song being edited, else the list to pick one from. */
 export function analysisHash(doc: Doc | null): string {
-  return doc && doc.kind !== "instrument"
+  return doc && doc.kind !== "instrument" && doc.kind !== "sample"
     ? `#/analysis/${doc.kind}/${doc.id}`
     : "#/analysis";
 }

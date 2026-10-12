@@ -180,6 +180,7 @@ describe("chip character", () => {
     // section 2.4
     const ALLOWED: Record<ChipId, readonly Sfx["wave"][]> = {
       adlib: ["fm", "square", "sine", "saw"],
+      amiga: ["sine", "triangle", "saw", "square", "noise"],
       c64: ["square", "saw", "triangle", "noise"],
       custom: ["square", "triangle", "saw", "sine", "noise", "wave", "fm"],
       gameboy: ["square", "wave", "noise"],

@@ -17,6 +17,7 @@ import {
 
 const CHIP_LABELS: Readonly<Record<ChipId, string>> = {
   adlib: "the AdLib (OPL2 FM)",
+  amiga: "the Amiga (Paula, 8-bit samples)",
   c64: "the C64 (SID)",
   custom: "the unconstrained custom chip",
   gameboy: "the Game Boy",

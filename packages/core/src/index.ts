@@ -1,5 +1,26 @@
 // documents and types
 
+export {
+  AMIGA_CLOCK_HZ,
+  AMIGA_GENERATOR_RATE,
+  AMIGA_IMPORT_RATE,
+  AMIGA_PERIOD_EXT_MAX,
+  AMIGA_PERIOD_EXT_MIN,
+  AMIGA_PERIOD_MAX,
+  AMIGA_PERIOD_MIN,
+  MOD_C2_NOTE,
+  MOD_NOTE_HIGH,
+  MOD_NOTE_LOW,
+  MOD_SAMPLE_RATE,
+  noteToPeriod,
+  periodToNote,
+} from "./chips/amiga.ts";
+export {
+  DAC_RATE_MAX,
+  DAC_RATE_MIN,
+  GENESIS_DAC_RATE,
+  quantizeDacRate,
+} from "./chips/genesis.ts";
 // chips
 export {
   CHIP_SFX_WAVES,
@@ -7,6 +28,7 @@ export {
   chipChannels,
   chipProfile,
   chipSfxWaves,
+  hardwareChannels,
 } from "./chips/index.ts";
 export {
   renderInstrumentNote,
@@ -39,6 +61,19 @@ export {
 } from "./midi/index.ts";
 export { formatMml, mmlToTrack, parseMml, patternToMml } from "./mml/index.ts";
 export {
+  type ModCell,
+  type ModExport,
+  type ModFile,
+  type ModImport,
+  type ModInfo,
+  type ModParse,
+  type ModSample,
+  type ModToSongOptions,
+  modToSong,
+  parseMod,
+  songToMod,
+} from "./mod/index.ts";
+export {
   formatEffect,
   formatRowString,
   parseEffect,
@@ -48,13 +83,16 @@ export {
 export {
   defaultInstrument,
   defaultProject,
+  defaultSample,
   defaultSfx,
   defaultSong,
   issuesToText,
   normalizeInstrument,
   normalizeProject,
+  normalizeSample,
   normalizeSfx,
   normalizeSong,
+  sampleFits,
 } from "./normalize/index.ts";
 // notes and notation
 export {
@@ -73,6 +111,36 @@ export {
 // random
 export { deriveSeed, hashString, mulberry32 } from "./prng.ts";
 export { generateSample, SAMPLE_GENERATORS } from "./samples/index.ts";
+export {
+  base64ByteLength,
+  base64ToBytes,
+  bytesToBase64,
+  decodeSampleData,
+  encodeSampleData,
+  type ImportedSample,
+  importBits,
+  importRate,
+  isBase64,
+  mixToMonoChannels,
+  normalizePeak,
+  peakOf,
+  prepareImport,
+  quantize8,
+  removeDc,
+  resample,
+  sampleFrames,
+  sampleFromData,
+  scalePosition,
+} from "./samples/user.ts";
+export {
+  describeRechip,
+  type RechipChange,
+  type RechipDrop,
+  type RechipMove,
+  type RechipResult,
+  type RechipSummary,
+  rechipSong,
+} from "./songs/rechip.ts";
 export type * from "./types.ts";
 export {
   CHANNEL_KINDS,
@@ -80,7 +148,9 @@ export {
   EFFECT_TYPES,
   FORMAT_VERSION,
   PPQ,
+  SAMPLE_BITS,
   SAMPLE_GENERATOR_IDS,
+  SAMPLE_MAX_BYTES,
   SCOPE_FRAMES,
   SFX_CATEGORIES,
   SFX_WAVES,

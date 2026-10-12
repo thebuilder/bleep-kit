@@ -23,6 +23,7 @@ import {
   done,
   fail,
   parseJsonField,
+  type ToolOutput,
 } from "../tool-kit.ts";
 import { commit } from "./commit.ts";
 
@@ -176,6 +177,49 @@ interface RawChange {
   value?: unknown;
 }
 
+function chipOf(doc: unknown): unknown {
+  return (doc as { chip?: unknown } | null)?.chip;
+}
+
+/** Edits that would change a song's chip are refused: change_song_chip moves the music instead of dropping it. */
+function chipEditRefusal(
+  kind: string,
+  name: string,
+  before: unknown,
+  after: unknown
+): ToolOutput | null {
+  return kind === "song" && chipOf(after) !== chipOf(before)
+    ? fail(
+        `${name}: use change_song_chip`,
+        `Changing a song's chip here would drop every channel the new chip does not share. Use change_song_chip with ref "${name}": it moves the lead, bass, drums and harmony to the channels that suit the new chip. Nothing was changed.`
+      )
+    : null;
+}
+
+/** The raw changes as pointer edits, or the refusal for the first one that has no value. */
+function toChanges(
+  name: string,
+  raw: readonly RawChange[]
+): { changes: Change[] } | { error: ToolOutput } {
+  const changes: Change[] = [];
+  for (const [n, c] of raw.entries()) {
+    if (c.op !== "remove" && c.value === undefined) {
+      return {
+        error: fail(
+          `${name}: bad change`,
+          `change ${n + 1} (${c.path}) has no "value". Give a value, or use "op": "remove".`
+        ),
+      };
+    }
+    changes.push(
+      c.op === "remove"
+        ? { op: "remove", path: c.path }
+        : { op: "set", path: c.path, value: c.value }
+    );
+  }
+  return { changes };
+}
+
 export function editDocument(host: AgentHost): AgentTool {
   return defineTool<{ changes: RawChange[]; ref: string }>({
     coerce: (input) => parseJsonField(input, "changes"),
@@ -222,26 +266,26 @@ export function editDocument(host: AgentHost): AgentTool {
           `There is no ${name} to edit. Create it with write_document or a new_* tool.`
         );
       }
-      const changes: Change[] = [];
-      for (const [n, c] of input.changes.entries()) {
-        if (c.op !== "remove" && c.value === undefined) {
-          return fail(
-            `${name}: bad change`,
-            `change ${n + 1} (${c.path}) has no "value". Give a value, or use "op": "remove".`
-          );
-        }
-        changes.push(
-          c.op === "remove"
-            ? { op: "remove", path: c.path }
-            : { op: "set", path: c.path, value: c.value }
-        );
+      const built = toChanges(name, input.changes);
+      if ("error" in built) {
+        return built.error;
       }
+      const { changes } = built;
       const applied = applyChanges(doc, changes);
       if (!applied.ok) {
         return fail(
           `${name}: edit failed`,
           `${applied.error}. Nothing was changed.`
         );
+      }
+      const refusal = chipEditRefusal(
+        parsed.ref.kind,
+        name,
+        doc,
+        applied.value
+      );
+      if (refusal) {
+        return refusal;
       }
       const { out } = await commit(host, parsed.ref, applied.value, {
         verb: "Edited",
@@ -320,6 +364,9 @@ export function chipInfo(host: AgentHost): AgentTool {
             ? "Channels: custom declares its own in the song (any kind)."
             : `Channels: ${channels.join(", ")}.`,
           `Instrument kinds it can host: ${p.kinds.join(", ")}.`,
+          id === "genesis"
+            ? 'DAC: set "master": { "genesis": { "dac": true } } in the song and channel fm6 becomes a sample channel (kind "sample", 8 bit mono, 8 to 26 kHz): it plays sample instruments for drums or bass hits instead of FM.'
+            : "",
           `Sound effect waves: ${chipSfxWaves(id).join(", ")}.`,
           `Pitch: ${c.pitch === "period" ? `snaps to period registers (clock ${c.clockHz} Hz)` : "exact"}. Volume steps: ${c.volumeSteps || "continuous"}. Pan: ${c.pan}. Noise: ${c.noise}.`,
           c.dutyCycles.length > 0

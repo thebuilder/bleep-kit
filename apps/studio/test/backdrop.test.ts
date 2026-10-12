@@ -96,6 +96,7 @@ describe("the scenes", () => {
   // what section 11.5 says each chip's scene is made of; every scene also carries the audio reactive layer
   const SCENES: Record<(typeof CHIP_IDS)[number], string[]> = {
     adlib: ["dust", "glow"],
+    amiga: ["sky", "aurora", "crt"],
     c64: ["nebula"],
     custom: [],
     gameboy: ["skyline", "dust"],

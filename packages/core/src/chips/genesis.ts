@@ -4,6 +4,16 @@ import type { ChipProfile } from "../types.ts";
 
 const GENESIS_CLOCK_HZ = 3_579_545;
 
+/** The Z80 runs at the same clock and feeds the DAC: a driver's playback loop takes a whole number of Z80 cycles per
+    sample, so the DAC rate is the clock over a cycle count. Drivers played 8 to 26 kHz. */
+export const DAC_RATE_MIN = 8000;
+export const DAC_RATE_MAX = 26_000;
+/** 276 cycles per sample is 12969 Hz (13 kHz, what common Mega Drive drivers played drums at), the rate generated and
+    imported DAC samples are made at: a note an octave up plays at 25.9 kHz, just inside the top of the range, and a
+    note down to a fourth below still reaches 9.7 kHz. */
+export const DAC_CYCLES = 276;
+export const GENESIS_DAC_RATE = GENESIS_CLOCK_HZ / DAC_CYCLES;
+
 export const GENESIS: ChipProfile = {
   channels: [
     { fmOps: 4, id: "fm1", kind: "fm", label: "FM 1" },
@@ -39,10 +49,17 @@ export const GENESIS: ChipProfile = {
   },
   fmWaveforms: false,
   id: "genesis",
-  kinds: ["fm", "pulse", "noise"],
+  kinds: ["fm", "pulse", "noise", "sample"],
   label: "Sega Genesis (YM2612 + PSG)",
-  sampleRate: null,
+  sampleRate: GENESIS_DAC_RATE,
 };
+
+/** The rate a driver can play a sample at when `rate` is wanted: held inside 8 to 26 kHz and set by a whole number
+    of Z80 cycles per sample. */
+export function quantizeDacRate(rate: number): number {
+  const held = Math.min(DAC_RATE_MAX, Math.max(DAC_RATE_MIN, rate));
+  return GENESIS_CLOCK_HZ / Math.max(1, Math.round(GENESIS_CLOCK_HZ / held));
+}
 
 const PSG_MAX = 1023;
 

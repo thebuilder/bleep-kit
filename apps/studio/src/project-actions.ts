@@ -32,7 +32,8 @@ function localStore(): LocalStore | null {
 const isEmptyProject = (): boolean =>
   project.list("sfx").length +
     project.list("song").length +
-    project.list("instrument").length ===
+    project.list("instrument").length +
+    project.list("sample").length ===
   0;
 
 /* ----- what is not in a zip yet ----- */
@@ -159,7 +160,13 @@ type Replacement =
   | { kind: "empty"; name: string; chip: ChipId }
   | { kind: "starter" };
 
-const EDITOR_VIEWS = new Set(["sfx", "song", "instrument", "analysis"]);
+const EDITOR_VIEWS = new Set([
+  "sfx",
+  "song",
+  "instrument",
+  "sample",
+  "analysis",
+]);
 
 /** Close the editor that is open: its document is about to go, so it must not be on screen while the project loads. */
 function leaveEditors(): Promise<void> {

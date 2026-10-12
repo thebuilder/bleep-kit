@@ -127,12 +127,16 @@ function exampleOf(
     id,
     instrumentIds: referencedInstruments(song),
     name: id,
+    sampleIds: [],
     seconds: 1,
     song,
     style: "",
     tempo: song.tempo,
   };
-  return { catalog: { instruments, sets: [], sfx: [], songs: [ex] }, song: ex };
+  return {
+    catalog: { instruments, samples: {}, sets: [], sfx: [], songs: [ex] },
+    song: ex,
+  };
 }
 
 describe("copying with clashing ids", () => {

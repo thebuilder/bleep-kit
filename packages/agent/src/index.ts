@@ -37,6 +37,7 @@ export {
   type ProjectSummary,
   parseRef,
   refText,
+  type SampleInfo,
 } from "./host.ts";
 export {
   type AgentEvent,

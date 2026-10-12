@@ -8,14 +8,17 @@ import { compileMacro } from "../dsp/macro.ts";
 import { nearest } from "../nearest.ts";
 import type { ChannelKind, ChipId, ChipProfile, Instrument } from "../types.ts";
 
-/** Sample data a voice can play (SNES profile). */
+/** Sample data a voice can play (the sample chips: SNES, Amiga, custom). */
 export interface SampleRt {
+  /** The note the data sounds at when it plays at `rate` (a user sample's finetune is already folded in). */
   baseNote: number;
   data: Float32Array;
   loopEnd: number;
   loopStart: number;
   loops: boolean;
   rate: number;
+  /** Level of the sample (a user sample's volume); it multiplies the instrument's volume at compile time. */
+  volume: number;
 }
 
 /** Source models a voice can run. */

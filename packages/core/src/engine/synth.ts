@@ -15,6 +15,7 @@ import { newSvf, svfProcess, svfReset } from "../dsp/svf.ts";
 import { noteToHz } from "../notes.ts";
 import { deriveSeed } from "../prng.ts";
 import { generateSample } from "../samples/index.ts";
+import { decodeSampleData, quantize8 } from "../samples/user.ts";
 import type {
   ChipChannel,
   ChipId,
@@ -28,6 +29,7 @@ import type {
   SongPosition,
   Synth,
   SynthOptions,
+  UserSample,
 } from "../types.ts";
 import { CHIP_IDS, SCOPE_FRAMES } from "../types.ts";
 import type { ChannelHost } from "./channel.ts";
@@ -54,6 +56,13 @@ const MAX_SONG_VOICES = 10;
 /** Master gain used when no song says otherwise (the project default). */
 const DEFAULT_MASTER = 0.8;
 const MAX_SAMPLE_SECONDS = 4;
+
+/** A user sample as the synth holds it: the document, its decoded audio and the 8 bit copy the Amiga plays. */
+interface UserEntry {
+  data: Float32Array;
+  data8: Float32Array | null;
+  sample: UserSample;
+}
 /** Longest release (seconds to -60 dB) a paused song's voices are given. */
 const PAUSE_RELEASE = 0.04;
 
@@ -112,6 +121,7 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
   private readonly instRt = new Map<string, InstRt>();
   private readonly sfxProgs = new Map<string, SfxProgram>();
   private readonly sampleCache = new Map<string, SampleRt>();
+  private readonly userSamples = new Map<string, UserEntry>();
   private songBaseTempo = 120;
 
   // clocks
@@ -229,6 +239,10 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
     );
   }
 
+  setLed(on: boolean): void {
+    this.buses[CHIP_IDS.indexOf("amiga")]?.setLed(on);
+  }
+
   sidFilterTrigger(f: SidPatch["filter"]): void {
     const st = this.sidState;
     st.cutoff = f.cutoff;
@@ -285,7 +299,13 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
       ch.userVolume = 1;
       ch.userPan = null;
       ch.silenced = false;
+      ch.separation = song?.master.amiga?.separation ?? 1;
     }
+    const amiga = song?.master.amiga;
+    this.buses[CHIP_IDS.indexOf("amiga")]?.configureAmiga(
+      amiga?.model !== "a1200",
+      amiga?.led ?? false
+    );
     this.sidVoices = [];
     this.sidOsc = [];
     this.sidOuts = [];
@@ -323,20 +343,50 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
     this.nextTick = Math.ceil(frame + this.tickFrames - 1e-6);
   }
 
+  /** The runtime of a user sample for the current chip (the Amiga plays an 8 bit copy). */
+  private userSampleRt(id: string): SampleRt | null {
+    const u = this.userSamples.get(id);
+    if (!u) {
+      return null;
+    }
+    let data = u.data;
+    if (this.chip === "amiga" || this.chip === "genesis") {
+      // Paula and the YM2612's DAC take 8 bit data
+      u.data8 ??= quantize8(u.data);
+      data = u.data8;
+    }
+    const loop = u.sample.loop;
+    const loops = loop !== null && loop.end > loop.start;
+    return {
+      baseNote: u.sample.baseNote - u.sample.finetune / 100,
+      data,
+      loopEnd: loop ? Math.min(loop.end, data.length) : data.length,
+      loopStart: loop ? Math.min(loop.start, data.length) : 0,
+      loops,
+      rate: u.sample.rate,
+      volume: u.sample.volume,
+    };
+  }
+
   private sampleFor(inst: Instrument, _id: string): SampleRt | null {
     const p = inst.sample;
     if (!p) {
       return null;
     }
+    if (p.userSample !== undefined) {
+      return this.userSampleRt(p.userSample);
+    }
     const rate = this.profile.sampleRate ?? this.sampleRate;
-    const key = `${p.generator}|${JSON.stringify(p.params)}|${p.seed}|${rate}|${p.baseNote}|${p.loop ? 1 : 0}`;
+    const amiga = this.chip === "amiga" || this.chip === "genesis";
+    const key = `${p.generator}|${JSON.stringify(p.params)}|${p.seed}|${rate}|${p.baseNote}|${p.loop ? 1 : 0}|${amiga ? 8 : 0}`;
     const hit = this.sampleCache.get(key);
     if (hit) {
       return hit;
     }
     const g = generateSample(p.generator, p.params, p.seed, rate);
     const max = Math.round(MAX_SAMPLE_SECONDS * g.sampleRate);
-    const data = g.data.length > max ? g.data.subarray(0, max) : g.data;
+    const raw = g.data.length > max ? g.data.subarray(0, max) : g.data;
+    const data = amiga ? quantize8(raw) : raw;
     const loops =
       p.loop &&
       g.loopStart !== null &&
@@ -349,6 +399,7 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
       loopStart: g.loopStart ?? 0,
       loops,
       rate: g.sampleRate,
+      volume: 1,
     };
     this.sampleCache.set(key, rt);
     return rt;
@@ -357,11 +408,50 @@ export class SynthImpl implements Synth, ChannelHost, SeqHandler {
   private compile(id: string, inst: Instrument): InstRt {
     const rt = compileInstrument(id, inst, this.chip, this.profile);
     rt.sample = this.sampleFor(inst, id);
+    if (rt.sample) {
+      rt.volume *= rt.sample.volume;
+    }
     return rt;
   }
 
-  loadSong(song: Song, instruments: Record<string, Instrument>): void {
+  loadSample(id: string, sample: UserSample): void {
+    this.userSamples.set(id, {
+      data: decodeSampleData(sample),
+      data8: null,
+      sample,
+    });
+    // instruments already compiled against the old audio are rebuilt (live edits in the studio's sample editor)
+    for (const [instId, inst] of this.instDocs) {
+      if (inst.sample?.userSample === id) {
+        this.setInstrument(instId, inst);
+      }
+    }
+  }
+
+  unloadSample(id: string): void {
+    this.userSamples.delete(id);
+    for (const [instId, inst] of this.instDocs) {
+      if (inst.sample?.userSample === id) {
+        this.setInstrument(instId, inst);
+      }
+    }
+  }
+
+  loadSong(
+    song: Song,
+    instruments: Record<string, Instrument>,
+    samples?: Record<string, UserSample>
+  ): void {
     this.unloadSong();
+    if (samples) {
+      for (const [id, sample] of Object.entries(samples)) {
+        this.userSamples.set(id, {
+          data: decodeSampleData(sample),
+          data8: null,
+          sample,
+        });
+      }
+    }
     this.song = song;
     this.chip = song.chip;
     this.profile = CHIPS[song.chip];

@@ -1,4 +1,4 @@
-/* The fourteen sample generators (section 3.7). Each synthesizes a GeneratedSample deterministically from its params
+/* The sample generators (section 3.7): fourteen general ones and seven for techno drums and stabs. Each synthesizes a GeneratedSample deterministically from its params
    and a seed. Tonal generators are tuned to C-4 (MIDI 60) and loop seamlessly: the loop body holds a whole number of
    cycles of every partial, so the loop point never clicks. */
 
@@ -305,6 +305,283 @@ function crash(p: Params, seed: number, sr: number): GeneratedSample {
   }
   svf(out, "hp", 2500 + tone * 2500, 0.7, sr);
   fadeEnd(out, sr, 0.01);
+  normalize(out, DRUM_PEAK);
+  return oneShot(out, sr);
+}
+
+
+// ------------------------------------------------------------------ techno drums
+
+/** A 909 style kick: a sine that starts high and falls fast to its pitch, a short noise click on top, then drive. */
+function kick909(p: Params, seed: number, sr: number): GeneratedSample {
+  const g: SampleGeneratorId = "kick909";
+  const pitch = param(g, p, "pitch");
+  const sweep = param(g, p, "sweep");
+  const decay = param(g, p, "decay");
+  const click = param(g, p, "click");
+  const drive = param(g, p, "drive");
+  const rng = mulberry32(seed);
+  const n = frames(decay * 1.25 + 0.04, sr);
+  const out = new Float32Array(n);
+  const startHz = pitch * (2.5 + sweep * 7);
+  const sweepTau = 0.008 + 0.014 * sweep;
+  const ampTau = decay / 4.6;
+  let phase = 0;
+  let lp = 0;
+  for (let i = 0; i < n; i += 1) {
+    const t = i / sr;
+    const f = pitch + (startHz - pitch) * Math.exp(-t / sweepTau);
+    phase += f / sr;
+    const attack = Math.min(1, t / 0.0006);
+    let v = Math.sin(TWO_PI * phase) * Math.exp(-t / ampTau) * attack;
+    if (t < 0.006) {
+      // the click is high passed noise: the difference of the noise and a one pole low pass of it
+      const nz = noise(rng);
+      lp += 0.35 * (nz - lp);
+      v += (nz - lp) * click * (1 - t / 0.006) * 1.1;
+    }
+    out[i] = v;
+  }
+  const d = 1.2 + drive * 6;
+  for (let i = 0; i < n; i += 1) {
+    out[i] = Math.tanh((out[i] ?? 0) * d);
+  }
+  fadeEnd(out, sr);
+  normalize(out, DRUM_PEAK);
+  return oneShot(out, sr);
+}
+
+/** An 808 style kick: a long, pure sine boom with a short pitch drop and soft saturation. */
+function kick808(p: Params, seed: number, sr: number): GeneratedSample {
+  const g: SampleGeneratorId = "kick808";
+  const pitch = param(g, p, "pitch");
+  const decay = param(g, p, "decay");
+  const click = param(g, p, "click");
+  const drive = param(g, p, "drive");
+  const rng = mulberry32(seed);
+  const n = frames(decay * 1.2 + 0.05, sr);
+  const out = new Float32Array(n);
+  const startHz = pitch * 2.6;
+  const ampTau = decay / 4.6;
+  let phase = 0;
+  for (let i = 0; i < n; i += 1) {
+    const t = i / sr;
+    const f = pitch + (startHz - pitch) * Math.exp(-t / 0.022);
+    phase += f / sr;
+    // the level sags in two stages: a quick settle after the hit, then the long tail
+    const env = (0.72 + 0.28 * Math.exp(-t / 0.05)) * Math.exp(-t / ampTau);
+    let v = Math.sin(TWO_PI * phase) * env * Math.min(1, t / 0.0012);
+    if (t < 0.003) {
+      v += noise(rng) * click * (1 - t / 0.003) * 0.5;
+    }
+    out[i] = v;
+  }
+  const d = 1 + drive * 4;
+  for (let i = 0; i < n; i += 1) {
+    out[i] = Math.tanh((out[i] ?? 0) * d);
+  }
+  fadeEnd(out, sr, 0.008);
+  normalize(out, DRUM_PEAK);
+  return oneShot(out, sr);
+}
+
+/** A 909 style snare: two detuned tones with a fast pitch drop and a noise body that rings longer than the snap. */
+function snare909(p: Params, seed: number, sr: number): GeneratedSample {
+  const g: SampleGeneratorId = "snare909";
+  const tone = param(g, p, "tone");
+  const noiseAmt = param(g, p, "noise");
+  const decay = param(g, p, "decay");
+  const snap = param(g, p, "snap");
+  const rng = mulberry32(seed);
+  const n = frames(decay * 1.35 + 0.03, sr);
+  const body = new Float32Array(n);
+  const hiss = new Float32Array(n);
+  const crack = new Float32Array(n);
+  let p1 = 0;
+  let p2 = 0;
+  for (let i = 0; i < n; i += 1) {
+    const t = i / sr;
+    const bend = 1 + 0.5 * Math.exp(-t / 0.012);
+    p1 += (tone * bend) / sr;
+    p2 += (tone * 1.67 * bend) / sr;
+    body[i] =
+      (Math.sin(TWO_PI * p1) + 0.55 * Math.sin(TWO_PI * p2)) *
+      Math.exp(-t / (decay * 0.2));
+    hiss[i] = noise(rng) * Math.exp(-t / (decay * 0.46));
+    crack[i] = noise(rng) * Math.exp(-t / 0.0045);
+  }
+  svf(hiss, "bp", 3200, 0.55, sr);
+  svf(crack, "hp", 3800, 0.7, sr);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    out[i] =
+      (body[i] ?? 0) * (1 - noiseAmt * 0.55) +
+      (hiss[i] ?? 0) * noiseAmt * 2.2 +
+      (crack[i] ?? 0) * snap * 1.6;
+  }
+  for (let i = 0; i < n; i += 1) {
+    out[i] = Math.tanh((out[i] ?? 0) * 1.4);
+  }
+  fadeEnd(out, sr);
+  normalize(out, DRUM_PEAK);
+  return oneShot(out, sr);
+}
+
+/** A 909 style clap: four close noise bursts into a short band limited tail. */
+function clap909(p: Params, seed: number, sr: number): GeneratedSample {
+  const g: SampleGeneratorId = "clap909";
+  const decay = param(g, p, "decay");
+  const spread = param(g, p, "spread");
+  const tone = param(g, p, "tone");
+  const rng = mulberry32(seed);
+  const gap = 0.0085 + spread * 0.011;
+  const n = frames(gap * 4 + decay * 1.3 + 0.02, sr);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const t = i / sr;
+    let env = 0;
+    for (let b = 0; b < 4; b += 1) {
+      const dt = t - b * gap;
+      if (dt >= 0) {
+        env += Math.exp(-dt / 0.0035) * (0.75 + 0.25 * (b % 2));
+      }
+    }
+    const tail = t >= gap * 3 ? Math.exp(-(t - gap * 3) / (decay / 4.6)) : 0;
+    out[i] = noise(rng) * (env * 0.7 + tail * 0.9);
+  }
+  svf(out, "bp", 1000 + tone * 1700, 1.4, sr);
+  svf(out, "hp", 450, 0.7, sr);
+  fadeEnd(out, sr);
+  normalize(out, DRUM_PEAK);
+  return oneShot(out, sr);
+}
+
+/** The six square oscillators of the 909's hats and cymbals, a little higher than the 808's. */
+const METAL_909 = [263.1, 400, 421, 474.1, 587.3, 845] as const;
+
+/** A 909 style hat: metallic squares and noise with a very short (closed) or longer (open) decay. */
+function hat909(p: Params, seed: number, sr: number): GeneratedSample {
+  const g: SampleGeneratorId = "hat909";
+  const open = param(g, p, "open");
+  const tone = param(g, p, "tone");
+  const rng = mulberry32(seed);
+  const len = 0.035 + open * open * 0.45 + open * 0.08;
+  const n = frames(len * 1.25 + 0.015, sr);
+  const out = new Float32Array(n);
+  const phases = new Float64Array(METAL_909.length);
+  const scale = 4 + tone * 2;
+  for (let i = 0; i < n; i += 1) {
+    let s = 0;
+    for (let k = 0; k < METAL_909.length; k += 1) {
+      phases[k] = ((phases[k] ?? 0) + ((METAL_909[k] ?? 0) * scale) / sr) % 1;
+      s += (phases[k] ?? 0) < 0.5 ? 1 : -1;
+    }
+    const t = i / sr;
+    // a hat closes with a short tick of full level, then falls; an open hat holds longer before the fall
+    const env = Math.exp(-t / (len / 4.6)) * (1 + 0.8 * Math.exp(-t / 0.004));
+    out[i] = (s / METAL_909.length + noise(rng) * 0.35) * env;
+  }
+  svf(out, "hp", 6500 + tone * 2500, 0.8, sr);
+  fadeEnd(out, sr, 0.003);
+  normalize(out, DRUM_PEAK);
+  return oneShot(out, sr);
+}
+
+/** A 909 style crash: bright metal and noise, a swell of a few ms, then a slow shimmering fall. */
+function crash909(p: Params, seed: number, sr: number): GeneratedSample {
+  const g: SampleGeneratorId = "crash909";
+  const decay = param(g, p, "decay");
+  const tone = param(g, p, "tone");
+  const rng = mulberry32(seed);
+  const n = frames(decay * 1.1, sr);
+  const out = new Float32Array(n);
+  const phases = new Float64Array(METAL_909.length);
+  for (let i = 0; i < n; i += 1) {
+    let s = 0;
+    for (let k = 0; k < METAL_909.length; k += 1) {
+      phases[k] = ((phases[k] ?? 0) + ((METAL_909[k] ?? 0) * 3.5) / sr) % 1;
+      s += (phases[k] ?? 0) < 0.5 ? 1 : -1;
+    }
+    const t = i / sr;
+    const env =
+      Math.min(1, t / 0.002) *
+      Math.exp(-t / (decay / 4.6)) *
+      (1 + 1.2 * Math.exp(-t / 0.05));
+    out[i] = (noise(rng) * 0.7 + (s / METAL_909.length) * 0.55) * env;
+  }
+  svf(out, "hp", 3200 + tone * 3200, 0.7, sr);
+  fadeEnd(out, sr, 0.015);
+  normalize(out, DRUM_PEAK);
+  return oneShot(out, sr);
+}
+
+/** Add a band limited sawtooth (additive, up to 24 harmonics) at `hz` into `buf`, scaled by `gain`. */
+function addSaw(
+  buf: Float32Array,
+  hz: number,
+  phase0: number,
+  gain: number,
+  sr: number
+): void {
+  const harmonics = Math.max(1, Math.min(24, Math.floor((sr * 0.45) / hz)));
+  const w = hz / sr;
+  for (let i = 0; i < buf.length; i += 1) {
+    const ph = phase0 + w * i;
+    let sum = 0;
+    for (let k = 1; k <= harmonics; k += 1) {
+      sum += Math.sin(TWO_PI * ph * k) / k;
+    }
+    buf[i] = (buf[i] ?? 0) + sum * gain;
+  }
+}
+
+/** An orchestra hit: a stack of detuned saws on a root, a fifth, an octave and a twelfth, a bright blat that dulls to
+    a brassy body, with a noise burst on top. It sounds at unity on C-4, so notes transpose the whole stab. */
+function orchestra(p: Params, seed: number, sr: number): GeneratedSample {
+  const g: SampleGeneratorId = "orchestra";
+  const decay = param(g, p, "decay");
+  const bright = param(g, p, "bright");
+  const detune = param(g, p, "detune");
+  const width = param(g, p, "width");
+  const rng = mulberry32(seed);
+  const n = frames(decay * 1.4 + 0.06, sr);
+  const hi = new Float32Array(n);
+  const lo = new Float32Array(n);
+  const voices = [
+    { ratio: 1, gain: 1 },
+    { ratio: 1.4983, gain: 0.8 * (0.35 + 0.65 * width) },
+    { ratio: 2, gain: 0.7 },
+    { ratio: 3, gain: 0.5 * width },
+  ];
+  const spread = [-1, 0, 1];
+  for (const v of voices) {
+    for (const [si, sp] of spread.entries()) {
+      const hz = BASE_HZ * v.ratio * 2 ** ((sp * detune * 18) / 1200);
+      const phase0 = rng();
+      addSaw(hi, hz, phase0, v.gain * (si === 1 ? 1 : 0.7), sr);
+    }
+  }
+  lo.set(hi);
+  svf(lo, "lp", 900 + bright * 900, 0.8, sr);
+  svf(hi, "lp", 3500 + bright * 5000, 0.9, sr);
+  const hiss = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    hiss[i] = noise(rng) * Math.exp(-(i / sr) / 0.02);
+  }
+  svf(hiss, "bp", 1800, 0.8, sr);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i += 1) {
+    const t = i / sr;
+    const attack = Math.min(1, t / 0.003);
+    const bladeEnv = Math.exp(-t / 0.07);
+    const bodyEnv = Math.exp(-t / (decay / 3.2));
+    out[i] =
+      ((hi[i] ?? 0) * bladeEnv * (0.4 + bright * 0.6) +
+        (lo[i] ?? 0) * bodyEnv +
+        (hiss[i] ?? 0) * 0.9) *
+      attack;
+  }
+  fadeEnd(out, sr, 0.02);
   normalize(out, DRUM_PEAK);
   return oneShot(out, sr);
 }
@@ -709,14 +986,21 @@ const GENERATORS: Readonly<
   bell,
   choir,
   clap,
+  clap909,
   crash,
+  crash909,
   hat,
+  hat909,
   kick,
+  kick808,
+  kick909,
   lead,
+  orchestra,
   organ,
   pad,
   pluck,
   snare,
+  snare909,
   strings,
   tom,
 };

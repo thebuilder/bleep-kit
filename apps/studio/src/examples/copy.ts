@@ -2,10 +2,15 @@
    the next free one (`boss-hall-2`, `snes-bass-2`) and the song's references are remapped to the copies. The plan is
    pure (ids in, documents out) so it can be checked on its own; `addToProject` writes it through the project, which
    writes through the ProjectStore (the browser's own, or the CLI server). */
-import type { Instrument, Sfx, Song } from "../lib/contract.ts";
+import type { Instrument, Sfx, Song, UserSample } from "../lib/contract.ts";
 import { type Doc, type DocKind, project } from "../state/docs.ts";
 import { ID_RE } from "../store/store.ts";
-import type { ExampleCatalog, ExampleSfx, ExampleSong } from "./catalog.ts";
+import {
+  type ExampleCatalog,
+  type ExampleSfx,
+  type ExampleSong,
+  sampleIdsOf,
+} from "./catalog.ts";
 
 const MML_INSTRUMENT = /@([A-Za-z0-9-]+)/g;
 const ID_MAX = 64;
@@ -15,7 +20,7 @@ export interface PlannedDoc {
   from: string;
   id: string;
   kind: DocKind;
-  value: Instrument | Sfx | Song;
+  value: Instrument | Sfx | Song | UserSample;
 }
 
 export interface CopyPlan {
@@ -23,6 +28,8 @@ export interface CopyPlan {
   docs: PlannedDoc[];
   /** The example instrument id to the id of its copy. */
   instruments: Map<string, string>;
+  /** The example user sample id to the id of its copy. */
+  samples: Map<string, string>;
 }
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -35,6 +42,19 @@ export function freeId(base: string, taken: (id: string) => boolean): string {
     id = `${base.slice(0, ID_MAX - suffix.length)}${suffix}`;
   }
   return id;
+}
+
+/** A copy of `inst` that plays the user sample under its new id. */
+export function remapInstrument(
+  inst: Instrument,
+  ids: ReadonlyMap<string, string>
+): Instrument {
+  const out = clone(inst);
+  const id = out.sample?.userSample;
+  if (out.sample && id !== undefined) {
+    out.sample.userSample = ids.get(id) ?? id;
+  }
+  return out;
 }
 
 /** A copy of `song` that names the instruments in `ids` by their new ids: channel defaults, MML `@id` switches, rows. */
@@ -86,17 +106,32 @@ export function planCopy(
   };
   const songs = pick.songs ?? [];
   const instruments = new Map<string, string>();
+  const samples = new Map<string, string>();
   const docs: PlannedDoc[] = [];
   const wanted = [
     ...songs.flatMap((ex) => ex.instrumentIds),
     ...(pick.instruments ?? []),
   ];
+  // samples come first: an instrument is normalized against the samples it plays
+  for (const id of sampleIdsOf(wanted, catalog.instruments)) {
+    const sample = catalog.samples[id];
+    if (sample) {
+      const copy = claim("sample", id);
+      samples.set(id, copy);
+      docs.push({ from: id, id: copy, kind: "sample", value: clone(sample) });
+    }
+  }
   for (const id of wanted) {
     const inst = catalog.instruments[id];
     if (inst && !instruments.has(id)) {
       const copy = claim("instrument", id);
       instruments.set(id, copy);
-      docs.push({ from: id, id: copy, kind: "instrument", value: clone(inst) });
+      docs.push({
+        from: id,
+        id: copy,
+        kind: "instrument",
+        value: remapInstrument(inst, samples),
+      });
     }
   }
   for (const ex of songs) {
@@ -115,7 +150,7 @@ export function planCopy(
       value: clone(ex.sfx),
     });
   }
-  return { docs, instruments };
+  return { docs, instruments, samples };
 }
 
 /**

@@ -3,10 +3,9 @@
 
 import { chipProfile } from "../chips/index.ts";
 import { makeInstrument } from "../presets.ts";
+import type { Role } from "../songs/roles.ts";
 import type { ChannelKind, ChipChannel, ChipId, Instrument } from "../types.ts";
 import { type ChipPlan, type DrumVoice, PLANS } from "./plan.ts";
-
-export type Role = "lead" | "harmony" | "bass" | "drums";
 
 export interface Built {
   id: string;
@@ -77,15 +76,14 @@ function shapeHarmony(inst: Instrument): void {
   }
 }
 
-/** The instrument a role plays on a channel (drums on the sample chip: see `drumInstrument`). */
-export function roleInstrument(
+/** The instrument a role plays on a channel kind, built from the shared presets (no id: the caller names it). */
+export function buildRoleInstrument(
   chip: ChipId,
-  channel: ChipChannel,
+  kind: ChannelKind,
   role: Role
-): Built {
-  const id = instrumentId(chip as PlannedChip, role, channel);
+): Instrument {
   const instrument = makeInstrument(
-    channel.kind,
+    kind,
     chip,
     PRESET_OF_ROLE[role],
     ROLE_NAMES[role]
@@ -97,7 +95,19 @@ export function roleInstrument(
     // a SID voice has no noise channel: it plays the noise waveform, and the note picks the pitch of the hiss
     instrument.sid = { ...instrument.sid, waveforms: ["noise"] };
   }
-  return { id, instrument };
+  return instrument;
+}
+
+/** The instrument a role plays on a channel (drums on the sample chip: see `drumInstrument`). */
+export function roleInstrument(
+  chip: ChipId,
+  channel: ChipChannel,
+  role: Role
+): Built {
+  return {
+    id: instrumentId(chip as PlannedChip, role, channel),
+    instrument: buildRoleInstrument(chip, channel.kind, role),
+  };
 }
 
 /** One instrument per drum on a sample chip, so a row can pick the kick, the snare or the hat by instrument. */

@@ -65,6 +65,7 @@ describe("instrument presets", () => {
       Object.fromEntries(CHIP_IDS.map((chip) => [chip, bassKind(chip)]))
     ).toEqual({
       adlib: "fm",
+      amiga: "sample",
       c64: "sid",
       custom: "sid",
       gameboy: "wave",
