@@ -256,11 +256,7 @@ export function toggleField(
 
 /** A line of plain text inside a group body. */
 export function note(body: HTMLElement, text: string): HTMLElement {
-  const el = h(
-    "div",
-    { class: "hint wide", style: "grid-column:1/-1;padding:0" },
-    text
-  );
+  const el = h("div", { class: "hint wide" }, text);
   body.append(el);
   return el;
 }

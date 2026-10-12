@@ -1731,7 +1731,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     const c = song().channels.find((x) => x.id === chId);
     return c ? KIND_HEX[c.kind] : "#ece7da";
   };
-  const lastNote = new Map<number, number>();
+  /** The strip keys each channel lit and has not put out yet. A note is announced twice (when it is played and when the
+      engine makes it audible), so the engine's noteOn for an old key can arrive after a newer one was lit; a channel
+      holds one note, so its noteOff puts out every key it lit. */
+  const litNotes = new Map<number, Set<number>>();
   /** The note frequency of each channel's latest note, the period hint for its scope. */
   const hzOf = new Map<number, number>();
   /** Where the song is, from the engine's row events (they arrive when the row is audible, in order with the notes). */
@@ -1749,17 +1752,19 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       const n = clamp(Math.round(ev.note), KEY_LO, KEY_HI);
       if (ev.type === "noteOn") {
         keys.light(n, colorOf(ev.channelId), true, f.time);
-        lastNote.set(ev.channel, n);
+        const lit = litNotes.get(ev.channel) ?? new Set<number>();
+        lit.add(n);
+        litNotes.set(ev.channel, lit);
         if (ev.hz > 0) {
           hzOf.set(ev.channel, ev.hz);
         }
         const at = evPos?.order === orderIdx ? evPos.row : playRow;
         pulseCell(ev.channelId, at);
       } else if (ev.type === "noteOff") {
-        const held = lastNote.get(ev.channel);
-        if (held !== undefined) {
-          keys.release(held, f.time);
+        for (const k of litNotes.get(ev.channel) ?? []) {
+          keys.release(k, f.time);
         }
+        litNotes.delete(ev.channel);
       }
     }
   }

@@ -1,7 +1,7 @@
 // The system prompt: who the assistant is, what it can and cannot do, how to work without ears, and the whole document
 // reference. The reference is the CLI's `help formats` text itself (one source), and the chip table is generated from
-// the chip profiles, so neither can drift from the engine. The first part is the same for every turn (a provider can
-// cache it); the second says what is open in the studio right now.
+// the chip profiles, so neither can drift from the engine. The system prompt is the same for every turn (a provider can
+// cache it, and thinking-block signatures stay valid); what is open in the studio right now travels in the user message.
 import { CHIP_IDS, chipProfile } from "@bleepkit/core";
 import type { DocRef, ProjectSummary } from "./host.ts";
 import { refText } from "./host.ts";
@@ -11,7 +11,7 @@ const INTRO = `You are the assistant inside Bleepkit, a studio for making 80s an
 
 YOU CANNOT HEAR. The person hears everything in the studio; you only have text and measurements. So never say a sound "sounds good", "warm" or "punchy" as if you heard it. Work from the numbers and pictures your tools return, say what you measured, and ask the person to listen (use the play tool) for taste. Be honest about that when it matters: "the render peaks at -9 dBFS and the pitch rises from C-5 to C-6" is useful, "it sounds great" is not.
 
-HOW THE STUDIO WORKS. Your tools edit the person's real project. Every document you create or change appears at once in the sidebar and the editors, is saved like any other edit, and can be undone with Undo (one assistant reply is one undo step per document). The person may be looking at a document while you change it. Deleting asks them to confirm in a dialog and they may refuse.
+HOW THE STUDIO WORKS. Your tools edit the person's real project. Every document you create or change appears at once in the sidebar and the editors, is saved like any other edit, and can be undone with Undo (one assistant reply is one undo step per document). The person may be looking at a document while you change it. Deleting asks them to confirm in a dialog and they may refuse. Each message from the person starts with a "[Studio state when this message was sent]" note naming the project and the document they have open ("this" means that document); the notes in earlier messages are history and may be out of date.
 
 HOW TO WORK
 1. Look before you leap: list_documents to see ids and the project's chip. Use the project's chip unless the person asks for another. chip_info tells you a chip's channel ids and limits.
@@ -74,25 +74,28 @@ export function baseSystemPrompt(): string {
   return cached;
 }
 
-/** What is open and what the project is, for this turn. */
-export function stateSystemPrompt(state: {
+/**
+ * What is open and what the project is, as it stands when the person sends a message. It goes at the top of that user
+ * message and stays there for good, never into the system prompt: a thinking block's signature is bound to the system
+ * prompt, the tools and every message before it, so a prompt or an earlier message that changes between turns makes the
+ * provider refuse the thinking blocks the conversation replays.
+ */
+export function turnContext(state: {
   current: DocRef | null;
   project: ProjectSummary;
 }): string {
   const { current, project } = state;
   return [
-    "RIGHT NOW",
+    "[Studio state when this message was sent]",
     `The project is "${project.name}" on the ${project.chip} chip (${project.sampleRate} Hz, seed ${project.seed}, master volume ${project.master.volume}).`,
     current
       ? `The person has ${refText(current)} open in the studio. "This", "it" and "the song/sound" mean that document unless they say otherwise; read it before changing it.`
       : "No document is open in the studio (they are on the pads, project or analysis page).",
+    "[The person's message follows]",
   ].join("\n");
 }
 
-/** The prompt as the parts a provider takes: the stable part first. */
-export function buildSystem(state: {
-  current: DocRef | null;
-  project: ProjectSummary;
-}): string[] {
-  return [baseSystemPrompt(), stateSystemPrompt(state)];
+/** The system prompt as the parts a provider takes. Fixed: the same for every turn of every conversation. */
+export function buildSystem(): string[] {
+  return [baseSystemPrompt()];
 }

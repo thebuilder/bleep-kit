@@ -114,6 +114,29 @@ describe("the drawer", () => {
 });
 
 describe("the settings dialog", () => {
+  it("saves the model that was picked, not the default one the panel would choose for a new key", async () => {
+    const { assistantSettings } = await import("../src/assistant/settings.ts");
+    stubWith();
+    await enterKey(true);
+    const select = $<HTMLSelectElement>("#asstModel");
+    expect(select.value).toBe("claude-opus-test");
+    select.value = "claude-sonnet-test";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    press($("#asstSave"));
+    expect($(".asst-modal")).toBeNull();
+    // the panel looks the models up for a key without a model: let that finish, then see what stayed saved
+    await settle(100);
+    expect(assistantSettings.choices().models.anthropic).toBe(
+      "claude-sonnet-test"
+    );
+    expect(document.querySelector(".asst-model")?.textContent).toBe(
+      "claude-sonnet-test"
+    );
+    // leave the shell as the next tests expect it: no key, no model
+    assistantSettings.forgetKey("anthropic");
+    assistantSettings.saveChoices({ models: { anthropic: "" } });
+  });
+
   it("lists the models once the key is typed, picks the newest top model, and talks only to the provider", async () => {
     stubWith();
     await enterKey(true);
@@ -239,8 +262,15 @@ describe("a conversation", () => {
     const posts = calls.filter((c) => c.url.endsWith("/v1/messages"));
     expect(posts).toHaveLength(2);
     expect(JSON.stringify(posts[1]?.body)).toContain("tool_result");
-    // the project and the open document are told to the model
-    expect(JSON.stringify(posts[0]?.body)).toContain("RIGHT NOW");
+    // the project and the open document are told to the model in the user message, not in the system prompt
+    const first = posts[0]?.body as {
+      messages: unknown[];
+      system: unknown;
+    };
+    expect(JSON.stringify(first.messages)).toContain(
+      "Studio state when this message was sent"
+    );
+    expect(JSON.stringify(first.system)).not.toContain("Starter kit");
   });
 
   it("shows the words for a rate limit and keeps the conversation usable", async () => {

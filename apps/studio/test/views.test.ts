@@ -12,12 +12,14 @@ import {
   vi,
 } from "vitest";
 import indexHtml from "../index.html?raw";
+import { KIND_HEX } from "../src/lib/chips.ts";
 import type { Instrument, Sfx, Song } from "../src/lib/contract.ts";
 import {
   chipProfile,
   defaultSong,
   renderSfx as renderSound,
 } from "../src/lib/core.ts";
+import { rgba } from "../src/visuals/canvas.ts";
 import {
   field,
   filledRects,
@@ -51,6 +53,43 @@ const uploaded = (mark: number, id: string) =>
   sentSince(mark, "loadSfx")
     .filter((m) => m.id === id)
     .at(-1)?.sfx as Sfx | undefined;
+
+interface NoteEvent {
+  channel: number;
+  channelId: string;
+  id: string;
+  note: number;
+  type: "noteOff" | "noteOn";
+}
+/** The studio announces a note to the visuals the moment it plays it. */
+const studioAnnounces = (e: NoteEvent) => engineMod.engine.announce(e);
+/** The engine reports the same note a moment later, when it becomes audible (what its worklet posts). */
+const engineReports = (e: NoteEvent) =>
+  (
+    engineMod.engine as unknown as { onMessage: (m: unknown) => void }
+  ).onMessage({
+    events: [
+      {
+        frame: 0,
+        hz: 440 * 2 ** ((e.note - 69) / 12),
+        order: -1,
+        row: -1,
+        velocity: e.type === "noteOn" ? 0.9 : 0,
+        ...e,
+      },
+    ],
+    type: "events",
+  });
+/** One frame of the visual loop at `at`; the piano keys it drew lit at full strength in `color` (a key that is not
+    busy is not drawn at all, so a key that is still lit long after its release shows up here). */
+const litKeysAt = (at: number, color: string, keyWidth: number) => {
+  filledRects.length = 0;
+  loopMod.tickOnce(at);
+  const lit = rgba(color, 1);
+  return filledRects.filter(
+    (r) => r.style === lit && r.y === 0 && r.h >= 20 && r.w <= keyWidth
+  );
+};
 
 /** Autosave writes a document 800 ms after its last edit. Sleeping through that in every test that checks the store is
     most of what this file would spend, so such a test fakes the timers before its edit (`saveClock()`) and steps over
@@ -215,12 +254,15 @@ beforeAll(async () => {
   vi.stubGlobal("requestAnimationFrame", () => 1);
   vi.stubGlobal("cancelAnimationFrame", () => undefined);
   // happy-dom lays nothing out: give the piano and the macro bars the size they have in the studio (14 white keys of
-  // 24 px, bars of 300 by 80) so pointer positions mean something
+  // 24 px, bars of 300 by 80, the song editor's strip of 28 white keys of 12 px) so pointer positions mean something
   const layout = HTMLCanvasElement.prototype.getBoundingClientRect;
   HTMLCanvasElement.prototype.getBoundingClientRect = function sized() {
     const [w, h] = (() => {
       if (this.id === "iKeys") {
         return [336, 60];
+      }
+      if (this.id === "gKeys") {
+        return [336, 42];
       }
       return this.closest(".macro") ? [300, 80] : [0, 0];
     })();
@@ -671,6 +713,22 @@ describe("the sfx editor", () => {
     expect(
       await until(() => document.getElementById("aRerun") !== null, 6000)
     ).toBe(true);
+  });
+
+  it("the hint under the groups is inset like the fields above it, with no style of its own", async () => {
+    await goSfx("coin");
+    const hint = [...insp().querySelectorAll(".insp-in > .hint")].find((el) =>
+      el.textContent?.startsWith("Lock a group")
+    );
+    expect(hint).toBeDefined();
+    // the hint class pads text 14 px from the edge, as the group bodies do the fields; an inline padding of 0 on it left
+    // the text flush against the edge
+    expect(hint?.getAttribute("style")).toBeNull();
+    expect(indexHtml).toMatch(/\n\s*\.hint\s*\{[^}]*padding:\s*8px 14px/);
+    // inside a group body, which has the inset itself, the hint takes none of its own and spans the columns
+    expect(indexHtml).toMatch(
+      /\.grp-b > \.hint\s*\{[^}]*grid-column:\s*1 \/ -1;[^}]*padding:\s*0;/
+    );
   });
 });
 
@@ -1478,6 +1536,39 @@ describe("the song editor", () => {
       follow(true);
     });
 
+    it("puts out a strip key the engine lights after the studio let it go, however the two reports interleave", async () => {
+      await goSong(SONG_P);
+      const chan = songValue(SONG_P).channels[0] as Song["channels"][number];
+      const color = KIND_HEX[chan.kind];
+      // the strip starts on C2 (36)
+      const ev = (type: NoteEvent["type"], note: number): NoteEvent => ({
+        channel: 0,
+        channelId: chan.id,
+        id: chan.instrument ?? "",
+        note,
+        type,
+      });
+      const frame = (ms: number) => {
+        tickAt += ms;
+        return litKeysAt(tickAt, color, 12);
+      };
+      frame(20);
+      studioAnnounces(ev("noteOn", 36));
+      studioAnnounces(ev("noteOff", 36));
+      engineReports(ev("noteOn", 40));
+      frame(20);
+      studioAnnounces(ev("noteOn", 38));
+      studioAnnounces(ev("noteOff", 38));
+      engineReports(ev("noteOff", 40));
+      frame(20);
+      for (const e of [ev("noteOn", 36), ev("noteOff", 36), ev("noteOn", 38)]) {
+        engineReports(e);
+      }
+      engineReports(ev("noteOff", 38));
+      frame(20);
+      expect(frame(2000)).toHaveLength(0);
+    });
+
     it("marks the row and the pattern that are playing, and clears both when the song stops", async () => {
       await goSong(SONG_P);
       expect(playingRows()).toEqual([]);
@@ -1701,15 +1792,84 @@ describe("the instrument editor", () => {
       [id, lo + 2, ch],
     ]);
     expect(sentSince(mark, "noteOff")).toHaveLength(1);
-    // a pointer with no button down is only passing over the keys
+    // a move that reports no button means the button came up where the page could not hear it: D is let go, and the
+    // pointer is only passing over the keys from then on
     at("pointermove", 55, 0);
     expect(noteOns(mark)).toHaveLength(2);
-    expect(sentSince(mark, "noteOff")).toHaveLength(1);
+    expect(sentSince(mark, "noteOff")).toHaveLength(2);
     at("pointerup", 30, 0);
     expect(sentSince(mark, "noteOff")).toHaveLength(2);
     // with no key held, moving does nothing at all
     at("pointermove", 55, 1);
     expect(noteOns(mark)).toHaveLength(2);
+  });
+
+  it("puts out a key the engine lights after the studio let it go, however the two reports interleave", async () => {
+    const { id } = first();
+    await goInstrument(id);
+    const lo = (octave() + 1) * 12;
+    const { kind } = instValue(id);
+    const ev = (type: NoteEvent["type"], semis: number): NoteEvent => ({
+      channel: channelOf(id),
+      channelId: kind,
+      id,
+      note: lo + semis,
+      type,
+    });
+    let at = performance.now() + 1_000_000;
+    const frame = (ms: number) => {
+      at += ms;
+      return litKeysAt(at, KIND_HEX[kind], 24);
+    };
+    // frame 1: the studio played and let go of C, and the engine reports E, a note played a moment earlier
+    studioAnnounces(ev("noteOn", 0));
+    studioAnnounces(ev("noteOff", 0));
+    engineReports(ev("noteOn", 4));
+    frame(20);
+    // frame 2: the studio played and let go of D, and the engine reports that E ended
+    studioAnnounces(ev("noteOn", 2));
+    studioAnnounces(ev("noteOff", 2));
+    engineReports(ev("noteOff", 4));
+    frame(20);
+    // the reports of C and D come after, and nothing is held: no key may stay lit
+    for (const e of [ev("noteOn", 0), ev("noteOff", 0), ev("noteOn", 2)]) {
+      engineReports(e);
+    }
+    engineReports(ev("noteOff", 2));
+    frame(20);
+    expect(frame(2000)).toHaveLength(0);
+  });
+
+  it("lets a held key go when the octave changes under the mouse, and leaves one set of listeners on the keys", async () => {
+    const { id } = first();
+    await goInstrument(id);
+    const kb = document.getElementById("iKeys") as HTMLElement;
+    kb.setPointerCapture = () => undefined;
+    const at = (type: string, buttons: number) =>
+      kb.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true,
+          button: 0,
+          buttons,
+          clientX: 5,
+          clientY: 50,
+          pointerId: 6,
+        })
+      );
+    const was = octave();
+    at("pointerdown", 1);
+    const mark = sent.length;
+    key(was >= 6 ? "-" : "=");
+    expect(octave()).not.toBe(was);
+    expect(sentSince(mark, "noteOff")).toHaveLength(1);
+    at("pointerup", 0);
+    const again = sent.length;
+    at("pointerdown", 1);
+    at("pointerup", 0);
+    expect(noteOns(again)).toHaveLength(1);
+    expect(sentSince(again, "noteOff")).toHaveLength(1);
+    key(was >= 6 ? "=" : "-");
+    expect(octave()).toBe(was);
   });
 
   it("Play sounds the test note on this instrument and lets it go after the test length", async () => {

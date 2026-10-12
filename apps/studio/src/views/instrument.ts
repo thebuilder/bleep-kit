@@ -1186,8 +1186,11 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
   });
 
   /* ----- visuals ----- */
-  /** The key each preview channel last lit, so the engine's noteOff can put it out again. */
-  const litOn = new Map<number, number>();
+  /** The keys each preview channel lit and has not put out yet. A note is announced twice: at once when it is played,
+      and again by the engine when it becomes audible. So the engine's noteOn for an old key can arrive after a newer
+      key was lit, and one slot per channel would forget the old key and leave it lit. A channel holds one note, so its
+      noteOff puts out every key it lit. */
+  const litOn = new Map<number, Set<number>>();
   /** Light the keys of the notes this instrument just played, when they are inside the two visible octaves, and put
       them out on the engine's noteOff. The engine reports a note when it becomes audible, which for a quick click is
       after the mouse is already up, so lighting without the matching release would leave the key stuck on. */
@@ -1198,11 +1201,10 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
         continue;
       }
       if (ev.type === "noteOff") {
-        const n = litOn.get(ev.channel);
-        if (n !== undefined) {
+        for (const n of litOn.get(ev.channel) ?? []) {
           piano.release(n, f.time);
-          litOn.delete(ev.channel);
         }
+        litOn.delete(ev.channel);
         continue;
       }
       if (ev.type !== "noteOn" || ev.id !== id) {
@@ -1211,7 +1213,9 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       const n = Math.round(ev.note);
       if (n >= lo && n < lo + 24) {
         piano.light(n, hex(), true, f.time);
-        litOn.set(ev.channel, n);
+        const keys = litOn.get(ev.channel) ?? new Set<number>();
+        keys.add(n);
+        litOn.set(ev.channel, keys);
       }
     }
   }

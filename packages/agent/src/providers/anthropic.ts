@@ -129,7 +129,8 @@ export function buildAnthropicBody(req: ProviderRequest): Json {
     messages: toWireMessages(req.messages),
     model: req.model,
     stream: true,
-    // the stable first part of the system prompt is cached between steps and turns
+    // The system prompt and the tools are part of what every thinking block's signature is bound to, so both are the
+    // same for the whole conversation (what changes per turn rides in the user message). The first part is cached.
     system: req.system.map((text, i) => ({
       text,
       type: "text",
@@ -265,6 +266,32 @@ function throwStreamError(e: Json): never {
   });
 }
 
+const STALE_THINKING_RE =
+  /invalid `?signature`? in `?(?:redacted_)?thinking`? block|bound to a different conversation/i;
+
+/**
+ * Newer models bind each thinking block's signature to the conversation before it (system prompt, tools, every earlier
+ * message). When the API says a replayed block no longer matches, the error is flagged so the loop can drop the
+ * thinking blocks from the history and retry, which is the recovery the docs give; asking the API to drop them itself
+ * (`thinking.block_binding.prefix_mismatch_behavior`) is a beta setting the docs call a stopgap.
+ */
+function flagStaleThinking(error: unknown): unknown {
+  if (
+    error instanceof AgentError &&
+    error.kind === "bad_request" &&
+    STALE_THINKING_RE.test(error.detail ?? "")
+  ) {
+    return new AgentError(error.kind, {
+      cause: error,
+      provider: "anthropic",
+      staleThinking: true,
+      ...(error.detail === undefined ? {} : { detail: error.detail }),
+      ...(error.status === undefined ? {} : { status: error.status }),
+    });
+  }
+  return error;
+}
+
 async function complete(
   ep: Endpoint,
   apiKey: string,
@@ -276,6 +303,8 @@ async function complete(
     headers: anthropicHeaders(apiKey),
     method: "POST",
     ...(req.signal ? { signal: req.signal } : {}),
+  }).catch((error: unknown) => {
+    throw flagStaleThinking(error);
   });
   if (!res.body) {
     throw new AgentError("stream", { provider: "anthropic" });

@@ -3,8 +3,10 @@
 //   GET  https://api.openai.com/v1/models     (the key's models; no capability fields)
 // The Responses API is OpenAI's recommended API for new work with tools (function calling, reasoning models). The key
 // goes in `Authorization: Bearer`. Calls are stateless (`store: false`): the whole conversation is sent each step, and
-// for reasoning models the encrypted reasoning items come back with it (`include: reasoning.encrypted_content`), which
-// is what keeps a tool-calling turn coherent without OpenAI storing anything. Streaming events used:
+// for reasoning models the encrypted reasoning items come back with it (`include: reasoning.encrypted_content`; the
+// docs now say encrypted content is returned by default and the include is still accepted), which is what keeps a
+// tool-calling turn coherent without OpenAI storing anything. Reasoning items (and messages that carry a `phase`) are
+// replayed whole and in order; the system prompt is `instructions`, the same every turn. Streaming events used:
 // response.output_text.delta for the words, response.completed (or .incomplete / .failed / error) for the end, whose
 // `response.output` is the authoritative list of items (message, function_call, reasoning).
 import { AgentError, type AgentErrorKind } from "../errors.ts";
@@ -171,7 +173,10 @@ function parseArgs(item: Json): unknown {
 function blocksOf(output: Json[]): Block[] {
   const blocks: Block[] = [];
   for (const item of output) {
-    if (item.type === "message") {
+    if (item.type === "message" && typeof item.phase === "string") {
+      // newer models label a message with a `phase`; the docs say to replay every output item as it came, so keep it whole
+      blocks.push({ data: item, provider: "openai", type: "opaque" });
+    } else if (item.type === "message") {
       const parts = (item.content as Json[] | undefined) ?? [];
       const text = parts
         .map((p) =>

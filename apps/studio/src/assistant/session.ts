@@ -14,6 +14,7 @@ import {
   type ProviderId,
   pickDefaultModel,
   runAgent,
+  turnContext,
 } from "@bleepkit/agent";
 import { createEmitter } from "../lib/emitter.ts";
 import type { StudioHost } from "./host.ts";
@@ -139,6 +140,10 @@ export class AssistantSession {
       return;
     }
     const list = await this.loadModels(provider, this.settings.keyOf(provider));
+    // the person may have picked a model while the list was loading: theirs wins over the default
+    if (this.status().setup !== "model") {
+      return;
+    }
     const pick = pickDefaultModel(provider, list);
     if (pick) {
       this.settings.saveChoices({ models: { [provider]: pick.id } });
@@ -224,16 +229,19 @@ export class AssistantSession {
     try {
       const info = this.models[provider]?.find((m) => m.id === model);
       const result = await runAgent({
+        // the open document goes in the new user message, never in the system prompt (which stays the same all
+        // conversation), so the conversation only grows at its end and replayed thinking blocks stay valid
+        context: turnContext({
+          current: this.host.current(),
+          project: await this.host.project(),
+        }),
         history: this.messages,
         model,
         onEvent: (e) => this.onEvent(e),
         prompt,
         provider: this.makeProvider(provider, this.settings.keyOf(provider)),
         signal,
-        system: buildSystem({
-          current: this.host.current(),
-          project: await this.host.project(),
-        }),
+        system: buildSystem(),
         tools: createTools(this.host, { images: info?.images !== false }),
       });
       this.messages = result.messages;

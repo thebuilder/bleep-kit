@@ -99,7 +99,11 @@ export interface ProviderRequest {
   messages: Message[];
   model: string;
   signal?: AbortSignal;
-  /** The system prompt in parts: the first is stable (cacheable), later ones change per turn. */
+  /**
+   * The system prompt in parts. It must be the same for the whole conversation: Anthropic binds every thinking block
+   * to the system prompt, the tools and the messages before it, so anything that varies per turn (the open document)
+   * goes into the user message instead. The first part is the one marked for caching.
+   */
   system: string[];
   tools: ToolSpec[];
 }

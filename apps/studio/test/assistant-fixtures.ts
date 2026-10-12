@@ -96,6 +96,71 @@ export function toolUse(
   ]);
 }
 
+/** A reply that thinks first (the thinking text is omitted, as newer models do by default; the signature is sent), then
+ *  either says something or asks for one tool. */
+export function thinking(
+  signature: string,
+  then: { text: string } | { id: string; input: unknown; name: string }
+): Response {
+  const block: [string, unknown][] = [
+    [
+      "content_block_start",
+      {
+        content_block: { signature: "", thinking: "", type: "thinking" },
+        index: 0,
+        type: "content_block_start",
+      },
+    ],
+    [
+      "content_block_delta",
+      {
+        delta: { signature, type: "signature_delta" },
+        index: 0,
+        type: "content_block_delta",
+      },
+    ],
+    ["content_block_stop", { index: 0, type: "content_block_stop" }],
+  ];
+  if ("text" in then) {
+    return sse([
+      start,
+      ...block,
+      ...textBlock(1, then.text),
+      ...stop("end_turn"),
+    ]);
+  }
+  return sse([
+    start,
+    ...block,
+    [
+      "content_block_start",
+      {
+        content_block: {
+          id: then.id,
+          input: {},
+          name: then.name,
+          type: "tool_use",
+        },
+        index: 1,
+        type: "content_block_start",
+      },
+    ],
+    [
+      "content_block_delta",
+      {
+        delta: {
+          partial_json: JSON.stringify(then.input),
+          type: "input_json_delta",
+        },
+        index: 1,
+        type: "content_block_delta",
+      },
+    ],
+    ["content_block_stop", { index: 1, type: "content_block_stop" }],
+    ...stop("tool_use"),
+  ]);
+}
+
 const MODELS = [
   {
     capabilities: { image_input: { supported: true } },

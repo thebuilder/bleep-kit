@@ -31,6 +31,13 @@ export type AgentEvent =
     };
 
 export interface RunOptions {
+  /**
+   * What the studio looked like when the person sent the message (the open document and so on). It becomes the first
+   * block of the new user message and stays in the history, so the conversation only ever grows at its end. Putting it
+   * in the system prompt instead would change the prompt between turns and make Anthropic refuse the thinking blocks
+   * the conversation replays (their signatures are bound to everything before them).
+   */
+  context?: string;
   /** Earlier messages of the conversation; not modified. */
   history: readonly Message[];
   keepImages?: number;
@@ -105,11 +112,41 @@ function pruneBlock(b: Block, budget: ImageBudget): Block {
   return b;
 }
 
-/** Everything older than the newest `keep` images, replaced by a note, in a copy. */
+/** Anthropic's thinking blocks: signed, and bound to the system prompt, the tools and every message before them. */
+function isThinking(b: Block): boolean {
+  if (b.type !== "opaque" || b.provider !== "anthropic") {
+    return false;
+  }
+  const type = (b.data as { type?: unknown } | null)?.type;
+  return type === "thinking" || type === "redacted_thinking";
+}
+
+/** A copy without the thinking blocks of the messages from index `from` on (a block whose past changed is invalid). */
+function dropThinking(messages: readonly Message[], from = 0): Message[] {
+  return messages.map((m, i) =>
+    i >= from && m.blocks.some(isThinking)
+      ? { blocks: m.blocks.filter((b) => !isThinking(b)), role: m.role }
+      : m
+  );
+}
+
+/**
+ * Everything older than the newest `keep` images, replaced by a note, in a copy. Rewriting a message changes the past
+ * of every thinking block after it, so those blocks are left out of the copy (the model re-thinks, the API accepts).
+ * With no more than `keep` pictures nothing is rewritten and the messages go out exactly as they are.
+ */
 export function pruneImages(
   messages: readonly Message[],
   keep: number
 ): Message[] {
+  const pruned = prune(messages, keep);
+  const first = pruned.findIndex((m, i) =>
+    m.blocks.some((b, j) => b !== messages[i]?.blocks[j])
+  );
+  return first < 0 ? pruned : dropThinking(pruned, first);
+}
+
+function prune(messages: readonly Message[], keep: number): Message[] {
   const budget = new ImageBudget(keep);
   return [...messages]
     .reverse()
@@ -243,7 +280,15 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   const maxSteps = opts.maxSteps ?? DEFAULT_MAX_STEPS;
   const messages: Message[] = [
     ...opts.history,
-    { blocks: [{ text: opts.prompt, type: "text" }], role: "user" },
+    {
+      blocks: [
+        ...(opts.context
+          ? [{ text: opts.context, type: "text" as const }]
+          : []),
+        { text: opts.prompt, type: "text" },
+      ],
+      role: "user",
+    },
   ];
   const finish = (
     outcome: Outcome,
@@ -262,7 +307,12 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     }
     emit({ step, type: "step" });
     // biome-ignore lint/performance/noAwaitInLoops: each step needs the previous step's tool results
-    const answer = await askModel(opts, messages, emit);
+    let answer = await askModel(opts, messages, emit);
+    if ("error" in answer && answer.error.staleThinking) {
+      // the provider no longer accepts the thinking blocks it gave us: forget them for good and ask again
+      messages.splice(0, messages.length, ...dropThinking(messages));
+      answer = await askModel(opts, messages, emit);
+    }
     if ("error" in answer) {
       return finish(
         answer.error.kind === "aborted" ? "aborted" : "error",

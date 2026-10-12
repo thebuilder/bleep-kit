@@ -133,6 +133,7 @@ export function createPiano(canvas: HTMLCanvasElement, o: PianoOpts): Piano {
     }
   };
 
+  let stopInput: () => void = () => undefined;
   const piano: Piano = {
     busy(now = performance.now()) {
       for (const l of lit.values()) {
@@ -146,6 +147,7 @@ export function createPiano(canvas: HTMLCanvasElement, o: PianoOpts): Piano {
       lit.clear();
     },
     dispose() {
+      stopInput();
       s.dispose();
     },
     draw(now = performance.now()) {
@@ -186,29 +188,34 @@ export function createPiano(canvas: HTMLCanvasElement, o: PianoOpts): Piano {
   };
 
   if (o.onDown) {
-    let down: number | null = null;
+    /* One note per pointer (a second finger plays its own). Everything that can end a pointer ends its note: up,
+       cancel, a lost capture, the pointer leaving while it is not captured, a move that reports no button (the
+       button came up where the page could not hear it), a context menu, the window losing focus and dispose. */
+    const down = new Map<number, number>();
     const pos = (e: PointerEvent) => {
       const r = canvas.getBoundingClientRect();
       return noteAt(e.clientX - r.left, e.clientY - r.top);
     };
-    const end = () => {
-      if (down !== null) {
-        const n = down;
-        down = null;
-        const l = lit.get(n);
-        if (l) {
-          l.held = false;
-        }
-        o.onUp?.(n);
-      }
-    };
-    canvas.addEventListener("pointerdown", (e) => {
-      const n = pos(e);
-      if (n === null) {
+    const holdsKey = (n: number) => [...down.values()].includes(n);
+    const end = (pointerId: number) => {
+      const n = down.get(pointerId);
+      if (n === undefined) {
         return;
       }
-      canvas.setPointerCapture(e.pointerId);
-      down = n;
+      down.delete(pointerId);
+      const l = lit.get(n);
+      if (l && !holdsKey(n)) {
+        l.held = false;
+      }
+      o.onUp?.(n);
+    };
+    const endAll = () => {
+      for (const id of [...down.keys()]) {
+        end(id);
+      }
+    };
+    const start = (pointerId: number, n: number) => {
+      down.set(pointerId, n);
       const l = lit.get(n);
       if (l) {
         l.held = true;
@@ -218,20 +225,66 @@ export function createPiano(canvas: HTMLCanvasElement, o: PianoOpts): Piano {
       if (cur) {
         cur.held = true;
       }
-    });
-    canvas.addEventListener("pointermove", (e) => {
-      if (down === null || !e.buttons) {
+    };
+    const hasCapture = (id: number) => {
+      try {
+        return canvas.hasPointerCapture(id);
+      } catch {
+        return false;
+      }
+    };
+    const stop = new AbortController();
+    const on = <K extends keyof HTMLElementEventMap>(
+      type: K,
+      fn: (e: HTMLElementEventMap[K]) => void
+    ) => canvas.addEventListener(type, fn, { signal: stop.signal });
+    on("pointerdown", (e) => {
+      // only the main button plays: a context menu would swallow the right button's pointerup
+      if (e.button > 0) {
         return;
       }
       const n = pos(e);
-      if (n !== null && n !== down) {
-        end();
-        down = n;
-        o.onDown?.(n);
+      if (n === null) {
+        return;
+      }
+      // a pointer that is still down has lost its up: let that note go before the next one starts
+      end(e.pointerId);
+      try {
+        canvas.setPointerCapture(e.pointerId);
+      } catch {
+        // the pointer is already gone: pointerleave ends the note, as it is not captured
+      }
+      start(e.pointerId, n);
+    });
+    on("pointermove", (e) => {
+      const cur = down.get(e.pointerId);
+      if (cur === undefined) {
+        return;
+      }
+      if (!e.buttons) {
+        end(e.pointerId);
+        return;
+      }
+      const n = pos(e);
+      if (n !== null && n !== cur) {
+        end(e.pointerId);
+        start(e.pointerId, n);
       }
     });
-    canvas.addEventListener("pointerup", end);
-    canvas.addEventListener("pointercancel", end);
+    on("pointerup", (e) => end(e.pointerId));
+    on("pointercancel", (e) => end(e.pointerId));
+    on("lostpointercapture", (e) => end(e.pointerId));
+    on("pointerleave", (e) => {
+      if (!hasCapture(e.pointerId)) {
+        end(e.pointerId);
+      }
+    });
+    on("contextmenu", endAll);
+    window.addEventListener("blur", endAll, { signal: stop.signal });
+    stopInput = () => {
+      endAll();
+      stop.abort();
+    };
   }
   return piano;
 }

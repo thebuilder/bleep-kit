@@ -49,7 +49,7 @@ export {
   runAgent,
 } from "./loop.ts";
 export { applyChanges, type Change, getAt } from "./pointer.ts";
-export { baseSystemPrompt, buildSystem, stateSystemPrompt } from "./prompt.ts";
+export { baseSystemPrompt, buildSystem, turnContext } from "./prompt.ts";
 export {
   ANTHROPIC_VERSION,
   anthropicHeaders,

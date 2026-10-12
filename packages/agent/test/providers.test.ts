@@ -435,6 +435,45 @@ describe("Anthropic calls", () => {
     }
   });
 
+  it("shows the whole of a long provider message, and flags a refused thinking block", async () => {
+    const message =
+      'messages.1.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation. Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` to "drop_block". That setting requires the `thinking-binding-controls-2026-08-01` value in the `anthropic-beta` header.';
+    const f = fakeFetch(
+      json(
+        { error: { message, type: "invalid_request_error" }, type: "error" },
+        { status: 400 }
+      )
+    );
+    const err = (await createProvider("anthropic", {
+      apiKey: "k",
+      fetch: f.fetch,
+    })
+      .complete(request(), () => undefined)
+      .catch((e: unknown) => e)) as AgentError;
+    expect(err.staleThinking).toBe(true);
+    expect(explain(err)).toBe(
+      `Anthropic refused the request (400): ${message}`
+    );
+    const other = fakeFetch(
+      json(
+        {
+          error: {
+            message: "max_tokens too large",
+            type: "invalid_request_error",
+          },
+        },
+        { status: 400 }
+      )
+    );
+    const plain = (await createProvider("anthropic", {
+      apiKey: "k",
+      fetch: other.fetch,
+    })
+      .complete(request(), () => undefined)
+      .catch((e: unknown) => e)) as AgentError;
+    expect(plain.staleThinking).toBe(false);
+  });
+
   it("reports a failed fetch as a network error that mentions blocking and CORS", async () => {
     const f = fakeFetch(new TypeError("Failed to fetch"));
     const err = (await createProvider("anthropic", {
@@ -682,6 +721,52 @@ describe("OpenAI calls", () => {
         type: "tool_call",
       },
     ]);
+  });
+
+  it("replays reasoning items and phase-labelled messages whole, in order, on the next request", async () => {
+    const output = [
+      { encrypted_content: "enc", id: "rs_1", summary: [], type: "reasoning" },
+      {
+        content: [{ text: "Looking.", type: "output_text" }],
+        id: "msg_1",
+        phase: "commentary",
+        role: "assistant",
+        type: "message",
+      },
+      {
+        arguments: '{"kind":"song"}',
+        call_id: "call_1",
+        id: "fc_1",
+        name: "list_documents",
+        type: "function_call",
+      },
+    ];
+    const f = fakeFetch(
+      sse([
+        [
+          "response.completed",
+          { response: { output }, type: "response.completed" },
+        ],
+      ])
+    );
+    const reply = await createProvider("openai", {
+      apiKey: "k",
+      fetch: f.fetch,
+    }).complete(request({ messages: [], model: "gpt-5" }), () => undefined);
+    const body = buildOpenAIBody(
+      request({
+        messages: [
+          { blocks: [{ text: "go", type: "text" }], role: "user" },
+          { blocks: reply.blocks, role: "assistant" },
+        ],
+        model: "gpt-5",
+      })
+    ) as { input: Record<string, unknown>[] };
+    expect(body.input.slice(1, 3)).toEqual([output[0], output[1]]);
+    expect(body.input[3]).toMatchObject({
+      call_id: "call_1",
+      type: "function_call",
+    });
   });
 
   it("ends the turn when there is no function call, and reports an incomplete reply as max_tokens", async () => {

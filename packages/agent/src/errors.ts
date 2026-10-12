@@ -21,6 +21,8 @@ export interface AgentErrorInit {
   detail?: string;
   provider?: ProviderId;
   retryAfter?: number;
+  /** The provider refused thinking blocks it was sent back: dropping them from the history and retrying works. */
+  staleThinking?: boolean;
   status?: number;
 }
 
@@ -29,6 +31,7 @@ export class AgentError extends Error {
   readonly detail: string | undefined;
   readonly provider: ProviderId | undefined;
   readonly retryAfter: number | undefined;
+  readonly staleThinking: boolean;
   readonly status: number | undefined;
 
   constructor(kind: AgentErrorKind, init: AgentErrorInit = {}) {
@@ -41,6 +44,7 @@ export class AgentError extends Error {
     this.detail = init.detail;
     this.provider = init.provider;
     this.retryAfter = init.retryAfter;
+    this.staleThinking = init.staleThinking === true;
     this.status = init.status;
   }
 }
@@ -79,12 +83,19 @@ export function kindForStatus(status: number): AgentErrorKind {
 
 const WHITESPACE_RE = /\s+/g;
 
+/** A provider's own explanation is shown whole (it often names the fix); only a runaway body is cut, at a word. */
+const MAX_DETAIL = 2000;
+
 function trimDetail(detail: string | undefined): string {
   if (!detail) {
     return "";
   }
   const one = detail.replace(WHITESPACE_RE, " ").trim();
-  return one.length > 240 ? `${one.slice(0, 237)}...` : one;
+  if (one.length <= MAX_DETAIL) {
+    return one;
+  }
+  const cut = one.slice(0, MAX_DETAIL);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 0))}...`;
 }
 
 type Say = (e: AgentError, who: string, detail: string) => string;

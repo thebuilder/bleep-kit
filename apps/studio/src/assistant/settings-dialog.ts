@@ -237,12 +237,14 @@ function saveDraft(d: Draft, close: () => void): void {
   if (!(key && modelSel.value)) {
     return;
   }
-  settings.saveKey(d.provider, key, remember.checked);
+  // The choices go first: saving the key tells the panel, which sees "a key but no model" and goes to pick a default
+  // model for it. The person's pick has to be on record before that can happen.
   settings.saveChoices({
     models: { [d.provider]: modelSel.value },
     provider: d.provider,
     remember: remember.checked,
   });
+  settings.saveKey(d.provider, key, remember.checked);
   const picked = d.models.find((m) => m.id === modelSel.value);
   close();
   app.toast(`Assistant ready: ${picked?.name ?? modelSel.value}`);

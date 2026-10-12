@@ -11,6 +11,7 @@ import {
   parseRef,
   pickDefaultModel,
   readSse,
+  turnContext,
 } from "../src/index.ts";
 
 const stream = (chunks: Uint8Array[]) =>
@@ -136,8 +137,9 @@ describe("system prompt", () => {
     expect(prompt).not.toContain("\u2014");
   });
 
-  it("adds the open document to the turn part only", () => {
-    const parts = buildSystem({
+  it("is one fixed part, with the open document in the turn context instead", () => {
+    expect(buildSystem()).toEqual([prompt]);
+    const state: Parameters<typeof turnContext>[0] = {
       current: { id: "coin", kind: "sfx" },
       project: {
         chip: "nes",
@@ -146,10 +148,11 @@ describe("system prompt", () => {
         sampleRate: 48_000,
         seed: 7,
       },
-    });
-    expect(parts[0]).toBe(prompt);
-    expect(parts[1]).toContain("sfx/coin open");
-    expect(parts[1]).toContain('"Demo" on the nes chip');
+    };
+    const text = turnContext(state);
+    expect(text).toContain("sfx/coin open");
+    expect(text).toContain('"Demo" on the nes chip');
+    expect(prompt).not.toContain('"Demo" on the nes chip');
   });
 });
 

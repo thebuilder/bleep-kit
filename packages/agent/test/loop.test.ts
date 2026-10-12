@@ -326,3 +326,115 @@ describe("pruneImages", () => {
     ).toHaveLength(2);
   });
 });
+
+describe("thinking blocks and the conversation's past", () => {
+  const thought = (sig: string): Block => ({
+    data: { signature: sig, thinking: "", type: "thinking" },
+    provider: "anthropic",
+    type: "opaque",
+  });
+  const picture = (label: string): Block => ({
+    data: "AA==",
+    label,
+    mime: "image/png",
+    type: "image",
+  });
+  const history = (): Message[] => [
+    { blocks: [{ text: "one", type: "text" }, picture("old")], role: "user" },
+    {
+      blocks: [thought("s1"), { text: "hi", type: "text" }],
+      role: "assistant",
+    },
+    { blocks: [{ text: "two", type: "text" }, picture("new")], role: "user" },
+    {
+      blocks: [thought("s2"), { text: "ok", type: "text" }],
+      role: "assistant",
+    },
+  ];
+
+  it("sends the history untouched when no picture has to go, thinking blocks included", () => {
+    const messages = history();
+    expect(pruneImages(messages, 4)).toEqual(messages);
+  });
+
+  it("leaves out the thinking blocks after a message it had to rewrite, and keeps the ones before it", () => {
+    const out = pruneImages(history(), 1);
+    // the old picture is a note now, so every thinking block after that message is no longer valid
+    expect(JSON.stringify(out)).not.toContain("s1");
+    expect(JSON.stringify(out)).not.toContain("s2");
+    expect(out[1]?.blocks).toEqual([{ text: "hi", type: "text" }]);
+    const early = history();
+    early.unshift({
+      blocks: [thought("s0"), { text: "hello", type: "text" }],
+      role: "assistant",
+    });
+    expect(JSON.stringify(pruneImages(early, 1))).toContain("s0");
+  });
+
+  it("puts the studio state in the new user message and sends the past back unchanged on the next turn", async () => {
+    const provider = scripted([
+      {
+        ...say("one"),
+        blocks: [thought("sig-1"), { text: "one", type: "text" }],
+      },
+      say("two"),
+    ]);
+    const first = await runAgent(
+      base(provider, [], { context: "[state A]", system: ["fixed"] })
+    );
+    await runAgent(
+      base(provider, [], {
+        context: "[state B]",
+        history: first.messages,
+        prompt: "again",
+        system: ["fixed"],
+      })
+    );
+    const [a, b] = provider.requests;
+    expect(a?.messages[0]?.blocks).toEqual([
+      { text: "[state A]", type: "text" },
+      { text: "make a coin", type: "text" },
+    ]);
+    expect(b?.system).toEqual(a?.system);
+    expect(JSON.stringify(b?.messages.slice(0, 2))).toBe(
+      JSON.stringify([a?.messages[0], first.messages[1]])
+    );
+    expect(b?.messages[2]?.blocks[0]).toEqual({
+      text: "[state B]",
+      type: "text",
+    });
+  });
+
+  it("drops the thinking from the history for good and asks again when the provider refuses it", async () => {
+    const refusal = new AgentError("bad_request", {
+      detail: "Invalid `signature` in `thinking` block",
+      provider: "anthropic",
+      staleThinking: true,
+      status: 400,
+    });
+    const provider = scripted([refusal, say("fine")]);
+    const res = await runAgent(base(provider, [], { history: history() }));
+    expect(res.outcome).toBe("done");
+    expect(provider.requests).toHaveLength(2);
+    expect(JSON.stringify(provider.requests[0]?.messages)).toContain("s1");
+    expect(JSON.stringify(provider.requests[1]?.messages)).not.toContain(
+      "thinking"
+    );
+    expect(JSON.stringify(res.messages)).not.toContain("thinking");
+  });
+
+  it("does not retry other refusals, nor more than once", async () => {
+    const plain = new AgentError("bad_request", { status: 400 });
+    const stale = new AgentError("bad_request", {
+      staleThinking: true,
+      status: 400,
+    });
+    const one = scripted([plain]);
+    expect((await runAgent(base(one, []))).outcome).toBe("error");
+    expect(one.requests).toHaveLength(1);
+    const two = scripted([stale, stale]);
+    const res = await runAgent(base(two, []));
+    expect(res.outcome).toBe("error");
+    expect(two.requests).toHaveLength(2);
+  });
+});

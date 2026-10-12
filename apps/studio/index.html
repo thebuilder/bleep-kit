@@ -2180,6 +2180,12 @@
     .grp-b > .json {
       grid-column: 1 / -1;
     }
+    /* a hint inside a group body spans every column and takes the body's own inset; one outside a group keeps the
+       hint's padding, which matches the inset of the fields */
+    .grp-b > .hint {
+      grid-column: 1 / -1;
+      padding: 0;
+    }
     @keyframes spin {
       to {
         transform: rotate(360deg);
