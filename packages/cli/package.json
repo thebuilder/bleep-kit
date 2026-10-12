@@ -21,6 +21,7 @@
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@bleepkit/agent": "workspace:*",
     "@bleepkit/core": "workspace:*",
     "@bleepkit/sfx": "workspace:*",
     "@types/ws": "^8.18.2",

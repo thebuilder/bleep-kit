@@ -1,0 +1,6 @@
+{
+  // Runs in a browser tab or in Node 20 and newer (an MCP server): `fetch`, `AbortSignal` and streams, no Node globals.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "lib": ["es2023", "dom"] },
+  "include": ["src", "test"]
+}

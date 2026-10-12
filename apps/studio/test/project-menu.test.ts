@@ -108,6 +108,7 @@ describe("the project menu", () => {
       "Open or import a folder",
       "Export project as zip",
       "Export audio for a game",
+      "Assistant settings",
       "Start over with the starter kit",
     ]);
     document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));

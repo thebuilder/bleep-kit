@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { CliError, fmtSeconds, table } from "../output.ts";
+import { fmtSeconds } from "@bleepkit/agent";
+import { CliError, table } from "../output.ts";
 import {
   type DocKind,
   docRel,

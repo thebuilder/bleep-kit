@@ -14,6 +14,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@bleepkit/agent": "workspace:*",
     "@bleepkit/core": "workspace:*",
     "@bleepkit/player": "workspace:*",
     "@bleepkit/sfx": "workspace:*"

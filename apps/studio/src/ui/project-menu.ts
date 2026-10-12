@@ -9,7 +9,12 @@ import { project } from "../state/docs.ts";
 import { icon } from "./icons.ts";
 
 /** Actions that start a new group in the menu (a thin rule above them). */
-const GROUP_STARTS = new Set(["open", "export-zip", "start-over"]);
+const GROUP_STARTS = new Set([
+  "open",
+  "export-zip",
+  "assistant-settings",
+  "start-over",
+]);
 
 export function createProjectMenu(host: HTMLElement): { close: () => void } {
   const name = h("span", { class: "pn" });

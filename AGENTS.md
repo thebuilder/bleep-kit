@@ -17,9 +17,10 @@ Bleepkit generates 80s and 90s style game audio (chiptune and FM era) for browse
 packages/core      @bleepkit/core: engine, chips, documents + normalize, MML, MIDI import, sample generators
                    @bleepkit/core/tools: WAV/OGG/MP3, analysis, spectrogram, pitch, PNG images
 packages/sfx       @bleepkit/sfx: sfx generators per category, randomize, mutate, describe
+packages/agent     @bleepkit/agent: the studio assistant's kit (tools over an AgentHost, system prompt, Anthropic and OpenAI adapters, agent loop). Browser safe, also holds the `help formats` text the CLI prints
 packages/player    @bleepkit/player: game runtime (AudioWorklet, files or synth mode, typed manifest)
 packages/cli       bleepkit: the CLI and the studio server
-apps/studio        the Vite studio (vanilla TypeScript, canvas views, Pixelkit backdrop)
+apps/studio        the Vite studio (vanilla TypeScript, canvas views, Pixelkit backdrop); src/assistant is the bring-your-own-key assistant drawer
 examples/demo      a demo project folder: six songs (one per chip) and 22 sfx, exported OGGs in export/
 docs/architecture.md   the contract: formats, engine design, worklet protocol, CLI, studio UX
 ```
@@ -40,6 +41,16 @@ You cannot hear, so work from text and measurements:
 Every command takes `--json` (exactly one JSON object on stdout) and `--project <dir>`. From the repo root use `pnpm bleepkit <args> --project examples/demo`.
 
 When a person is running the studio on the same folder, files you write appear in it live, and `pnpm bleepkit play <ref>` plays a sound in their studio with the visuals.
+
+## The studio assistant
+
+`packages/agent` plus `apps/studio/src/assistant` (design: `docs/architecture.md` section 12). The person brings their own API key, and the browser calls Anthropic or OpenAI directly: there is no server in the path. Rules when you touch it:
+
+- The key goes only to the provider's own host, from `settings.ts` through the adapter. Never log it, put it in a URL, a document, an error message or a test snapshot.
+- Tool handlers validate their input, write only through `commit.ts` (normalize, refuse invalid documents, report issues) and cap their output. Anything that deletes goes through the studio's confirm dialog.
+- `@bleepkit/agent` imports no Node module and nothing from the studio. What it needs from its surroundings is the `AgentHost` interface; the studio's implementation is `apps/studio/src/assistant/host.ts`.
+- The format reference in the system prompt is the CLI's `help formats` text (`packages/agent/src/reference.ts`): change it in one place.
+- Tests use stubbed `fetch` and scripted providers, never the network. One assistant turn is one undo step per document (`group:` coalesce keys in `apps/studio/src/lib/history.ts`).
 
 ## Developing
 

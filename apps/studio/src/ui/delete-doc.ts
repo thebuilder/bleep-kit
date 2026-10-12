@@ -37,15 +37,23 @@ function question(doc: Doc, name: string): string {
   return `Delete the song "${name}"? Its file is removed from the project.`;
 }
 
-/** Ask, then delete `doc` (an sfx, a song or an instrument) and go back to the pads. Resolves true when it was deleted. */
-export async function deleteDocument(doc: Doc): Promise<boolean> {
+/** Ask, then delete `doc` (an sfx, a song or an instrument) and go back to the pads (unless `navigate` is false: the
+ *  assistant deletes while the person is looking at something else). Resolves true when it was deleted. */
+export async function deleteDocument(
+  doc: Doc,
+  opts: { navigate?: boolean; signal?: AbortSignal } = {}
+): Promise<boolean> {
   const value = JSON.parse(JSON.stringify(doc.value)) as
     | Sfx
     | Song
     | Instrument;
   const { kind, id } = doc;
   const name = value.name || id;
-  if (!(await confirmDialog(question(doc, name), "Delete"))) {
+  if (
+    !(await confirmDialog(question(doc, name), "Delete", {
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    }))
+  ) {
     return false;
   }
   if (kind === "song" && engine.hasSong(id)) {
@@ -59,7 +67,9 @@ export async function deleteDocument(doc: Doc): Promise<boolean> {
     app.toast(`Could not delete ${name}: ${(err as Error).message}`);
     return false;
   }
-  app.navigate("#/pads");
+  if (opts.navigate !== false) {
+    app.navigate("#/pads");
+  }
   app.toast(`Deleted ${name}`, "Undo", () => {
     fire(
       project.create(kind, id, value).then((back) => {

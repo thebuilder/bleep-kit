@@ -1,0 +1,36 @@
+{
+  "name": "@bleepkit/agent",
+  "version": "0.1.0",
+  "description": "Bleepkit agent kit: tools, system prompt, provider adapters and the agent loop for AI assistants that make game audio.",
+  "license": "ISC",
+  "sideEffects": false,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "check": "ultracite check",
+    "prepack": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@bleepkit/core": "workspace:*",
+    "@bleepkit/sfx": "workspace:*"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  }
+}

@@ -135,17 +135,6 @@ export function fmtDb(db: number | null | undefined): string {
   return `${db.toFixed(1)} dB`;
 }
 
-export function fmtSeconds(seconds: number): string {
-  if (seconds < 10) {
-    return `${seconds.toFixed(2)}s`;
-  }
-  if (seconds < 60) {
-    return `${seconds.toFixed(1)}s`;
-  }
-  const m = Math.floor(seconds / 60);
-  return `${m}m${(seconds - m * 60).toFixed(1).padStart(4, "0")}s`;
-}
-
 export function round(value: number, digits: number): number {
   const f = 10 ** digits;
   return Math.round(value * f) / f;

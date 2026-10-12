@@ -14,6 +14,7 @@ const TSC = path.join(ROOT, "node_modules/.bin/tsc");
 const PACKAGES = [
   { dir: "packages/core", name: "@bleepkit/core" },
   { dir: "packages/sfx", name: "@bleepkit/sfx" },
+  { dir: "packages/agent", name: "@bleepkit/agent" },
   { dir: "packages/player", name: "@bleepkit/player" },
   { dir: "packages/cli", name: "bleepkit" },
 ];
@@ -114,6 +115,7 @@ try {
     `await import("@bleepkit/core");
 await import("@bleepkit/core/tools");
 await import("@bleepkit/sfx");
+await import("@bleepkit/agent");
 await import("@bleepkit/player");
 console.log("imports ok");`
   );
@@ -125,8 +127,9 @@ console.log("imports ok");`
     `import * as core from "@bleepkit/core";
 import * as tools from "@bleepkit/core/tools";
 import * as sfx from "@bleepkit/sfx";
+import * as agent from "@bleepkit/agent";
 import * as player from "@bleepkit/player";
-export const all = [core, tools, sfx, player];
+export const all = [core, tools, sfx, agent, player];
 `
   );
   fs.writeFileSync(

@@ -13,6 +13,7 @@
     "projects": [
       "packages/core/tsconfig.json",
       "packages/sfx/tsconfig.json",
+      "packages/agent/tsconfig.json",
       "packages/player/tsconfig.json",
       "packages/cli/tsconfig.json",
       "apps/studio/tsconfig.json"

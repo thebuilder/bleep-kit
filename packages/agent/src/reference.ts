@@ -1,6 +1,7 @@
-// Reference text for `bleepkit help formats` and `bleepkit help workflow`. Written to be read by an agent in a fresh
-// session: every document format, the MML notation and the effect codes in one screen of text. Kept consistent with
-// docs/architecture.md sections 2.3 to 2.7; enumerations come from the frozen types so they cannot drift.
+// Reference text for `bleepkit help formats` and `bleepkit help workflow`, and the core of the assistant's system
+// prompt. Written to be read by an agent in a fresh session: every document format, the MML notation and the effect
+// codes in one screen of text. The CLI prints it and the assistant is taught from it, so the two cannot drift. Kept
+// consistent with docs/architecture.md sections 2.3 to 2.7; enumerations come from the frozen types.
 import {
   CHANNEL_KINDS,
   CHIP_IDS,

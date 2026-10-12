@@ -1,5 +1,7 @@
 /* Undo and redo for one document: snapshots of its JSON text (documents are small), 200 steps, like Pixelkit's
-   history. Quick successive edits of one control (a slider drag) share a coalesce key and make a single step. */
+   history. Quick successive edits of one control (a slider drag) share a coalesce key and make a single step. A key
+   that starts with "group:" has no time limit: every edit with it, however far apart, joins the same step (one
+   assistant turn is one undo step). */
 
 export interface History {
   readonly canRedo: boolean;
@@ -12,6 +14,8 @@ export interface History {
 }
 
 const COALESCE_MS = 700;
+/** Coalesce keys with this prefix merge for as long as the key stays the same. */
+export const GROUP_PREFIX = "group:";
 
 export function createHistory(limit = 200): History {
   let past: string[] = [];
@@ -36,7 +40,7 @@ export function createHistory(limit = 200): History {
       const merge =
         coalesce !== "" &&
         coalesce === lastKey &&
-        now - lastAt < COALESCE_MS &&
+        (coalesce.startsWith(GROUP_PREFIX) || now - lastAt < COALESCE_MS) &&
         past.length > 0;
       if (current !== undefined && !merge) {
         past.push(current);

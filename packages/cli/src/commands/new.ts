@@ -1,6 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  defaultKindFor,
+  describeInstrument,
+  describeSong,
+  kindsForChip,
+  makeSong,
+  PRESETS,
+  type Preset,
+  type Template,
+} from "@bleepkit/agent";
+import {
   CHANNEL_KINDS,
   CHIP_IDS,
   type ChannelKind,
@@ -17,14 +27,6 @@ import {
 import { describeSfx, generateSfx } from "@bleepkit/sfx";
 import { CliError } from "../output.ts";
 import {
-  defaultKindFor,
-  kindsForChip,
-  makeSong,
-  PRESETS,
-  type Preset,
-  type Template,
-} from "../presets.ts";
-import {
   checkId,
   type DocKind,
   docRel,
@@ -33,7 +35,6 @@ import {
   requireOk,
   writeDoc,
 } from "../project.ts";
-import { describeInstrument, describeSong } from "./describe.ts";
 import type { CommandSpec } from "./types.ts";
 
 function guardExists(

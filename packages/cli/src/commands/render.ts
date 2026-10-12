@@ -1,6 +1,7 @@
+import { fmtSeconds } from "@bleepkit/agent";
 import { analysisText } from "../analysis-text.ts";
 import type { Parsed } from "../args.ts";
-import { CliError, type Ctx, display, fmtDb, fmtSeconds } from "../output.ts";
+import { CliError, type Ctx, display, fmtDb } from "../output.ts";
 import {
   type DocKind,
   listIdsValid,

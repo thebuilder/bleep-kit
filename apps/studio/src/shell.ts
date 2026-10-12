@@ -9,6 +9,8 @@ import {
   routeHash,
   type ViewHooks,
 } from "./app.ts";
+import { createAssistantPanel } from "./assistant/panel.ts";
+import { openAssistantSettings } from "./assistant/settings-dialog.ts";
 import { type Backdrop, createBackdrop } from "./backdrop/index.ts";
 import { engine } from "./engine/engine.ts";
 import { chipTheme } from "./lib/chips.ts";
@@ -110,6 +112,7 @@ export async function boot(root: HTMLElement): Promise<void> {
           <button class="btn icon small" id="bUndo" title="Undo (Ctrl+Z)" aria-label="Undo">${icon("undo", 14)}</button>
           <button class="btn icon small" id="bRedo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">${icon("redo", 14)}</button>
           <span class="savestate" id="saveState" data-state="saved" role="img" aria-label="Saved" title="Saved">${icon("save", 16)}</span>
+          <button class="btn icon small" id="bAsst" title="Assistant (Ctrl+J)" aria-label="Assistant" aria-pressed="false">${icon("assistant", 16)}</button>
           <button class="btn icon small" id="bPal" title="Command palette (Ctrl+K)" aria-label="Command palette">${icon("search", 14)}</button>
           <button class="btn icon small" id="bHelp" title="Shortcuts (?)" aria-label="Shortcuts">?</button>
         </div>
@@ -121,6 +124,7 @@ export async function boot(root: HTMLElement): Promise<void> {
         <div id="view"></div>
       </main>
       <aside class="insp" id="insp" aria-label="Inspector"></aside>
+      <aside class="asst" id="asst" aria-label="Assistant" hidden></aside>
     </div>
     <button id="audioPill" hidden>${icon("speaker", 16)}<span>Click to enable audio</span></button>
     <div id="toast" hidden></div>`;
@@ -131,6 +135,7 @@ export async function boot(root: HTMLElement): Promise<void> {
   const strip: Strip = createStrip(q("strip"));
   const sidebar = createSidebar(q("side"));
   createProjectMenu(q("projMenu"));
+  const assistant = createAssistantPanel(q("asst"));
   app.openPalette = () => openPalette(allCommands());
   app.openHelp = openHelp;
   app.openMenu = (on) => document.body.classList.toggle("menu-open", on);
@@ -328,6 +333,8 @@ export async function boot(root: HTMLElement): Promise<void> {
   q("bUndo").addEventListener("click", () => app.undo());
   q("bRedo").addEventListener("click", () => app.redo());
   q("bPal").addEventListener("click", () => app.openPalette());
+  q("bAsst").addEventListener("click", () => assistant.toggle());
+  q("bAsst").setAttribute("aria-pressed", String(assistant.isOpen()));
   q("bHelp").addEventListener("click", () => openHelp());
   q("menuBtn").addEventListener("click", () =>
     app.openMenu(!document.body.classList.contains("menu-open"))
@@ -505,6 +512,21 @@ export async function boot(root: HTMLElement): Promise<void> {
         title: `Autosave: turn ${project.autosave ? "off" : "on"}`,
       },
       {
+        group: "Assistant",
+        icon: "assistant",
+        id: "assistant",
+        keys: "Ctrl J",
+        run: () => assistant.toggle(),
+        title: "Show or hide the assistant",
+      },
+      {
+        group: "Assistant",
+        icon: "gear",
+        id: "assistant-settings",
+        run: openAssistantSettings,
+        title: "Assistant settings: API key and model",
+      },
+      {
         group: "Help",
         icon: "info",
         id: "help",
@@ -580,16 +602,18 @@ export async function boot(root: HTMLElement): Promise<void> {
     }
     return false;
   };
+  const modActions: Record<string, (() => void) | undefined> = {
+    e: () => app.navigate("#/project?export=1"),
+    j: () => assistant.toggle(),
+    k: () => app.openPalette(),
+    s: () => fire(app.save()),
+  };
   const modShortcut = (e: KeyboardEvent, isTyping: boolean): boolean => {
     const key = e.key.toLowerCase();
-    if (key === "k") {
-      app.openPalette();
-    } else if (key === "s") {
-      fire(app.save());
-    } else if (key === "e") {
-      app.navigate("#/project?export=1");
-    } else if (key === "a" && e.shiftKey) {
-      openAnalysis();
+    const act =
+      modActions[key] ?? (key === "a" && e.shiftKey ? openAnalysis : undefined);
+    if (act) {
+      act();
     } else if ((key === "z" || key === "y") && !isTyping) {
       if (key === "y" || e.shiftKey) {
         app.redo();
@@ -714,6 +738,7 @@ export async function boot(root: HTMLElement): Promise<void> {
     ctx.setChip(currentChip());
     sidebar.update(r);
     syncStatus();
+    assistant.refreshContext();
     app.openMenu(false);
     document.title = `${titleOf(r)} - Bleepkit Studio`;
     host.scrollTop = 0;

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { describeSong } from "@bleepkit/agent";
 import {
   CHIP_IDS,
   CHORD_MODES,
@@ -21,7 +22,6 @@ import {
   requireOk,
   writeDoc,
 } from "../project.ts";
-import { describeSong } from "./describe.ts";
 import type { CommandSpec } from "./types.ts";
 
 const NON_ID_RE = /[^a-z0-9]+/g;

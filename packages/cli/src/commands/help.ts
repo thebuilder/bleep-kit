@@ -1,10 +1,10 @@
-import { type FlagSpec, GLOBAL_FLAGS } from "../args.ts";
 import {
   FORMAT_SECTIONS,
   FORMAT_TEXT,
   type FormatSection,
   WORKFLOW_TEXT,
-} from "../help-text.ts";
+} from "@bleepkit/agent";
+import { type FlagSpec, GLOBAL_FLAGS } from "../args.ts";
 import { CliError, closest, table } from "../output.ts";
 import type { CommandSpec } from "./types.ts";
 

@@ -3,6 +3,7 @@
    the browser's own project (IndexedDB) and, where it makes sense, on a project folder through the studio server; an
    action that does not apply to the current store says why instead of failing. */
 import { app, type Command } from "./app.ts";
+import { openAssistantSettings } from "./assistant/settings-dialog.ts";
 import {
   download,
   type ExportResult,
@@ -366,6 +367,14 @@ export function projectActions(): ProjectAction[] {
       id: "export-audio",
       run: () => fire(exportAudioWithToasts()),
       title: "Export audio for a game",
+      why: "",
+    },
+    {
+      available: () => true,
+      icon: "assistant",
+      id: "assistant-settings",
+      run: openAssistantSettings,
+      title: "Assistant settings",
       why: "",
     },
     {

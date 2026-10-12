@@ -23,6 +23,7 @@ Bleepkit generates 80s and 90s style game audio (chiptune and FM era) for browse
 packages/core      @bleepkit/core        DSP engine, document types, normalize, MML, chip profiles, sample generators
                    @bleepkit/core/tools  WAV encode, OGG/MP3 encode (wasm-media-encoders), analysis, PNG writer, images
 packages/sfx       @bleepkit/sfx         sfxr-style generators per category, randomize, mutate, describe
+packages/agent     @bleepkit/agent       AI assistant kit: tools over an abstract host, system prompt, provider adapters, agent loop (browser safe)
 packages/player    @bleepkit/player      game runtime: AudioWorklet node, file playback, loops, polyphony, buses, events
                    @bleepkit/player/worklet   the AudioWorklet processor module (bundled by the consumer's Vite)
 packages/cli       bleepkit (bin)        project folder commands, render/export pipeline, studio server
@@ -33,9 +34,10 @@ Dependency graph (an arrow means "imports from"):
 
 ```
 sfx ----> core
+agent --> core, core/tools, sfx
 player --> core
-cli ----> core, core/tools, sfx, (serves apps/studio/dist)
-studio --> core, core/tools, sfx, player, (ejected Pixelkit files under apps/studio/src/pixelkit/)
+cli ----> core, core/tools, sfx, agent (bundled: the help text and describe helpers), (serves apps/studio/dist)
+studio --> core, core/tools, sfx, agent, player, (ejected Pixelkit files under apps/studio/src/pixelkit/)
 ```
 
 Rules:
@@ -45,6 +47,7 @@ Rules:
 - `player` is the only package that touches Web Audio.
 - `cli` is the only package that touches the file system and the network.
 - `studio` never imports from `cli`; it talks to the CLI's server over HTTP and a WebSocket (section 6.3).
+- `agent` imports no Node module and touches no storage, DOM or audio device: it runs in a browser, in Node and in a test the same way. The only things that leave it are the `fetch` calls of its provider adapters, to the provider's own API (section 12.5). Everything about the place it runs in (the project, the render worker, the speakers, the confirm dialog) comes in through the `AgentHost` interface.
 
 ### 1.1 Public API of @bleepkit/core (`src/index.ts`)
 
@@ -1573,3 +1576,91 @@ Per-channel kind colors (the analog of Pixelkit's per-layer-kind colors): `--k-p
 Controls are pixel-art styled: 1 px hard borders, 2 px inset highlight on hover, no blur except the scope glows, `image-rendering: pixelated` for icons (icons are 8 x 8 inline SVG with `shape-rendering: crispEdges`), sliders with a square 10 px thumb, toggles as 2-frame pixel switches. Motion: 120 ms ease-out transitions on hover and selection, pad bursts 300 ms, everything through CSS variables so `prefers-reduced-motion` sets `--motion: 0` and durations become 0.
 
 Primary actions are obvious: one accent-colored button per view (Play on pads and editors, Export on the project view), everything else is raised. Every list item has a play button on hover, so everything is previewable without opening it. Error states speak plainly in the inspector (the normalize issue text, next to the field, with the path translated to the field label).
+
+## 12. The assistant (bring your own key)
+
+An AI assistant in the studio that makes and changes sounds, songs and instruments from plain words. It is bring your own key: the person pastes an API key from Anthropic or OpenAI, the browser calls that provider directly with `fetch`, and the provider bills the person's own account. There is no Bleepkit server in the path (the studio is a static Vite app), no account and no telemetry. It works on the same documents as everything else (section 2), through the same `normalize*` contract, so a model cannot store an invalid document, and it measures its work with the same analysis the CLI and the Analysis view use, because it cannot hear.
+
+### 12.1 Privacy and safety rules
+
+- The key is read from the settings at the moment of a request and handed to the provider adapter, which sends it only to that provider's own host (`api.anthropic.com` or `api.openai.com`). It is never logged, never put in a URL, never written into the project, a document or an error message (`explain()` text is built from the status and the provider's own words, never from the request). A test checks that every request of a conversation goes to the provider's origin.
+- Where the key lives (`apps/studio/src/assistant/settings.ts`): the default is `sessionStorage` (gone when the tab closes); the "Remember on this device" checkbox moves it to `localStorage`, and saving with the box in the other state removes the copy from the other storage. "Forget key" clears both. One key per provider. Every storage access is in try/catch (a private window or blocked site data throws), and a key whose storage refused it still works for the visit from memory. The choices that are not secret (provider, model per provider, the remember box) are saved separately under `bleepkit:assistant:choices`.
+- The settings dialog says, in one sentence: "Your key stays in this browser; requests go straight to the provider and are billed to your account."
+- Tool handlers validate everything they get (a JSON schema check, then `parseRef`, then `normalize*`), cap what they return (`MAX_TOOL_TEXT`, 12 000 characters, cut on a line boundary with a note), and refuse invalid documents with the issue list so the model can fix them. Nothing a model writes becomes markup: replies are rendered as DOM nodes by a small markdown builder (`src/assistant/markdown.ts`), never as HTML text.
+- Deleting is the one destructive tool. `delete_document` goes through the studio's own confirm dialog (the same one the Delete button uses, with the same warning when songs use an instrument); the person can say no, and stopping the assistant while the question is open counts as no and closes it. The system prompt requires the reply to say plainly that something was deleted (or that the delete was declined).
+- Cost control: a step limit (24 model calls per turn), a stop button that aborts the request in flight and answers any unrun tool call with "Not run: the person stopped the assistant.", pictures older than the newest four are replaced by a note when the history is resent, and the stable first part of the system prompt is cached by Anthropic (`cache_control`).
+
+### 12.2 @bleepkit/agent
+
+```
+src/types.ts        provider neutral messages (text, image, tool_call, tool_result, opaque), ToolSpec, Provider, ModelInfo
+src/errors.ts       AgentError(kind) and explain(): plain words for 401, 403, 429, overloaded, server, bad request, network (names the blocked or cross-origin case), cut-off stream
+src/schema.ts       checkInput: the JSON Schema subset the tools use, as a validator
+src/host.ts         AgentHost: what the tools need from the place they run in; DocRef, parseRef ("sfx/coin")
+src/tool-kit.ts     defineTool (input checked against the schema before the handler runs), ToolOutput { summary, text, isError, images }
+src/tools/          the tools (12.3); commit.ts is the one place a document is written: normalize, refuse on errors, then host.write
+src/analysis-text.ts  the analysis as compact text plus checks against the targets (section 6.4)
+src/describe.ts, author.ts  describeInstrument/describeSong, makeSong and the starter instruments (shared with the CLI)
+src/reference.ts    the format reference: `bleepkit help formats` and `help workflow` print exactly these strings (the CLI imports them)
+src/prompt.ts       the system prompt (12.4)
+src/loop.ts         runAgent: send, run tool calls, send results, repeat; step limit, abort, repaired history
+src/providers/      anthropic.ts, openai.ts, http.ts (the one place a request leaves), models.ts (default model rule), index.ts (createProvider)
+src/sse.ts          a small server-sent events reader over a fetch body
+```
+
+The CLI depends on this package for the help text, `describe*` and the song builder (it is bundled into the CLI like core and sfx), so those cannot drift from what the assistant is taught.
+
+### 12.3 Tools
+
+| tool | does |
+| --- | --- |
+| `list_documents`, `read_document` | what is in the project, and one normalized document (large ones are cut at the cap with a note) |
+| `chip_info` | channel ids, instrument kinds, sfx waves and limits of a chip |
+| `new_sfx`, `mutate_sfx` | generate an sfx for a category and chip (deterministic by seed), make variations |
+| `new_instrument`, `new_song` | build an instrument; build a song from MML per channel (refused with hints when a channel has MML and no instrument) |
+| `write_document`, `edit_document` | whole document, or JSON pointer changes applied in order; both are normalized as a whole and refused with the issue list when invalid |
+| `render_analyze` | render and measure; returns the compact analysis and checks against the targets in section 6.4 |
+| `view_analysis` | the waveform, spectrogram and (songs) scopes as PNG images; left out of the tool list when the model reports no image input |
+| `play`, `stop` | audible in the studio |
+| `delete_document` | confirmed by the person (12.1) |
+
+### 12.4 System prompt
+
+`buildSystem({ current, project })` returns two parts. The first is the same every turn (so Anthropic can cache it): who the assistant is, that it cannot hear (so: build, render, measure, look, adjust, and ask the person to listen for taste), the measuring workflow and the targets of AGENTS.md (songs about -14 to -16 LUFS, sfx peaks -6 to -16 dBFS, no clipping, loop seam under -40 dB), the answer rules (short, say what you changed, say if you deleted anything), a chip table generated from `chipProfile` (channels, limits, effect codes) and the whole format reference from `reference.ts`, which is the text of `bleepkit help formats`. The second part names the project and the document the person has open ("this" means that document).
+
+### 12.5 Providers
+
+Both adapters implement `complete(request, onText)` (one streamed model turn) and `listModels(signal)`, and turn neutral messages into the wire format and back. What only one provider understands (Anthropic thinking blocks, OpenAI reasoning items) is kept in an `opaque` block and sent back untouched, in order.
+
+Anthropic (`providers/anthropic.ts`), checked against platform.claude.com (Messages, streaming, tool use, models) and with a live CORS preflight from a browser origin:
+
+- `POST https://api.anthropic.com/v1/messages` with `stream: true`. Headers: `x-api-key`, `anthropic-version: 2023-06-01`, `content-type: application/json` and `anthropic-dangerous-direct-browser-access: true`. Without that last header the API refuses the cross-origin call; with it, the preflight is allowed.
+- Tools are `{ name, description, input_schema }`. A tool call arrives as a `tool_use` block whose arguments are streamed as `input_json_delta` pieces and parsed when the block stops. Results go back in one user message, `tool_result` blocks first (the API requires that order), with images as `image` blocks (base64 PNG) inside the result. The first system part carries `cache_control: { type: "ephemeral" }`.
+- `GET https://api.anthropic.com/v1/models?limit=100` (paged with `after_id`) with the same headers lists the key's models with `capabilities.image_input`. The default model is the newest of the opus line, else sonnet, else the newest listed model that takes images (`providers/models.ts`); no model id is hard-coded.
+
+OpenAI (`providers/openai.ts`), checked against platform.openai.com (Responses API, function calling, streaming, models); the sandbox this was built in blocked api.openai.com, so unlike Anthropic's CORS behavior this adapter was verified against the documentation and with stubbed fetch only:
+
+- `POST https://api.openai.com/v1/responses` with `stream: true`, `store: false` (stateless: the whole conversation is sent every step) and `Authorization: Bearer <key>`. This is the API OpenAI recommends for new work with tools. For reasoning models (`o*`, `gpt-5*`) the request includes `include: ["reasoning.encrypted_content"]` so reasoning items can be sent back with their tool calls without OpenAI storing them.
+- Tools are `{ type: "function", name, description, parameters }`; a call is a `function_call` item (`call_id`, `arguments` as a JSON string) and its result a `function_call_output` item. A function output is text only, so pictures from a tool go in the user message that follows it. The words stream as `response.output_text.delta`; `response.completed` carries `output`, the authoritative list of items.
+- `GET https://api.openai.com/v1/models` lists models with no capability fields, so non-chat models are filtered by id, and the default is the highest plain `gpt-N` (no mini, nano, pro or dated variant).
+- Risk to know: OpenAI has changed browser CORS behavior before. If a browser call is blocked, the error says the browser blocked a cross-origin request and what to check, instead of a bare "failed to fetch".
+
+Errors are `AgentError` with a kind (`auth` for 401, `forbidden`, `rate_limit` for 429 with the retry-after seconds, `overloaded` for 529, `server`, `bad_request`, `network`, `stream`, `aborted`) and `explain()` turns each into a sentence a person can act on.
+
+### 12.6 The loop
+
+`runAgent({ history, prompt, provider, model, system, tools, signal, onEvent })` sends the conversation, streams the reply (`text` events), runs the tool calls the model asked for one after another in order (`tool_start`, `tool_end` with a one line summary and any pictures), sends the results back and repeats, until the model answers in words, the step limit is reached (`step_limit`), the signal aborts (`aborted`), the reply is cut at the token limit (`max_tokens`) or the provider fails (`error`). It never throws for those; it returns `{ messages, outcome, error?, steps }`, and `messages` is always valid to send again (every tool call answered, including the ones a stop skipped).
+
+### 12.7 In the studio
+
+Code lives in `apps/studio/src/assistant/`:
+
+- `host.ts`: the `AgentHost` over the real `project` state (`edit`, `create`, `remove`), `analyzeAsync` (the render worker; the newest measurement is kept so asking for its pictures renders nothing twice), the analysis images encoded as PNG (`png.ts`: the browser canvas encoder, the core encoder as a fallback), `playDoc` and `stopEverything`. An edit made by the assistant is a normal edit: live on screen, autosaved, in the document's undo history.
+- One turn is one undo step per document. `beginTurn()` gives the turn a coalesce key starting with `group:` (`group:assistant-<n>`); `lib/history.ts` merges every edit that carries such a key into one step however far apart in time, while plain keys still merge only within 700 ms. Ctrl+Z after a turn restores the document as it was before the turn. A new document is created, not undone by Ctrl+Z (delete it, or use the Undo of the delete toast).
+- `session.ts`: one conversation: the provider neutral history, the entries the panel shows (user text, streamed reply, one compact line per tool call with its images, notices) and the run. The conversation is kept in memory only: a reload starts fresh.
+- `settings.ts`, `settings-dialog.ts`: 12.1. The dialog has the provider select, the API key (password field with Show and Hide), a model select filled from the provider's models endpoint once the key is typed (a short pause after typing, or Check key; the same call proves the key works, and a rejected key says so in plain words), Remember on this device, and Forget key. It opens from the project menu ("Assistant settings"), the command palette and the gear in the panel.
+- `panel.ts`: the right drawer. Toggled by the assistant button in the top bar (pixel-art icon) and Ctrl+J, remembered between visits. On wide screens it is a fourth grid column next to the inspector; at 1240 px and below it is an overlay on the right; on a phone it covers the page under the top bar. Content: the conversation (streamed words, markdown), a compact line per tool call (name, target, result; a running call shows a spinner, a failed one the warning icon), thumbnails of every picture the assistant looked at (click to enlarge), the stop button in place of Send while it works, suggestion chips in an empty conversation ("Make a coin sound for the NES", "Write a 16-bar Game Boy town theme", "Make the bass in this song fuller"), the document it works on, and, without a key, a setup card with one button.
+
+### 12.8 Tests
+
+`packages/agent/test`: the tools against an in-memory host (valid and invalid writes, issue reporting, the output cap, delete confirmed and declined), the loop with a scripted provider (a round trip, a refused edit fed back, the step limit, a stop between steps and before the first request with the unrun calls answered, a provider abort or error, history repair, image pruning), the adapters' request shapes with a recording fetch (URL, headers including the browser-access header, tool schema format, streaming parse, error mapping, model listing and default). `apps/studio/test/assistant-*.test.ts`: where the key is stored, one undo step per turn, the host on a real project and store, and the drawer, dialog and a whole conversation in the real shell against a stubbed `fetch`. None touch the network and each test runs in well under a second.

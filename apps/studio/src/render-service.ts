@@ -4,7 +4,7 @@
    run, and a chip can gate it off sooner (the NES triangle) or let the tail ring on. */
 import type { Instrument, RenderResult, Sfx, Song } from "./lib/contract.ts";
 import { workerLink } from "./lib/worker-link.ts";
-import { project } from "./state/docs.ts";
+import { type Doc, project } from "./state/docs.ts";
 import type {
   AnalysisBundle,
   RenderMaster,
@@ -73,6 +73,21 @@ function run(req: Req, key: string): Promise<Out> {
   p.catch(() => inflight.delete(key));
   inflight.set(key, p);
   return p;
+}
+
+/** What to render for a document: the sound, the song with the project's instruments, or an instrument's note. */
+export function sourceOf(doc: Doc, note = 60): Source {
+  if (doc.kind === "sfx") {
+    return { sfx: doc.value as Sfx, type: "sfx" };
+  }
+  if (doc.kind === "song") {
+    return {
+      instruments: project.instruments(),
+      song: doc.value as Song,
+      type: "song",
+    };
+  }
+  return { inst: doc.value as Instrument, note, type: "note" };
 }
 
 /** The project's master as it is now, and a key for it: a render made under another master is another render. */

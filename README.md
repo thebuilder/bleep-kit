@@ -9,6 +9,7 @@ What you get:
 - **Sound effects**: an sfxr-style generator with categories (coin, laser, explosion, powerup, hit, jump, blip, door, alarm, teleport, step, zap), a `mutate` command for variations, and an FM mode.
 - **Music**: tracker patterns or one line of MML per channel, instrument macros (arpeggios, duty sweeps, vibrato), FM patches, SID filter sweeps, SNES echo, loop points that are gapless in OGG.
 - **A studio**: a browser editor with scopes, spectrogram and piano roll that edits the real files on disk and reloads on every change.
+- **An assistant in the studio** (bring your own key): ask in plain words for a sound, a song or a change, and an Anthropic or OpenAI model builds it with the same documents, measures it and shows you what it saw. The browser calls the provider directly with your key, and it is billed to your account. See [The studio assistant](#the-studio-assistant).
 - **A CLI built for agents and for people without speakers**: every command has `--json`, and `render --analyze --images` reports peak, loudness, pitch, clipping, loop seam and writes spectrogram PNGs, so you can judge a sound without hearing it.
 - **A player**: `@bleepkit/player` plays the exported files (or synthesizes the documents live) with buses, fades and loops.
 
@@ -117,6 +118,17 @@ await player.music("space-cruise", { fadeIn: 1.5 });
 
 The full API (preloading, unlocking audio on the first gesture, polyphony limits, Safari notes) is in [packages/player/README.md](packages/player/README.md).
 
+## The studio assistant
+
+The studio has an assistant drawer (the speech bubble in the top bar, or Ctrl+J). It needs an API key from [Anthropic](https://console.anthropic.com) or [OpenAI](https://platform.openai.com/api-keys); open the settings from the drawer, the project menu or the command palette (Ctrl+K), paste the key and pick a model from the list your key can use.
+
+- **Your key stays in this browser.** Requests go straight from the page to the provider (`api.anthropic.com` or `api.openai.com`) and are billed to your account. There is no Bleepkit server in between, and the key is never logged or put in the project. It is kept for the session by default; tick "Remember on this device" to keep it in this browser's localStorage, and press "Forget key" to remove it.
+- **Real edits.** The assistant reads and writes the same documents you edit, so its changes show up live, autosave, and undo with Ctrl+Z (one assistant turn is one undo step). It cannot save an invalid document: the same checks as the CLI refuse it and tell the model what is wrong.
+- **It cannot hear, and says so.** It renders what it makes, reads the loudness, clipping, pitch and loop numbers, and looks at the waveform and spectrogram. You listen and tell it how it feels.
+- **Deleting asks you.** A delete opens the same confirm dialog as the Delete button, and the assistant says in its reply when something was deleted.
+
+Try "Make a coin sound for the NES", "Write a 16-bar Game Boy town theme" or, with a song open, "Make the bass in this song fuller". The code is in `packages/agent` (tools, prompt, provider adapters, loop) and `apps/studio/src/assistant`; the design is in section 12 of [docs/architecture.md](docs/architecture.md).
+
 ## The chips
 
 | chip | channels | what it sounds like |
@@ -136,6 +148,7 @@ Sound effects pick their chip too (`new sfx hit --category hit --chip genesis`),
 ```
 packages/core     the audio engine, chips, encoders, analysis (pure TypeScript, runs in Node and the browser)
 packages/sfx      the sound effect generators and mutation
+packages/agent    @bleepkit/agent: tools, system prompt, provider adapters and loop for the studio assistant (browser safe)
 packages/player   @bleepkit/player: the Web Audio player and AudioWorklet for games
 packages/cli      the bleepkit command
 apps/studio       the studio (Vite app), talks to the CLI's studio server or runs standalone

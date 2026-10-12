@@ -44,10 +44,12 @@ export function openModal(
   return close;
 }
 
-/** A yes or no question in the studio's own style (never the browser's alert box). Escape or a click outside is "no". */
+/** A yes or no question in the studio's own style (never the browser's alert box). Escape or a click outside is "no",
+ *  and so is `signal` aborting. */
 export function confirmDialog(
   message: string,
-  okLabel: string
+  okLabel: string,
+  opts: { signal?: AbortSignal } = {}
 ): Promise<boolean> {
   return new Promise((resolve) => {
     let answered = false;
@@ -77,6 +79,11 @@ export function confirmDialog(
       )
     );
     close = openModal(content, { cls: "narrow", onClose: () => answer(false) });
+    // the assistant was stopped while its question was open: that is a no
+    if (opts.signal?.aborted) {
+      answer(false);
+    }
+    opts.signal?.addEventListener("abort", () => answer(false), { once: true });
     ok.focus();
   });
 }

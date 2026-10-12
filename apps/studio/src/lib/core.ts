@@ -37,6 +37,7 @@ export {
   analyze,
   encodeMp3,
   encodeOgg,
+  encodePng,
   encodeWav,
   MP3_ENCODER_DELAY,
   type PngImage as PixelImage,

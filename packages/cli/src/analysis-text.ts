@@ -1,7 +1,8 @@
 // Compact human rendering of an Analysis object: a few lines of numbers and a 60 column ASCII envelope.
 
+import { fmtSeconds } from "@bleepkit/agent";
 import type { Analysis } from "@bleepkit/core/tools";
-import { fmtDb, fmtSeconds, round } from "./output.ts";
+import { fmtDb, round } from "./output.ts";
 
 const RAMP = " .:-=+*#%@";
 

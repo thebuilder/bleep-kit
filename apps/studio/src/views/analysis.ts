@@ -14,7 +14,7 @@ import {
   reducedMotion,
 } from "../lib/dom.ts";
 import { playDoc, stopEverything } from "../playback.ts";
-import { analyzeAsync } from "../render-service.ts";
+import { analyzeAsync, sourceOf } from "../render-service.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
 import { emptyCard } from "../ui/empty-state.ts";
@@ -27,7 +27,7 @@ import {
   drawWaveform,
   makeSpectrogram,
 } from "../visuals/waveform.ts";
-import type { AnalysisBundle, Source } from "../workers/render.ts";
+import type { AnalysisBundle } from "../workers/render.ts";
 
 interface Card {
   bar?: number;
@@ -39,20 +39,6 @@ interface Card {
 }
 
 const db = (v: number) => (v <= -119 ? "-inf dB" : `${v.toFixed(1)} dB`);
-
-function sourceOf(doc: Doc): Source {
-  if (doc.kind === "sfx") {
-    return { sfx: doc.value as Sfx, type: "sfx" };
-  }
-  if (doc.kind === "song") {
-    return {
-      instruments: project.instruments(),
-      song: doc.value as Song,
-      type: "song",
-    };
-  }
-  return { inst: doc.value as Instrument, note: 60, type: "note" };
-}
 
 /** The loop seam card. A loop that starts at the very top of the file has nothing before it to compare with. */
 function loopCard(loop: NonNullable<Analysis["loop"]>): Card {
