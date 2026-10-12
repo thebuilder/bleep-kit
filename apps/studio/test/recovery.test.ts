@@ -11,7 +11,8 @@ import {
   watchRecovery,
 } from "../src/engine/recovery.ts";
 
-function setup(state = "running", rate = 48_000) {
+function setup(initialState = "running", rate = 48_000) {
+  let state = initialState;
   const doc = Object.assign(new EventTarget(), {
     visibilityState: "visible" as string,
   }) as unknown as Document & { visibilityState: string };
@@ -172,8 +173,10 @@ describe("output devices coming and going", () => {
   it("does not rebuild twice in a row for one cause", async () => {
     const t = setup();
     t.speakers.rate = 16_000;
+    // three device changes, each settling before the next: sequential on purpose
     for (let i = 0; i < 3; i += 1) {
       t.devices.dispatchEvent(new Event("devicechange"));
+      // biome-ignore lint/performance/noAwaitInLoops: each change must settle before the next one arrives
       await vi.advanceTimersByTimeAsync(DEVICE_SETTLE_MS);
     }
     expect(t.calls.filter((c) => c.startsWith("rebuild"))).toHaveLength(1);

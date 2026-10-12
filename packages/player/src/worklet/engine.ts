@@ -14,7 +14,7 @@ import { LoadMeter, type NowFn } from "./load-meter.ts";
 /** Frames between `clock` messages (section 5.2). */
 export const CLOCK_FRAMES = 1024;
 /** Frames between `clock` messages while the feed is inactive (a hidden page): about a second. */
-export const IDLE_CLOCK_SECONDS = 1;
+const IDLE_CLOCK_SECONDS = 1;
 /** Events held for the next post at most; a burst beyond it drops the oldest (they are for display, never for sound). */
 export const MAX_PENDING_EVENTS = 1024;
 /** Frames of each scope ring posted when shared memory is not in use. */
@@ -141,7 +141,8 @@ export class BleepkitEngine {
   private framesSinceClock = CLOCK_FRAMES;
   private shared = false;
   /** False while the page asked for no events and scope copies (`setFeed`), see ToWorklet. */
-  private active = true;
+  // `as boolean`: Biome types a field initialised with a literal as that literal, but setActive changes it
+  private active = true as boolean;
   private ended = false;
   private errorCooldown = 0;
   private lastError = "";

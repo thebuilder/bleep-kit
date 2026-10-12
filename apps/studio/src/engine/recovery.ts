@@ -6,6 +6,7 @@
    - show: the page is back. Drop what piled up, get a fresh clock;
    - rebuild: throw the context and the engine node away and make new ones, because the old ones cannot be trusted.
    All the browser's own objects come in through `RecoveryEnv`, so the policy is tested without a browser. */
+import { fire } from "../lib/dom.ts";
 
 export type RebuildReason = "closed" | "interrupted" | "sample-rate";
 
@@ -45,7 +46,7 @@ export const DEVICE_SETTLE_MS = 300;
  *  each rebuild in a row (up to REBUILD_GAP_MAX_MS), so a cause that cannot be cured never makes the sound cut out
  *  over and over. */
 export const REBUILD_GAP_MS = 2000;
-export const REBUILD_GAP_MAX_MS = 60_000;
+const REBUILD_GAP_MAX_MS = 60_000;
 /** Rebuilds this far apart (ms) are not "in a row". */
 const CALM_MS = 30_000;
 
@@ -75,9 +76,9 @@ export function watchRecovery(host: RecoveryHost, env: RecoveryEnv): Recovery {
         later = setTimeout(() => {
           later = undefined;
           if (reason === "sample-rate") {
-            void checkRate();
+            fire(checkRate());
           } else if (stillNeeded(reason)) {
-            void rebuildFor(reason);
+            fire(rebuildFor(reason));
           }
         }, gap - since);
       }
@@ -105,11 +106,11 @@ export function watchRecovery(host: RecoveryHost, env: RecoveryEnv): Recovery {
     host.show();
     const state = host.contextState();
     if (state === "closed") {
-      void rebuildFor("closed");
+      fire(rebuildFor("closed"));
     } else if (interrupted && state === "running") {
-      void rebuildFor("interrupted");
+      fire(rebuildFor("interrupted"));
     } else if (away >= AWAY_CHECK_MS) {
-      void checkRate();
+      fire(checkRate());
     }
   };
 
@@ -133,7 +134,7 @@ export function watchRecovery(host: RecoveryHost, env: RecoveryEnv): Recovery {
 
   const onDevices = (): void => {
     clearTimeout(settle);
-    settle = setTimeout(() => void checkRate(), DEVICE_SETTLE_MS);
+    settle = setTimeout(() => fire(checkRate()), DEVICE_SETTLE_MS);
   };
 
   env.doc.addEventListener("visibilitychange", onVisibility);
@@ -154,12 +155,12 @@ export function watchRecovery(host: RecoveryHost, env: RecoveryEnv): Recovery {
       if (state === "interrupted") {
         interrupted = true;
       } else if (state === "closed") {
-        void rebuildFor("closed");
+        fire(rebuildFor("closed"));
       } else if (state === "running") {
         if (interrupted) {
-          void rebuildFor("interrupted");
+          fire(rebuildFor("interrupted"));
         } else if (ranBefore && before === "suspended") {
-          void checkRate();
+          fire(checkRate());
         }
         ranBefore = true;
       }
