@@ -199,20 +199,20 @@ export function createSidebar(host: HTMLElement): {
     if (sec.kind === "song") {
       const midi = h("button", {
         "aria-label": "Import MIDI or MOD",
-        class: "btn small",
+        class: "btn icon small",
         title: "Import a MIDI file or a ProTracker module (.mod) as a song",
       });
-      midi.innerHTML = `${icon("import", 12)}MIDI/MOD`;
+      midi.innerHTML = icon("import", 12);
       midi.addEventListener("click", pickSongFile);
       return h("div", { class: "tree-h" }, tw, midi, add);
     }
     if (sec.kind === "sample") {
       const imp = h("button", {
         "aria-label": "Import sample",
-        class: "btn small",
+        class: "btn icon small",
         title: "Import a WAV, MP3 or OGG file as a sample",
       });
-      imp.innerHTML = `${icon("import", 12)}Import`;
+      imp.innerHTML = icon("import", 12);
       imp.addEventListener("click", pickAudioFiles);
       return h("div", { class: "tree-h" }, tw, imp);
     }
