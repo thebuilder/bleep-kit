@@ -5,6 +5,7 @@ import {
   AMIGA_CLOCK_HZ,
   base64ToBytes,
   compileSong,
+  findMisfits,
   modToSong,
   parseMod,
   renderSong,
@@ -193,6 +194,14 @@ describe("modToSong", () => {
     expect(base64ToBytes(sq?.data ?? "").length).toBe(64);
     expect(samples["hand-02-ramp"]?.finetune).toBe(25);
     expect(samples["hand-02-ramp"]?.loop).toBeNull();
+  });
+
+  it("plays only instruments made for the amiga, of the sample kind", () => {
+    expect(findMisfits(song, instruments)).toEqual([]);
+    for (const inst of Object.values(instruments)) {
+      expect(inst.chip).toBe("amiga");
+      expect(inst.kind).toBe("sample");
+    }
   });
 
   it("maps periods to notes, the volume to the column and keeps the restart position", () => {

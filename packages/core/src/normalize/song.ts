@@ -62,6 +62,11 @@ import {
   warn,
 } from "./issues.ts";
 import { migrate } from "./migrate.ts";
+import {
+  type MmlSource,
+  SYNTH_PATTERN_BEATS,
+  synthesizeStructure,
+} from "./mml-structure.ts";
 
 const SONG_KEYS = [
   "id",
@@ -88,8 +93,8 @@ const CHANNEL_KEYS = [
 ];
 const ROW_KEYS = ["row", "note", "inst", "vol", "fx", "s"];
 const MIN_TEMPO_BYTE = 0x20;
-const SYNTH_PATTERN_BEATS = 4;
-const SYNTH_ID_RE = /^mml-\d+$/;
+/** The ids older versions gave to the generated patterns of an MML-only song, before they were flagged. */
+const LEGACY_SYNTH_ID_RE = /^mml-\d+$/;
 
 interface ChannelInfo {
   id: string;
@@ -673,7 +678,7 @@ interface PatternEnv {
 }
 
 function readPattern(ctx: Ctx, p: string, praw: Rec, env: PatternEnv): Pattern {
-  dropUnknown(ctx, praw, p, ["length", "tracks"]);
+  dropUnknown(ctx, praw, p, ["length", "tracks", "generated"]);
   const length = numField(ctx, praw, "length", p, {
     min: 1,
     max: 256,
@@ -710,7 +715,9 @@ function readPattern(ctx: Ctx, p: string, praw: Rec, env: PatternEnv): Pattern {
     }
     tracks[chId] = rows;
   }
-  return { length, tracks };
+  return praw.generated === true
+    ? { generated: true, length, tracks }
+    : { length, tracks };
 }
 
 function readPatterns(
@@ -740,14 +747,18 @@ function readPatterns(
   return out;
 }
 
-/** True for an MML-only song: patterns are only the synthesized structure ("mml-1", "mml-2", ...) with no rows,
-    so the MML defines the song length and loop. */
+/** True for a pattern normalize generated for an MML-only song: flagged, or named "mml-N" by an older version. */
+const isGenerated = (id: string, pattern: Pattern | undefined): boolean =>
+  pattern?.generated === true || LEGACY_SYNTH_ID_RE.test(id);
+
+/** True for an MML-only song: patterns are only the generated structure (flagged `generated`, section names or A, B, C)
+    with no rows, so the MML defines the song length and loop. */
 export function isMmlOnly(song: Pick<Song, "channels" | "patterns">): boolean {
-  const ids = Object.keys(song.patterns);
+  const entries = Object.entries(song.patterns);
   return (
     song.channels.some((c) => c.mml !== null) &&
     !hasAnyRows(song.patterns) &&
-    (ids.length === 0 || ids.every((k) => SYNTH_ID_RE.test(k)))
+    entries.every(([id, pattern]) => isGenerated(id, pattern))
   );
 }
 
@@ -842,6 +853,8 @@ interface MmlSummary {
   end: number;
   /** Pulse of the first L command in any channel. */
   loop: number | null;
+  /** The MML channels' text and sections, for the structure of an MML-only song. */
+  sources: MmlSource[];
   /** The first t command in any channel. */
   tempo: number | null;
 }
@@ -854,7 +867,13 @@ function summarizeMml(
   instruments: Record<string, Instrument> | undefined,
   refs: Refs
 ): MmlSummary {
-  const sum: MmlSummary = { any: false, end: 0, loop: null, tempo: null };
+  const sum: MmlSummary = {
+    any: false,
+    end: 0,
+    loop: null,
+    sources: [],
+    tempo: null,
+  };
   for (const info of infos) {
     if (info.mml === null) {
       continue;
@@ -865,6 +884,7 @@ function summarizeMml(
     for (const i of parsed.issues) {
       ctx.issues.push({ severity: i.severity, path, message: i.message });
     }
+    sum.sources.push({ mml: info.mml, sections: parsed.sections });
     sum.end = Math.max(sum.end, parsed.endPulse);
     sum.tempo ??= parsed.tempo;
     sum.loop ??= parsed.loopPulse;
@@ -875,27 +895,6 @@ function summarizeMml(
     }
   }
   return sum;
-}
-
-/** The patterns and order of an MML-only song: empty patterns of SYNTH_PATTERN_BEATS beats that give it its length. */
-function synthesizeStructure(
-  mmlEnd: number,
-  rowsPerBeat: number
-): { order: string[]; patterns: Record<string, Pattern> } {
-  const patterns: Record<string, Pattern> = {};
-  const order: string[] = [];
-  const perPattern = SYNTH_PATTERN_BEATS * rowsPerBeat;
-  const total = Math.max(mmlEnd, 1);
-  const count = Math.min(
-    256,
-    Math.max(1, Math.ceil(total / (SYNTH_PATTERN_BEATS * PPQ) - 1e-9))
-  );
-  for (let k = 0; k < count; k += 1) {
-    const pid = `mml-${k + 1}`;
-    patterns[pid] = { length: perPattern, tracks: {} };
-    order.push(pid);
-  }
-  return { order, patterns };
 }
 
 /** The order list when the document's own is empty or missing: every pattern, or the first one. */
@@ -1144,7 +1143,7 @@ export function normalizeSong(
   const synthInput =
     mml.any &&
     !hasAnyRows(patterns) &&
-    (patternIds.length === 0 || patternIds.every((k) => SYNTH_ID_RE.test(k)));
+    patternIds.every((k) => isGenerated(k, patterns[k]));
   const { tempo: mmlTempo } = mml;
   let tempo = tempo0;
   if (mmlTempo !== null) {
@@ -1161,7 +1160,10 @@ export function normalizeSong(
 
   // Structure: patterns and order. An MML-only song gets synthesized patterns (empty, structure only).
   const structure = synthInput
-    ? { ...synthesizeStructure(mml.end, rowsPerBeat), synthesized: true }
+    ? {
+        ...synthesizeStructure(mml.sources, mml.end, rowsPerBeat),
+        synthesized: true,
+      }
     : { order: readOrder(ctx, doc, patterns), patterns, synthesized: false };
   if (structure.order.length === 0) {
     structure.order = fallbackOrder(ctx, doc, structure.patterns);

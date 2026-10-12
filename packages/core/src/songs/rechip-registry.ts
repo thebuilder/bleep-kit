@@ -4,6 +4,7 @@
 
 import { buildRoleInstrument, drumInstrument } from "../midi/instruments.ts";
 import type { ChipChannel, ChipId, Instrument } from "../types.ts";
+import { instrumentFits } from "./instrument-fit.ts";
 import {
   type DrumGenerator,
   drumVoiceOf,
@@ -28,16 +29,12 @@ export function createRegistry(
   return { all: { ...instruments }, chip, created: [] };
 }
 
-/** An FM patch must have the operators the channel has, or the song warns about it. */
-function fits(inst: Instrument, channel: ChipChannel): boolean {
-  if (inst.kind !== channel.kind) {
-    return false;
-  }
-  return !(
-    inst.fm &&
-    channel.fmOps !== undefined &&
-    inst.fm.ops.length !== channel.fmOps
-  );
+/**
+ * An instrument fits a channel when its kind is the channel's, an FM patch has the operators the channel has, and it was
+ * made for the chip or for any chip: one made for another chip makes the song warn, so it is never kept.
+ */
+function fits(reg: Registry, inst: Instrument, channel: ChipChannel): boolean {
+  return instrumentFits(inst, channel, reg.chip);
 }
 
 /** The role a kind plays without anyone saying so: a triangle is a bass, a noise channel is drums. */
@@ -57,7 +54,7 @@ function candidateScore(
   channel: ChipChannel
 ): number {
   if (
-    !fits(inst, channel) ||
+    !fits(reg, inst, channel) ||
     isDrumInstrument(id, inst) !== (role === "drums")
   ) {
     return 0;
@@ -139,7 +136,7 @@ export function resolveInstrument(
   channel: ChipChannel
 ): string {
   const inst = source === null ? undefined : reg.all[source];
-  if (source !== null && inst && fits(inst, channel)) {
+  if (source !== null && inst && fits(reg, inst, channel)) {
     return source;
   }
   return ofRole(reg, role, channel);
@@ -157,7 +154,7 @@ export function drumKitInstrument(
     return source;
   }
   const found = bestExisting(reg, (id, inst) =>
-    fits(inst, channel) && sampleDrum(inst) === generator
+    fits(reg, inst, channel) && sampleDrum(inst) === generator
       ? candidateScore(reg, id, inst, "drums", channel) || 1
       : 0
   );

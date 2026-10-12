@@ -363,6 +363,12 @@ export interface Pattern {
   length: number;               // 1..256, default 64
   /** Sparse rows per channel id, sorted by row. */
   tracks: Record<string, Row[]>;
+  /**
+   * True on the empty patterns normalize makes for an MML-only song (section 2.7): they are rebuilt from the MML on
+   * every normalize, named for its sections or A, B, C, and shared between bars that hold the same music. Absent on
+   * every pattern a person or a tool wrote.
+   */
+  generated?: true;
 }
 
 export interface SongChannel {

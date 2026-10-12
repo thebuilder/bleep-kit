@@ -14,6 +14,7 @@ import {
   defaultSong,
   deriveSeed,
   generateSfx,
+  instrumentForChannel,
 } from "../lib/core.ts";
 import { h } from "../lib/dom.ts";
 import { playSfx } from "../playback.ts";
@@ -162,16 +163,14 @@ export async function createInstrument(kind: ChannelKind): Promise<void> {
 
 export async function createSong(): Promise<void> {
   const id = project.uniqueId("song", "new-song");
-  const song = defaultSong(project.project.chip);
+  const { chip } = project.project;
+  const song = defaultSong(chip);
   song.name = "New song";
-  const insts = project.list("instrument");
+  // a channel starts with an instrument of the project that fits it (the chip's own, else a chip-less one); a channel
+  // nothing fits stays empty, and the person adds an instrument when they use it
+  const known = project.instruments();
   for (const ch of song.channels) {
-    const match = insts.find(
-      (i) => (i.value as { kind: string }).kind === ch.kind
-    );
-    if (match) {
-      ch.instrument = match.id;
-    }
+    ch.instrument = instrumentForChannel(chip, ch, known, { any: true }).id;
   }
   const doc = await project.create("song", id, song);
   app.navigate(`#/song/${doc.id}`);

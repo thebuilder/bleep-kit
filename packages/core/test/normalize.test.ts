@@ -1028,8 +1028,141 @@ describe("song", () => {
     });
     expect(r.issues).toEqual([]);
     expect(r.value.order).toHaveLength(3);
-    expect(new Set(r.value.order).size).toBe(3);
+    // the first two bars hold the same four notes: one pattern, played twice
+    expect(r.value.order).toEqual(["A", "A", "B"]);
+    expect(Object.keys(r.value.patterns)).toEqual(["A", "B"]);
     expect(r.value.loop).toBe(1);
+  });
+
+  describe("the patterns of an all MML song are named for what they hold", () => {
+    const mmlSong = (mml: Record<string, string>) => {
+      const base = nes();
+      return normalizeSong({
+        ...base,
+        channels: base.channels.map((c) =>
+          mml[c.id] === undefined ? c : { ...c, mml: mml[c.id] }
+        ),
+        loop: null,
+        order: [],
+        patterns: {},
+      });
+    };
+    it("uses A, B, C by content and reuses a name when two order entries hold the same music", () => {
+      // bars: x x y y x (8 eighth notes are a bar)
+      const x = "c d e f g a b >c<";
+      const y = "g g g g e e e e";
+      const r = mmlSong({ pulse1: `l8 ${x} ${x} ${y} ${y} ${x}` });
+      expect(r.issues).toEqual([]);
+      expect(r.value.order).toEqual(["A", "A", "B", "B", "A"]);
+      expect(Object.keys(r.value.patterns)).toEqual(["A", "B"]);
+      expect(r.value.patterns.A?.generated).toBe(true);
+    });
+
+    it("tells bars apart when only another channel differs, and shares them when every channel agrees", () => {
+      const a = "l8 c c c c c c c c";
+      const r = mmlSong({
+        pulse1: `${a} ${a} ${a}`,
+        pulse2: `${a} ${a} g g g g g g g g`,
+      });
+      expect(r.value.order).toEqual(["A", "A", "B"]);
+    });
+
+    it("keeps the sections the author named in comments, and counts the bars of a long one", () => {
+      const eights = (n: string) => `${n} ${n} ${n} ${n} ${n} ${n} ${n} ${n}`;
+      const mml = [
+        "l8",
+        "; section: Intro",
+        eights("c"),
+        "; section: Verse",
+        `${eights("d")} ${eights("e")} ${eights("e")}`,
+        "; section: Chorus",
+        `${eights("f")} ${eights("g")}`,
+        "; section: Verse",
+        `${eights("d")} ${eights("e")} ${eights("e")}`,
+      ].join("\n");
+      const r = mmlSong({ pulse1: mml });
+      expect(r.issues).toEqual([]);
+      // the second Verse holds the same music as the first: the same patterns, played again
+      expect(r.value.order).toEqual([
+        "Intro",
+        "Verse",
+        "Verse b",
+        "Verse b",
+        "Chorus",
+        "Chorus b",
+        "Verse",
+        "Verse b",
+        "Verse b",
+      ]);
+      expect(Object.keys(r.value.patterns)).toEqual([
+        "Intro",
+        "Verse",
+        "Verse b",
+        "Chorus",
+        "Chorus b",
+      ]);
+    });
+
+    it("gives a section of the same name but other music its own pattern, and bars before the first section letters", () => {
+      const mml = [
+        "l8 c c c c c c c c",
+        "; section: Verse",
+        "d d d d d d d d",
+        "; section: Verse",
+        "e e e e e e e e",
+      ].join("\n");
+      const r = mmlSong({ pulse1: mml });
+      expect(r.value.order).toEqual(["A", "Verse", "Verse 2"]);
+      // and the bars of that second Verse count on from its own name
+      const longer = mmlSong({
+        pulse1: `${mml}\nf f f f f f f f`,
+      });
+      expect(longer.value.order).toEqual(["A", "Verse", "Verse 2", "Verse 2b"]);
+    });
+
+    it("is stable: normalizing the result again gives the same structure, and a changed MML is rebuilt", () => {
+      const x = "c d e f g a b >c<";
+      const first = mmlSong({ pulse1: `l8 ${x} ${x} g g g g g g g g` });
+      const again = normalizeSong(first.value);
+      expect(again.value.order).toEqual(first.value.order);
+      expect(again.value.patterns).toEqual(first.value.patterns);
+      const longer = normalizeSong({
+        ...first.value,
+        channels: first.value.channels.map((c, i) =>
+          i === 0 ? { ...c, mml: `l8 ${x} ${x} ${x} g g g g g g g g` } : c
+        ),
+      });
+      expect(longer.value.order).toEqual(["A", "A", "A", "B"]);
+    });
+
+    it("still reads the mml-N patterns older versions wrote as generated", () => {
+      const base = nes();
+      const r = normalizeSong({
+        ...base,
+        channels: base.channels.map((c, i) =>
+          i === 0 ? { ...c, mml: "l8 c c c c c c c c c c c c c c c c" } : c
+        ),
+        loop: null,
+        order: ["mml-1"],
+        patterns: { "mml-1": { length: 16, tracks: {} } },
+      });
+      expect(r.value.order).toEqual(["A", "A"]);
+    });
+
+    it("leaves patterns a person made alone", () => {
+      const base = nes();
+      const r = normalizeSong({
+        ...base,
+        channels: base.channels.map((c, i) =>
+          i === 0 ? { ...c, mml: "l8 c c c c c c c c c c c c c c c c" } : c
+        ),
+        loop: 0,
+        order: ["intro"],
+        patterns: { intro: { length: 16, tracks: {} } },
+      });
+      expect(r.value.order).toEqual(["intro"]);
+      expect(r.value.patterns.intro?.generated).toBeUndefined();
+    });
   });
 
   it("an MML tempo that differs from the song tempo is ignored with a warning when the song has patterns", () => {

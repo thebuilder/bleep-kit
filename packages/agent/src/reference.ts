@@ -131,11 +131,15 @@ const song = `SONG  songs/<id>.json
   tempo 20..400 BPM (quarter notes) | rowsPerBeat 1..16 (a row is 1/rowsPerBeat of a beat) | tickRate 50 or 60
   channels: ids must belong to the chip (nes: pulse1 pulse2 triangle noise; gameboy: pulse1 pulse2 wave noise;
     c64: voice1..3; genesis: fm1..6 psg1..3 psgNoise; adlib: fm1..9; snes: ch1..8; amiga: ch1..4); "custom" declares its own.
-    instrument = id used until a row or MML @id switches it; it must exist and match the channel kind.
+    instrument = id used until a row or MML @id switches it; it must exist, match the channel kind, and be made for
+    the song's chip (the instrument's "chip" is that chip, or null for any chip): another chip's instrument draws a warning.
+    A channel that plays nothing has "instrument": null.
     mml = a text melody for this channel (see: help formats mml); when set, pattern tracks for it are ignored.
   patterns: length 1..256 rows; tracks are sparse row lists per channel id, sorted by row.
   order: pattern ids in play order. loop: order index to loop back to after the last one, or null to play once.
-  A song with every channel in MML may have "patterns": {} and "order": [].
+  A song with every channel in MML may have "patterns": {} and "order": []: the studio's tracker view then gets one empty
+  pattern per 4 beats, named for the "; section: Name" comments of the MML (else A, B, C by content), and bars that hold
+  the same music in every channel are one pattern that the order plays again.
   master (chip specific): amiga songs: "amiga": { "separation": 0..1 (1 hard left/right, 0 mono), "model": "a500"|"a1200" (a500 has
     the fixed 4.4 kHz lowpass), "led": false (the LED filter at the start; Exx switches it) }; genesis songs: "genesis": { "dac": true }
     makes fm6 play sample instruments (8 bit PCM, 8 to 26 kHz) instead of FM.
@@ -188,6 +192,8 @@ const mml = `MML  one string per channel (song.channels[i].mml); whitespace igno
   @<id>           switch instrument by id (letters, digits, dashes), e.g. @lead
   q<1-8>          gate: notes sound for q/8 of their length (default 8) | k<n> transpose semitones (k-12)
   t<n>            tempo (sets song tempo when the song has no patterns) | w<n> duty index
+  ; section: Name a comment that names the part of the song starting here (Intro, Verse, Chorus): it becomes the name of
+                  the pattern in the studio's order list. Any other comment is ignored.
   {Axx}           attach a tracker effect (letter + two hex digits) to the next note, e.g. {A0F} or {047}
   [ ... ]<n>      repeat n times (default 2), nesting up to 4
   L               loop point: the song loops back here (one channel is enough, the first L wins). A song with no

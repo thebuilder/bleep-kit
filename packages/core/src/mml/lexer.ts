@@ -20,6 +20,12 @@ export type TokenKind =
   | "fx"
   | "bad";
 
+/** A comment of the form `; section: Name`: where it starts in the text, and the name the author gave. */
+export interface SectionMark {
+  name: string;
+  pos: number;
+}
+
 export interface Token {
   kind: TokenKind;
   pos: number;
@@ -31,6 +37,7 @@ const DIGIT = /[0-9]/;
 const LETTER = /[A-Za-z]/;
 const WHITESPACE = /[ \t\n\r]/;
 const NOT_NEWLINE = /[^\n]/;
+const SECTION_COMMENT = /^;[ \t]*section[ \t]*:[ \t]*(\S.*?)[ \t\r]*$/i;
 
 const SINGLE: Readonly<Record<string, TokenKind>> = {
   "-": "minus",
@@ -48,6 +55,7 @@ const SINGLE: Readonly<Record<string, TokenKind>> = {
 /** The tokens and issues being collected. */
 interface Lexed {
   issues: Issue[];
+  sections: SectionMark[];
   tokens: Token[];
 }
 
@@ -128,16 +136,21 @@ function scanSingle(ch: string, i: number, out: Lexed, path: string) {
 export function lex(
   src: string,
   path = "/mml"
-): { tokens: Token[]; issues: Issue[] } {
-  const out: Lexed = { issues: [], tokens: [] };
+): { tokens: Token[]; issues: Issue[]; sections: SectionMark[] } {
+  const out: Lexed = { issues: [], sections: [], tokens: [] };
   let i = 0;
   while (i < src.length) {
     const ch = src.charAt(i);
     if (WHITESPACE.test(ch)) {
       i += 1;
     } else if (ch === ";") {
-      // a comment runs to the end of the line
-      i = skipWhile(src, i, NOT_NEWLINE);
+      // a comment runs to the end of the line; "; section: Name" also names the part of the song that starts here
+      const end = skipWhile(src, i, NOT_NEWLINE);
+      const name = SECTION_COMMENT.exec(src.slice(i, end))?.[1];
+      if (name !== undefined) {
+        out.sections.push({ name, pos: i });
+      }
+      i = end;
     } else if (DIGIT.test(ch)) {
       i = scanNumber(src, i, out);
     } else if (LETTER.test(ch)) {

@@ -3,7 +3,9 @@
 import {
   CHIP_IDS,
   type ChipId,
+  channelInstrumentIds,
   deriveSeed,
+  type Instrument,
   makeInstrument,
   parseMml,
   SFX_CATEGORIES,
@@ -18,6 +20,7 @@ import {
   makeSong,
   PRESETS,
   type Preset,
+  planSong,
   type Template,
 } from "../author.ts";
 import { type AgentHost, refText } from "../host.ts";
@@ -287,8 +290,8 @@ function mmlProblems(
   return problems;
 }
 
-/** Apply the model's instrument choices, then refuse a song that would have silent channels. Null when fine. */
-function assignInstruments(
+/** Apply the model's instrument choices (what the model names wins over what the planner picked). Null when fine. */
+function applyChoices(
   song: Song,
   chosen: Record<string, string>,
   channelIds: readonly string[]
@@ -303,15 +306,20 @@ function assignInstruments(
     }
     target.instrument = instrument;
   }
-  const silent = song.channels.filter(
-    (c) => c.mml && !c.instrument && !c.mml.includes("@")
+  return null;
+}
+
+/** The new instruments a song actually plays (the planner makes them before the model's choices replace some). */
+function usedCreated(
+  song: Song,
+  created: Record<string, Instrument>
+): Record<string, Instrument> {
+  const used = new Set(
+    song.channels.flatMap((c) => channelInstrumentIds(song, c))
   );
-  return silent.length === 0
-    ? null
-    : fail(
-        "new_song: channels without an instrument",
-        `Nothing was saved. No project instrument fits ${silent.map((c) => `${c.id} (${c.kind})`).join(", ")}, so those channels would be silent. Create matching instruments first with new_instrument (a lead, a bass, drums), or name existing ones in \`instruments\`, or switch with @id inside the MML.`
-      );
+  return Object.fromEntries(
+    Object.entries(created).filter(([id]) => used.has(id))
+  );
 }
 
 export function newSong(host: AgentHost): AgentTool {
@@ -326,7 +334,7 @@ export function newSong(host: AgentHost): AgentTool {
     template?: Template;
   }>({
     description:
-      'Create a song from MML, one string per channel (channel ids depend on the chip, see chip_info). Each channel gets a matching project instrument (override with `instruments`, or switch inside the MML with @id). MML syntax is in the system prompt; mistakes come back with the offset of the bad character. Put an "L" in the MML where the song should loop. Refuses an existing id unless replace is true.',
+      'Create a song from MML, one string per channel (channel ids depend on the chip, see chip_info). Each channel that plays notes gets an instrument that fits its chip and kind: one the project has, or a new one made from the per-chip presets (override with `instruments`, or switch inside the MML with @id; an instrument made for another chip is refused). Channels with no notes get none: use the voices of the chip sensibly and leave the rest empty. MML syntax is in the system prompt; mistakes come back with the offset of the bad character. Put an "L" in the MML where the song should loop. Refuses an existing id unless replace is true.',
     inputSchema: {
       properties: {
         chip: CHIP_PROP,
@@ -381,31 +389,50 @@ export function newSong(host: AgentHost): AgentTool {
           `Nothing was saved:\n${problems.map((p) => `- ${p}`).join("\n")}\nSee the MML section of the system prompt.`
         );
       }
-      const song = makeSong({
+      const plan = planSong({
         chip,
+        create: true,
         instruments: await host.instruments(),
         mml: input.mml,
         name: input.name ?? input.id,
         template: input.template ?? "empty",
         tempo: input.tempo ?? 120,
       });
-      const refused = assignInstruments(
-        song,
-        input.instruments ?? {},
-        channelIds
-      );
+      const { song } = plan;
+      const refused = applyChoices(song, input.instruments ?? {}, channelIds);
       if (refused) {
         return refused;
       }
+      const made = usedCreated(song, plan.created);
       const ref = { id: input.id, kind: "song" } as const;
+      // the whole song is checked before anything is written, so a refusal leaves no stray instruments behind
+      const checked = await commit(host, ref, song, {
+        create: !input.replace,
+        dryRun: true,
+        extraInstruments: made,
+      });
+      if (!checked.value) {
+        return checked.out;
+      }
+      const madeIds = Object.keys(made);
+      for (const id of madeIds) {
+        // biome-ignore lint/performance/noAwaitInLoops: each instrument is stored in turn, the song after the last
+        await commit(host, { id, kind: "instrument" }, made[id], {
+          create: true,
+        });
+      }
       const { out, value } = await commit(host, ref, song, {
         create: !input.replace,
       });
+      const newInst =
+        madeIds.length > 0
+          ? `\nMade ${madeIds.map((id) => `instrument/${id}`).join(", ")} from the ${chip} presets for channels the project had no fitting instrument for.`
+          : "";
       return value
         ? {
             ...out,
             summary: `Created ${refText(ref)} (${chip}, ${song.tempo} BPM)`,
-            text: `${out.text}\n${describeDoc(ref, value)}\nNext: render_analyze ${refText(ref)} to check length, loop and loudness.`,
+            text: `${out.text}${newInst}\n${describeDoc(ref, value)}\nNext: render_analyze ${refText(ref)} to check length, loop and loudness.`,
           }
         : out;
     },

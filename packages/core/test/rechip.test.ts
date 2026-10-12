@@ -283,13 +283,32 @@ describe("rechipSong from the NES starter song", () => {
     expect(gb.song.channels.find((c) => c.id === "wave")?.instrument).toBe(
       "wave-bass"
     );
-    // the pulse lead and harmony, and the noise drums, are the project's own
+    // the NES lead and the NES drums were made for another chip, so the Game Boy gets its own
     expect(gb.song.channels.find((c) => c.id === "pulse1")?.instrument).toBe(
-      "lead"
+      "gameboy-lead"
     );
     expect(gb.song.channels.find((c) => c.id === "noise")?.instrument).toBe(
-      "drums"
+      "gameboy-drums"
     );
+    expect(gb.created).toContain("gameboy-lead");
+  });
+
+  it("keeps an instrument made for no chip, and never leaves one made for another chip", () => {
+    const anyChip = { ...makeInstrument("pulse", null, "lead", "Any lead") };
+    const insts = { ...fullerInstruments(), lead: anyChip };
+    const r = rechipSong(starterSong(), insts, "gameboy");
+    expect(r.song.channels.find((c) => c.id === "pulse1")?.instrument).toBe(
+      "lead"
+    );
+    for (const chip of CHIP_IDS.filter((c) => c !== "custom")) {
+      const moved = rechipSong(starterSong(), fullerInstruments(), chip);
+      expect(
+        normalizeSong(moved.song, moved.instruments).issues.filter((i) =>
+          i.message.includes("was designed for chip")
+        ),
+        chip
+      ).toEqual([]);
+    }
   });
 
   it("gameboy: lead and harmony on the pulses, bass on the wave channel, drums on noise", () => {

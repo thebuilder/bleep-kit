@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { MidiImport, NoteValue, Row, Song } from "../src/index.ts";
 import {
   CHIP_IDS,
+  findMisfits,
   midiToSong,
   normalizeSong,
   parseMidi,
@@ -808,6 +809,19 @@ describe("midiToSong: other chips", () => {
       "midi-snes-kick",
     ]);
     expect(r.instruments["midi-snes-snare"]?.sample?.generator).toBe("snare");
+  });
+
+  it("plays only instruments made for the song's chip, of the channel's kind", () => {
+    for (const chip of CHIP_IDS.filter((c) => c !== "custom")) {
+      const r = midiToSong(tune(), { chip });
+      expect(findMisfits(r.song, r.instruments), chip).toEqual([]);
+      expect(
+        normalizeSong(r.song, r.instruments).issues.filter((i) =>
+          i.message.includes("was designed for chip")
+        ),
+        chip
+      ).toEqual([]);
+    }
   });
 
   it("gives every importable chip a valid song, and refuses the custom chip", () => {

@@ -16,6 +16,7 @@ import type {
   Song,
   SongChannel,
 } from "../types.ts";
+import { fixMisfits } from "./instrument-fix.ts";
 import {
   assignChannels,
   fitOf,
@@ -497,14 +498,16 @@ export function rechipSong(
   out.patterns = buildPatterns(work);
   fitMaster(work, out);
   pruneCreated(work.reg, out);
+  // whatever the mappers left behind (an id they could not see in a row or an MML switch) must still fit the new chip
+  const safe = fixMisfits(out, work.reg.all);
   const order = (id: string): number => target.findIndex((c) => c.id === id);
   return {
     adjusted: work.adjusted,
-    created: work.reg.created,
+    created: [...work.reg.created, ...safe.created],
     dropped: work.dropped,
-    instruments: work.reg.all,
+    instruments: safe.instruments,
     moves: work.moves.sort((a, b) => order(a.to) - order(b.to)),
-    song: out,
+    song: safe.song,
   };
 }
 

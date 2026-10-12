@@ -8,6 +8,8 @@ export {
   makeSong,
   PRESETS,
   type Preset,
+  planSong,
+  type SongPlan,
   type Template,
 } from "./author.ts";
 export {

@@ -1161,6 +1161,10 @@
       font-size: 10px;
       opacity: 0.7;
     }
+    .issues .issue-fix {
+      display: block;
+      margin-top: 5px;
+    }
 
     /* ================= overlays ================= */
     #audioPill {
@@ -2988,8 +2992,9 @@
       display: flex;
       flex: none;
       flex-wrap: wrap;
-      gap: 6px;
-      align-items: center;
+      gap: 6px 12px;
+      align-items: flex-start;
+      min-width: 0;
       padding: 8px 10px;
       background: var(--panel-a);
       border: 1px solid #000;
@@ -2997,6 +3002,32 @@
     }
     .olab {
       margin-right: 4px;
+      line-height: 28px;
+    }
+    /* the entries wrap inside their own box (two rows high) and scroll when there are more, so 18 or 180 of them never
+       push the buttons or the grid out of the panel */
+    .olist {
+      position: relative;
+      display: flex;
+      flex: 1 1 260px;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-content: flex-start;
+      min-width: 0;
+      max-height: 70px;
+      padding: 6px 6px 2px 2px;
+      overflow: hidden auto;
+      scrollbar-color: var(--muted) transparent;
+      scrollbar-width: thin;
+    }
+    .octl {
+      display: flex;
+      flex: none;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      min-height: 28px;
+      margin-left: auto;
     }
     .ochip {
       position: relative;
@@ -3047,12 +3078,12 @@
       outline-offset: 2px;
     }
     .pat-sel {
-      margin-left: auto;
+      margin-left: 0;
     }
     .tracker {
       position: relative;
       flex: 1 1 300px;
-      min-height: 240px;
+      min-height: 340px;
       overflow: auto;
       font-family: var(--f-mono);
       font-size: 13px;
@@ -3201,11 +3232,15 @@
         transparent 6px 12px
       );
     }
-    .tc .mml-cell {
-      width: auto;
-      font-size: 11px;
-      color: var(--k-sid);
-      letter-spacing: 0.1em;
+    /* an MML channel's cells show what its text plays: same columns as the tracker, read only, a cooler tint */
+    .tc.is-mml {
+      cursor: default;
+    }
+    .tc.is-mml .n:not(.off):not(.rel) {
+      color: #d8cdf3;
+    }
+    .tc.is-mml .i:not(.e) {
+      filter: saturate(0.7);
     }
     .tc.pulse {
       animation: cellpulse calc(250ms * var(--motion)) ease-out;
@@ -3280,6 +3315,37 @@
     }
     .tch-sub {
       overflow: hidden;
+    }
+    .tch .conv {
+      display: block;
+      width: 100%;
+      padding: 2px 4px;
+      margin-top: 3px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: var(--f-body);
+      font-size: 10px;
+      color: var(--k-sid);
+      text-align: left;
+      white-space: nowrap;
+      background: rgba(180, 154, 230, 0.1);
+      border: 1px solid #000;
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--k-sid) 45%, transparent);
+    }
+    .tch .conv:hover,
+    .tch .conv:focus-visible {
+      color: var(--accent-ink);
+      background: var(--k-sid);
+    }
+    .tch .conv.nudge {
+      animation: convnudge calc(900ms * var(--motion)) ease-out;
+    }
+    @keyframes convnudge {
+      0%,
+      60% {
+        color: var(--accent-ink);
+        background: var(--k-sid);
+      }
     }
     .tch-sub .lab {
       display: block;

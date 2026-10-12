@@ -464,6 +464,40 @@ describe("init, new, list, validate", () => {
     expect(validate.code, JSON.stringify(validate.json)).toBe(0);
   });
 
+  it("new song on another chip makes instruments for it, and leaves the channels with no notes empty", async () => {
+    const { repo } = await makeProject();
+    const r = await run(repo, [
+      "new",
+      "song",
+      "mega",
+      "--chip",
+      "genesis",
+      "--mml",
+      "fm1=o2 l4 c g c g",
+      "--mml",
+      "psg1=o5 l8 c d e f",
+      "--mml",
+      "fm2=r1",
+      "--json",
+    ]);
+    expect(r.code, r.stderr).toBe(0);
+    const by = Object.fromEntries(
+      r.json.doc.channels.map(
+        (c: { id: string; instrument: string | null }) => [c.id, c.instrument]
+      )
+    );
+    // the project's nes instruments are not used for a Genesis song; new ones are made and written
+    expect(by.fm1).toMatch(/^genesis-/);
+    expect(by.psg1).toMatch(/^genesis-/);
+    expect(by.fm2).toBeNull();
+    expect(by.fm5).toBeNull();
+    expect(by.fm6).toBeNull();
+    expect(r.json.instruments).toHaveLength(2);
+    const validate = await run(repo, ["validate", "--json"]);
+    expect(validate.code, JSON.stringify(validate.json)).toBe(0);
+    expect(JSON.stringify(validate.json)).not.toContain("designed for chip");
+  });
+
   it("list shows documents of every kind and a single kind", async () => {
     const { repo } = await makeProject();
     const all = await run(repo, ["list", "--json"]);
@@ -524,7 +558,7 @@ describe("init, new, list, validate", () => {
 
   it("validate checks a song against the project's instruments", async () => {
     const { repo } = await makeProject();
-    await run(repo, ["new", "song", "s", "--mml", "pulse1=@lead c d e"]);
+    await run(repo, ["new", "song", "s", "--mml", "pulse1=c d e"]);
     fs.rmSync(path.join(repo, "audio", "instruments", "lead.json"));
     const r = await run(repo, ["validate", "song/s", "--json"]);
     expect(r.code).toBe(1);

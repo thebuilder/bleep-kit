@@ -1,3 +1,4 @@
+import { makeInstrument } from "@bleepkit/core";
 import { describe, expect, it } from "vitest";
 import {
   applyChanges,
@@ -10,6 +11,7 @@ import {
   type ModelInfo,
   parseRef,
   pickDefaultModel,
+  planSong,
   readSse,
   turnContext,
 } from "../src/index.ts";
@@ -195,5 +197,47 @@ describe("default model", () => {
     expect(
       pickDefaultModel("openai", [m("o3", 5), m("gpt-4o-mini", 4)])?.id
     ).toBe("o3");
+  });
+});
+
+describe("planSong", () => {
+  const base = {
+    chip: "genesis",
+    instruments: {},
+    name: "t",
+    template: "empty",
+    tempo: 120,
+  } as const;
+
+  it("gives only the channels that play notes an instrument made for the chip", () => {
+    const plan = planSong({
+      ...base,
+      create: true,
+      mml: { fm1: "o2 c1", fm2: "o4 e1", fm3: "r1" },
+    });
+    const by = Object.fromEntries(
+      plan.song.channels.map((c) => [c.id, c.instrument])
+    );
+    expect(by.fm1).not.toBeNull();
+    expect(by.fm2).not.toBeNull();
+    // a rest only, and channels with no MML at all, stay empty
+    expect(by.fm3).toBeNull();
+    expect(by.fm5).toBeNull();
+    expect(by.fm6).toBeNull();
+    for (const inst of Object.values(plan.created)) {
+      expect(inst.chip).toBe("genesis");
+    }
+  });
+
+  it("does not pick an instrument made for another chip", () => {
+    const plan = planSong({
+      ...base,
+      create: false,
+      instruments: { lead: makeInstrument("pulse", "nes", "lead", "Lead") },
+      mml: { psg1: "o4 c1" },
+    });
+    expect(
+      plan.song.channels.find((c) => c.id === "psg1")?.instrument
+    ).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import {
   CHORD_MODES,
   type ChipId,
   type ChordMode,
+  fixMisfits,
   type Instrument,
   midiToSong,
   normalizeInstrument,
@@ -273,10 +274,20 @@ export const importCommand: CommandSpec = {
         "Check that it is a Standard MIDI file (format 0 or 1), and that --chip, --rows-per-beat and --map are valid."
       );
     }
-    const known = { ...pc.instruments(), ...result.instruments };
-    const song = normalizeSong(result.song, known);
+    // the project's own copy of an id wins, unless it was made for another chip: then the song gets a fitting one
+    const fixed = fixMisfits(result.song, {
+      ...result.instruments,
+      ...pc.instruments(),
+    });
+    const known = { ...pc.instruments(), ...fixed.instruments };
+    const song = normalizeSong(fixed.song, known);
     requireOk({ ...song, ref: `song/${id}`, rel: songRel });
-    const instruments = writeInstruments(pc, result.instruments);
+    const instruments = writeInstruments(pc, {
+      ...result.instruments,
+      ...Object.fromEntries(
+        fixed.created.map((made) => [made, fixed.instruments[made]])
+      ),
+    } as Record<string, Instrument>);
     const rel = writeDoc(pc, "song", id, song.value);
     const created = instruments.filter((w) => w.created).map((w) => w.id);
     const reused = instruments.filter((w) => !w.created).map((w) => w.id);

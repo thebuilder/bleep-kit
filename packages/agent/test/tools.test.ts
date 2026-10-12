@@ -1,5 +1,5 @@
 import type { Instrument, Sfx, Song } from "@bleepkit/core";
-import { normalizeSong } from "@bleepkit/core";
+import { makeInstrument, normalizeSong } from "@bleepkit/core";
 import { describe, expect, it } from "vitest";
 import { type AgentTool, createTools, MAX_TOOL_TEXT } from "../src/index.ts";
 import { analysisOf, seededHost, seedSong } from "./fake-host.ts";
@@ -302,7 +302,7 @@ describe("creating", () => {
     expect(host.docs.has("song/bad")).toBe(false);
   });
 
-  it("tells the model to make instruments first in an empty project", async () => {
+  it("makes instruments from the presets for a song in an empty project", async () => {
     const { call, host } = setup();
     for (const k of [...host.docs.keys()]) {
       if (k.startsWith("instrument/")) {
@@ -313,8 +313,128 @@ describe("creating", () => {
       id: "empty",
       mml: { pulse1: "o4 c" },
     });
-    expect(out.isError).toBe(true);
-    expect(out.text).toContain("new_instrument");
+    expect(out.isError).toBeUndefined();
+    const song = host.docs.get("song/empty") as Song;
+    expect(song.channels.find((c) => c.id === "pulse1")?.instrument).toBe(
+      "nes-lead"
+    );
+    expect((host.docs.get("instrument/nes-lead") as Instrument).chip).toBe(
+      "nes"
+    );
+    expect(out.text).toContain("instrument/nes-lead");
+    // the channels with nothing to play got nothing
+    expect(song.channels.filter((c) => c.instrument !== null)).toHaveLength(1);
+  });
+
+  describe("a genesis song in a project of NES instruments", () => {
+    const MEGA = {
+      fm1: "o2 l8 c c c c",
+      fm2: "o4 l8 c e g e",
+      fm3: "o5 l4 c e g e",
+      fm4: "o4 l2 c e",
+      psg1: "o5 l8 e g a g",
+      psgNoise: "o3 l8 c r c r",
+    };
+
+    it("gives the channels that play notes instruments made for the genesis, and leaves the others empty", async () => {
+      const { call, host } = setup();
+      const out = await call("new_song", {
+        chip: "genesis",
+        id: "mega",
+        mml: MEGA,
+      });
+      expect(out.isError).toBeUndefined();
+      const song = host.docs.get("song/mega") as Song;
+      const insts = await host.instruments();
+      const byChannel = Object.fromEntries(
+        song.channels.map((c) => [c.id, c.instrument])
+      );
+      for (const id of ["fm5", "fm6", "psg2", "psg3"]) {
+        expect(byChannel[id], id).toBeNull();
+      }
+      for (const id of Object.keys(MEGA)) {
+        const inst = insts[byChannel[id] ?? ""];
+        expect(inst, id).toBeDefined();
+        expect(inst?.chip, id).toBe("genesis");
+        expect(inst?.kind, id).toBe(
+          song.channels.find((c) => c.id === id)?.kind
+        );
+      }
+      // no copy of the bass on every voice: the bass channel and the melodic ones differ
+      expect(byChannel.fm1).not.toBe(byChannel.fm2);
+      expect(normalizeSong(song, insts).issues).toEqual([]);
+      expect(out.text).toContain("Made instrument/");
+    });
+
+    it("refuses an instrument made for another chip, and lists the ones that fit", async () => {
+      const { call, host } = setup();
+      host.docs.set(
+        "instrument/gen-pulse",
+        makeInstrument("pulse", "genesis", "lead", "Genesis pulse")
+      );
+      const out = await call("new_song", {
+        chip: "genesis",
+        id: "mega",
+        instruments: { psg1: "lead" },
+        mml: MEGA,
+      });
+      expect(out.isError).toBe(true);
+      expect(out.text).toContain(
+        'psg1 (pulse): "lead" was made for the nes chip'
+      );
+      expect(out.text).toContain("Instruments that fit it: gen-pulse");
+      expect(host.docs.has("song/mega")).toBe(false);
+      // nothing was written, not even the instruments it would have made
+      expect([...host.docs.keys()].some((k) => k.includes("genesis-"))).toBe(
+        false
+      );
+    });
+
+    it("refuses an @id in the MML for the wrong chip, and says how to make one when none fits", async () => {
+      const { call, host } = setup();
+      const out = await call("new_song", {
+        chip: "genesis",
+        id: "mega",
+        mml: { ...MEGA, psgNoise: "@drums o3 l8 c r c r" },
+      });
+      expect(out.isError).toBe(true);
+      expect(out.text).toContain(
+        'psgNoise (noise): "drums" was made for the nes chip'
+      );
+      expect(out.text).toContain(
+        'new_instrument {"id":"genesis-drums","chip":"genesis","kind":"noise","preset":"drums"}'
+      );
+      expect(host.docs.has("song/mega")).toBe(false);
+    });
+
+    it("refuses an edit that points a channel at the wrong chip's instrument, but not one that leaves an old mismatch alone", async () => {
+      const { call, host } = setup();
+      await call("new_song", { chip: "genesis", id: "mega", mml: MEGA });
+      const bad = await call("edit_document", {
+        changes: [{ path: "/channels/8/instrument", value: "lead" }],
+        ref: "song/mega",
+      });
+      expect(bad.isError).toBe(true);
+      expect(bad.text).toContain(
+        'psg3 (pulse): "lead" was made for the nes chip'
+      );
+      expect(
+        (host.docs.get("song/mega") as Song).channels[8]?.instrument
+      ).toBeNull();
+      // a song that already had the mismatch can still be edited elsewhere
+      const song = structuredClone(host.docs.get("song/mega") as Song);
+      const psg3 = song.channels.find((c) => c.id === "psg3");
+      if (psg3) {
+        psg3.instrument = "lead";
+      }
+      host.docs.set("song/mega", song);
+      const ok = await call("edit_document", {
+        changes: [{ path: "/tempo", value: 111 }],
+        ref: "song/mega",
+      });
+      expect(ok.isError).toBeUndefined();
+      expect((host.docs.get("song/mega") as Song).tempo).toBe(111);
+    });
   });
 
   it("creates an instrument and rejects a kind the chip lacks", async () => {

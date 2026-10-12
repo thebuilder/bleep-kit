@@ -134,6 +134,24 @@ export {
   usedSamples,
 } from "./samples/user.ts";
 export {
+  chipFits,
+  fittingInstruments,
+  instrumentFits,
+  misfitReason,
+} from "./songs/instrument-fit.ts";
+export {
+  channelInstrumentIds,
+  channelRole,
+  type FixResult,
+  findMisfits,
+  fixMisfits,
+  type InstrumentMisfit,
+  type InstrumentSwap,
+  instrumentForChannel,
+  mmlInstrumentIds,
+  PRESET_FOR_ROLE,
+} from "./songs/instrument-fix.ts";
+export {
   describeRechip,
   type RechipChange,
   type RechipDrop,

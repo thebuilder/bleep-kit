@@ -194,22 +194,29 @@ export function fieldLabel(path: string): string {
   return parts.map(tail).join(" / ");
 }
 
+/** A button (or other control) for an issue that can be fixed with one click, or null when this one cannot. */
+export type IssueAction = (issue: Issue) => HTMLElement | null;
+
 /** Put the issues box, or nothing, into an inspector's issue slot. */
 export function showIssues(
   slot: Element | null,
-  issues: readonly Issue[]
+  issues: readonly Issue[],
+  action?: IssueAction
 ): void {
   if (!slot) {
     return;
   }
   slot.replaceChildren();
-  const box = issuesBox(issues);
+  const box = issuesBox(issues, action);
   if (box) {
     slot.append(box);
   }
 }
 
-export function issuesBox(issues: readonly Issue[]): HTMLElement | null {
+export function issuesBox(
+  issues: readonly Issue[],
+  action?: IssueAction
+): HTMLElement | null {
   if (issues.length === 0) {
     return null;
   }
@@ -224,6 +231,10 @@ export function issuesBox(issues: readonly Issue[]): HTMLElement | null {
       h("span", { class: "path" }, fieldLabel(i.path)),
       ` ${i.message}`
     );
+    const fix: HTMLElement | null | undefined = action?.(i);
+    if (fix) {
+      row.append(" ", fix);
+    }
     box.append(row);
   }
   if (issues.length > 8) {

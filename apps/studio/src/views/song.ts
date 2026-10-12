@@ -28,6 +28,13 @@ import {
 } from "../lib/core.ts";
 import { choose, clamp, debounce, fire, h, prefs, reflow } from "../lib/dom.ts";
 import {
+  compileMmlRows,
+  orderStartRow,
+  restoreReleases,
+  rowsInRange,
+  withReleaseNote,
+} from "../lib/mml-rows.ts";
+import {
   auditionSongNote,
   loadSongDoc,
   playSongDoc,
@@ -47,6 +54,7 @@ import {
   textField,
   toggleField,
 } from "../ui/fields.ts";
+import { fixInstrumentButton } from "../ui/fix-instruments.ts";
 import { genesisFields } from "../ui/genesis-fields.ts";
 import { icon } from "../ui/icons.ts";
 import { showIssues } from "../ui/issues.ts";
@@ -89,6 +97,7 @@ const MML_COMMAND_CHAR = /[olvpqktw<>]/;
 const MML_INST_TOKEN = /^@[A-Za-z0-9-]*/;
 const NUM_CHAR = /[0-9.]/;
 const OFFSET_IN_MESSAGE = /offset (\d+)/;
+const MML_HINT_GAP_MS = 2500;
 
 const hex = (n: number, d = 1) => n.toString(16).toUpperCase().padStart(d, "0");
 /** Height of a tracker row in CSS pixels (.trow). */
@@ -153,24 +162,6 @@ function loopAfterMove(
 /* MML has no release (section 2.7), so a release row would come back from MML as a plain note off. The conversion
    writes the rows that held a release into a trailing comment, which parseMml ignores, and converting back turns the
    note offs on those rows into releases again. A row the MML edit has since moved simply stays a note off. */
-const RELEASE_COMMENT = /^;\s*release rows:\s*([\d ]+)$/m;
-
-function withReleaseNote(mml: string, rows: readonly Row[]): string {
-  const at = rows.filter((r) => r.note === "release").map((r) => r.row);
-  return at.length > 0 ? `${mml}\n; release rows: ${at.join(" ")}` : mml;
-}
-
-function restoreReleases(rows: Row[], mml: string): Row[] {
-  const listed = RELEASE_COMMENT.exec(mml)?.[1];
-  if (!listed) {
-    return rows;
-  }
-  const at = new Set(listed.split(" ").filter(Boolean).map(Number));
-  return rows.map((r) =>
-    r.note === "off" && at.has(r.row) ? { ...r, note: "release" } : r
-  );
-}
-
 function noteText(n: NoteValue | null): string {
   if (n === null) {
     return "---";
@@ -272,7 +263,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         <label class="tgl-row" title="Scroll the grid with the playhead (F, while the cursor is in the note column)"><span class="tgl"><input type="checkbox" id="gFollow"><span></span></span><small>Follow (F)</small></label>
         <button class="btn icon th-btn" id="gHelp" title="How the tracker works: columns, keys, effects" aria-label="Tracker help">?</button>
       </div>
-      <div class="orderbar" id="gOrder" role="list" aria-label="Order list"></div>
+      <div class="orderbar" id="gOrder"></div>
       <div class="tracker" id="gTracker" tabindex="0" aria-label="Tracker grid">
         <div class="tr-head" id="gHead"></div>
         <div class="tr-body" id="gBody"></div>
@@ -317,6 +308,15 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     "";
   const pattern = () => song().patterns[patternId()];
   const rowsOf = (chId: string): Map<number, Row> => {
+    const mml = song().channels.find((c) => c.id === chId)?.mml;
+    if (typeof mml === "string") {
+      // an MML channel shows what its text plays over this pattern's rows (compiled once per change, then cached)
+      return rowsInRange(
+        compileMmlRows(mml, song().rowsPerBeat),
+        orderStartRow(song(), clamp(orderIdx, 0, song().order.length - 1)),
+        pattern()?.length ?? 0
+      );
+    }
     const m = new Map<number, Row>();
     for (const r of pattern()?.tracks[chId] ?? []) {
       m.set(r.row, r);
@@ -341,9 +341,6 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   }[] = [];
 
   function cellHtml(c: SongChannel, r: Row | undefined): string {
-    if (c.mml !== null) {
-      return `<span class="n mml-cell">MML</span>`;
-    }
     const fx = Array.from({ length: fxCount(c.id) }, (_, k) => fxCell(r, k));
     return (
       noteCell(r) + instCell(r, instList(), c.kind) + volCell(r) + fx.join("")
@@ -422,7 +419,11 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
           <button class="tb" data-act="fx" title="Show another effect column" aria-label="Effect columns for ${c.id}">fx${fxCount(c.id)}</button>
         </div>
         <canvas class="scope" aria-label="${c.id} scope"></canvas>
-        <div class="tch-sub"><span class="mono lab"></span></div>`;
+        <div class="tch-sub"><span class="mono lab"></span>${
+          c.mml === null
+            ? ""
+            : `<button class="conv" data-act="convert" title="This channel is written in MML, so its rows are read only. Convert it to tracker rows to edit the notes here (Ctrl+Z undoes it)" aria-label="Convert ${c.id} to tracker to edit">Convert to tracker to edit</button>`
+        }</div>`;
       (cell.querySelector(".kname") as HTMLElement).textContent =
         c.id.toUpperCase();
       (cell.querySelector(".lab") as HTMLElement).textContent =
@@ -489,6 +490,15 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     const s = song();
     orderEl.replaceChildren();
     orderEl.append(h("span", { class: "pxh olab" }, "Order"));
+    // the entries wrap inside their own box and scroll when there are many, so a long order never pushes the
+    // buttons or the grid out of the panel
+    const list = h("div", {
+      "aria-label": "Order list",
+      class: "olist",
+      role: "list",
+    });
+    const ctl = h("div", { class: "octl" });
+    orderEl.append(list, ctl);
     s.order.forEach((pid, i) => {
       const chip = h("button", {
         class: `ochip${i === orderIdx ? " cur" : ""}${s.loop === i ? " loop" : ""}${i === playOrder ? " playing" : ""}`,
@@ -511,7 +521,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
           moveOrder(from, i);
         }
       });
-      orderEl.append(chip);
+      list.append(chip);
     });
     const btn = (label: string, ic: string, title: string, fn: () => void) => {
       const b = h("button", {
@@ -521,7 +531,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         title,
       });
       b.innerHTML = `${icon(ic, 12)}<span>${label}</span>`;
-      orderEl.append(b);
+      ctl.append(b);
     };
     btn("New", "plus", "Add an empty pattern after this one", addPattern);
     btn("Copy", "copy", "Duplicate this pattern after this one", dupPattern);
@@ -569,7 +579,31 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       });
       rebuildAll();
     });
-    orderEl.append(sel);
+    ctl.append(sel);
+    keepOrderInView();
+  }
+
+  /** Scrolls the order list, inside its own box and in whole rows, to show the entry that plays (else the one being edited). */
+  function keepOrderInView(): void {
+    const list = orderEl.querySelector<HTMLElement>(".olist");
+    const chip =
+      list?.querySelector<HTMLElement>(".ochip.playing") ??
+      list?.querySelector<HTMLElement>(".ochip.cur");
+    const first = list?.firstElementChild as HTMLElement | null | undefined;
+    if (!(list && chip && first)) {
+      return;
+    }
+    const gap = Number.parseFloat(getComputedStyle(list).rowGap) || 0;
+    const rowH = chip.offsetHeight + gap;
+    const origin = first.offsetTop;
+    const row = Math.round((chip.offsetTop - origin) / rowH);
+    const shown = Math.max(1, Math.floor((list.clientHeight - origin) / rowH));
+    const firstShown = Math.round(list.scrollTop / rowH);
+    if (row < firstShown) {
+      list.scrollTop = row * rowH;
+    } else if (row >= firstShown + shown) {
+      list.scrollTop = (row - shown + 1) * rowH;
+    }
   }
 
   function setOrder(i: number): void {
@@ -752,6 +786,40 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     return step !== undefined;
   }
 
+  /** A key that would edit the cell of an MML channel: nothing changes, a short hint says where the notes are edited. */
+  let hintAt = 0;
+  function mmlCellKey(c: SongChannel, k: string): boolean {
+    const edits =
+      k === "Delete" ||
+      k === "Backspace" ||
+      (k.length === 1 && ALNUM_KEY.test(k.toLowerCase())) ||
+      k === "`";
+    if (!edits) {
+      return false;
+    }
+    const now = Date.now();
+    if (now - hintAt > MML_HINT_GAP_MS) {
+      hintAt = now;
+      app.toast(
+        `${c.id.toUpperCase()} is written in MML, so its cells are read only. Edit the MML below the grid, or press "Convert to tracker to edit" on the channel.`
+      );
+    }
+    nudgeConvert(c.id);
+    return true;
+  }
+
+  /** Makes the channel's convert button blink once, so the way to edit it is easy to find. */
+  function nudgeConvert(chId: string): void {
+    const ci = song().channels.findIndex((x) => x.id === chId);
+    const btn = head.querySelector<HTMLElement>(`.tch[data-ch="${ci}"] .conv`);
+    if (btn) {
+      btn.classList.remove("nudge");
+      // restart the animation
+      btn.getBoundingClientRect();
+      btn.classList.add("nudge");
+    }
+  }
+
   /** Delete clears the field under the cursor and moves down; Backspace clears it and stays. */
   function clearKey(c: SongChannel, key: string): void {
     if (c.mml !== null) {
@@ -888,6 +956,9 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return true;
     }
     if (k === "Delete" || k === "Backspace") {
+      if (c.mml !== null) {
+        return mmlCellKey(c, k);
+      }
       clearKey(c, k);
       return true;
     }
@@ -898,7 +969,8 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return true;
     }
     if (c.mml !== null) {
-      return false;
+      // the cells show the MML, they cannot be typed into: say where to edit instead of ignoring the key
+      return mmlCellKey(c, k);
     }
     const kl = k.toLowerCase();
     switch (cur.field) {
@@ -975,6 +1047,9 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       toggleSolo(c.id, ci);
     } else if (act === "mml") {
       toggleMml(ci);
+    } else if (act === "convert") {
+      convertBack(ci);
+      rebuildAll();
     } else if (act === "fx") {
       fxCols = { ...fxCols, [c.id]: fxCount(c.id) === 1 ? 2 : 1 };
       prefs.set("tracker-fx", fxCols);
@@ -1652,7 +1727,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     const inner = h("div", { class: "insp-in" });
     insp.append(inner);
     const slot = h("div", { class: "issue-slot" });
-    showIssues(slot, doc().issues);
+    showIssues(slot, doc().issues, (issue) => fixInstrumentButton(doc, issue));
     inner.append(slot, songGroup(s), masterGroup(s));
     const c = s.channels[cur.ch];
     if (c) {
@@ -1682,6 +1757,13 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     }
   }
 
+  function refreshAfterMml(): void {
+    orderIdx = clamp(orderIdx, 0, Math.max(0, song().order.length - 1));
+    buildOrder();
+    buildGrid();
+    syncBar();
+  }
+
   /* ----- rebuild ----- */
   function rebuildAll(): void {
     orderIdx = clamp(orderIdx, 0, Math.max(0, song().order.length - 1));
@@ -1706,7 +1788,9 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return;
     }
     reloadSong();
-    showIssues(insp.querySelector(".issue-slot"), doc().issues);
+    showIssues(insp.querySelector(".issue-slot"), doc().issues, (issue) =>
+      fixInstrumentButton(doc, issue)
+    );
     if (e.cause === "edit" && selfRow !== null) {
       const r = selfRow;
       selfRow = null;
@@ -1714,6 +1798,9 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return;
     }
     if (e.cause === "edit" && selfMml) {
+      // typing in an MML box: the grid shows the new notes, and an MML only song may have gained or lost bars; the text
+      // box itself stays as it is, so the caret does not jump
+      refreshAfterMml();
       return;
     }
     // anything else (undo, outside change, structure edits) redraws everything but keeps the cursor
@@ -1780,6 +1867,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     for (const [i, el] of orderEl.querySelectorAll(".ochip").entries()) {
       el.classList.toggle("playing", i === order);
     }
+    keepOrderInView();
     if (follow && order !== orderIdx && order < song().order.length) {
       orderIdx = order;
       buildOrder();

@@ -3,12 +3,13 @@
    core's `midiToSong`; this file creates the instruments and the song through the project store and opens the song.
    A .mod goes to import-mod.ts and a WAV, MP3 or OGG to import-audio.ts. */
 import { app } from "../app.ts";
-import type { ChipId } from "../lib/contract.ts";
+import type { ChipId, Instrument } from "../lib/contract.ts";
 import { CHIP_IDS } from "../lib/contract.ts";
 import {
   CHORD_MODES,
   type ChordMode,
   chipProfile,
+  fixMisfits,
   midiToSong,
 } from "../lib/core.ts";
 import { fire, h } from "../lib/dom.ts";
@@ -98,16 +99,23 @@ async function importMidi(
     app.toast(`Could not import ${src.name}: ${error.message}`);
     return false;
   }
-  // the song names these instruments: the project's own copy wins when the same id exists already
+  // the song names these instruments: the project's own copy wins when the same id exists already, unless that copy was
+  // made for another chip, in which case the song gets a fitting one instead
+  const own = project.instruments();
+  const fixed = fixMisfits(result.song, { ...result.instruments, ...own });
+  const wanted = { ...result.instruments };
+  for (const id of fixed.created) {
+    wanted[id] = fixed.instruments[id] as Instrument;
+  }
   await Promise.all(
-    Object.entries(result.instruments)
+    Object.entries(wanted)
       .filter(([id]) => !project.get("instrument", id))
       .map(([id, inst]) => project.create("instrument", id, inst))
   );
   const doc = await project.create(
     "song",
     project.uniqueId("song", name),
-    result.song
+    fixed.song
   );
   app.navigate(`#/song/${doc.id}`);
   const converted = result.issues

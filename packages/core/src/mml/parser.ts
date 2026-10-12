@@ -23,12 +23,20 @@ const SEMITONES: Readonly<Record<string, number>> = {
 const MAX_DEPTH = 4;
 const FX_SEPARATOR = /[\s,]+/;
 
+/** A part of the song the author named in a comment (`; section: Chorus`), and the pulse it starts at. */
+export interface MmlSection {
+  name: string;
+  pulse: number;
+}
+
 export interface MmlParse {
   /** Pulse at which the last note or rest ends. */
   endPulse: number;
   events: MmlEvent[];
   issues: Issue[];
   loopPulse: number | null;
+  /** The `; section: Name` comments, in the order they are met. */
+  sections: MmlSection[];
   tempo: number | null;
 }
 
@@ -53,6 +61,8 @@ export function parseMml(src: string, opts: MmlOptions = {}): MmlParse {
   const issues: Issue[] = [...lexed.issues];
   const { tokens } = lexed;
   const events: MmlEvent[] = [];
+  const sections: MmlSection[] = [];
+  let nextSection = 0;
   let loopPulse: number | null = null;
   let tempo: number | null = null;
 
@@ -335,6 +345,17 @@ export function parseMml(src: string, opts: MmlOptions = {}): MmlParse {
     end = to;
     while (i < end) {
       const t = tokens[i] as Token;
+      // a section comment starts where the music is when the next token after it is read
+      while (
+        nextSection < lexed.sections.length &&
+        (lexed.sections[nextSection]?.pos ?? 0) < t.pos
+      ) {
+        sections.push({
+          name: lexed.sections[nextSection]?.name ?? "",
+          pulse: st.pulse,
+        });
+        nextSection += 1;
+      }
       switch (t.kind) {
         case "bar":
           i += 1;
@@ -463,6 +484,12 @@ export function parseMml(src: string, opts: MmlOptions = {}): MmlParse {
   };
 
   run(0, end, 0);
+  for (; nextSection < lexed.sections.length; nextSection += 1) {
+    sections.push({
+      name: lexed.sections[nextSection]?.name ?? "",
+      pulse: st.pulse,
+    });
+  }
   if (st.fx.length > 0) {
     warnAt("effects at the end have no note to attach to");
   }
@@ -472,5 +499,5 @@ export function parseMml(src: string, opts: MmlOptions = {}): MmlParse {
       endPulse = Math.max(endPulse, e.pulse + e.duration);
     }
   }
-  return { endPulse, events, issues, loopPulse, tempo };
+  return { endPulse, events, issues, loopPulse, sections, tempo };
 }

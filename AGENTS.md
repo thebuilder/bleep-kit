@@ -32,7 +32,7 @@ docs/architecture.md   the contract: formats, engine design, worklet protocol, C
 You cannot hear, so work from text and measurements:
 
 1. `pnpm bleepkit help workflow` and `pnpm bleepkit help formats` teach the whole document format and MML syntax.
-2. Author: `new sfx <id> --category <c> --chip <chip>`, `mutate`, `new song <id> --mml "pulse1=..."`, `import tune.mid --chip nes` (a MIDI file to a song, with the notes it had to drop listed), or edit the JSON in `sfx/`, `songs/`, `instruments/` directly.
+2. Author: `new sfx <id> --category <c> --chip <chip>`, `mutate`, `new song <id> --mml "pulse1=..."` (channels that play notes get an instrument made for the chip, the others none), `import tune.mid --chip nes` (a MIDI file to a song, with the notes it had to drop listed), or edit the JSON in `sfx/`, `songs/`, `instruments/` directly.
 3. Check: `validate`, then `describe <ref>` (a precise text description).
 4. Measure: `render <ref> --analyze --images`, then look at `out/analysis/<id>.waveform.png`, `.spectrogram.png` and `.scopes.png` with your image reader. `analyze <ref> --json` gives peak, RMS, LUFS, clipping, pitch track, loop seam and envelope.
 5. Own recordings: `import sample hit.wav --base-note C-4` writes `samples/hit.json` and a sample instrument plays it; `import song.mod` and `export mod song/<id>` move ProTracker modules in and out (amiga chip).

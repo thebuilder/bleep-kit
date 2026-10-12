@@ -411,3 +411,26 @@ describe("mmlToTrack", () => {
     expect(back.map((n) => n.volume)).toEqual([15, 15, 9]);
   });
 });
+
+describe("section comments", () => {
+  it("records `; section: Name` at the pulse the music has reached", () => {
+    const r = parseMml(
+      "; section: Intro\nl4 c c ; Section : Verse one \nc c\n; section:Outro"
+    );
+    expect(r.issues).toEqual([]);
+    expect(r.sections).toEqual([
+      { name: "Intro", pulse: 0 },
+      { name: "Verse one", pulse: 192 },
+      { name: "Outro", pulse: 384 },
+    ]);
+  });
+
+  it("ignores other comments, and does not change the notes", () => {
+    const plain = parseMml("l4 c c c c");
+    const commented = parseMml(
+      "; a tune\nl4 c ; section is a word here\n c c ; section: Last\n c"
+    );
+    expect(commented.sections.map((s) => s.name)).toEqual(["Last"]);
+    expect(commented.events).toEqual(plain.events);
+  });
+});

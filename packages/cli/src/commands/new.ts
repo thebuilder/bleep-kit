@@ -8,6 +8,7 @@ import {
   makeSong,
   PRESETS,
   type Preset,
+  planSong,
   type Template,
 } from "@bleepkit/agent";
 import {
@@ -206,26 +207,48 @@ function newSong(
       );
     }
   }
-  const song = makeSong({
+  // channels that play notes get an instrument that fits the chip: one the project has, else one made from the presets
+  const plan = planSong({
     chip,
+    create: true,
     instruments: pc.instruments(),
     mml,
     name: args.str("name") ?? id,
     template,
     tempo,
   });
-  const n = normalizeSong(song, pc.instruments());
+  const n = normalizeSong(plan.song, { ...pc.instruments(), ...plan.created });
   requireOk({ ...n, ref: `song/${id}`, rel: docRel("song", id) });
+  const madeRels = Object.entries(plan.created).map(([made, raw]) => {
+    const inst = normalizeInstrument(raw);
+    requireOk({
+      ...inst,
+      ref: `instrument/${made}`,
+      rel: docRel("instrument", made),
+    });
+    return writeDoc(pc, "instrument", made, inst.value);
+  });
   const rel = writeDoc(pc, "song", id, n.value);
   const warnings = n.issues.filter((i) => i.severity === "warning");
   return {
     human: [
       `Created song/${id} (${rel})`,
+      ...madeRels.map(
+        (r) =>
+          `Created ${r} from the ${chip} presets for a channel no instrument of the project fits`
+      ),
       describeSong(n.value),
       ...warnings.map((w) => `warning ${w.path}: ${w.message}`),
       `Next: bleepkit render song/${id} --analyze`,
     ].join("\n"),
-    json: { doc: n.value, ok: true, path: rel, root: pc.root, warnings },
+    json: {
+      doc: n.value,
+      instruments: madeRels,
+      ok: true,
+      path: rel,
+      root: pc.root,
+      warnings,
+    },
   };
 }
 
