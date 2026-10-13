@@ -1011,9 +1011,9 @@
       padding: 0;
       font-size: inherit;
       color: var(--accent);
+      white-space: nowrap;
       text-decoration: underline;
       text-underline-offset: 2px;
-      white-space: nowrap;
       cursor: pointer;
       background: none;
       border: 0;
@@ -2126,9 +2126,9 @@
     /* only the label is small and muted: the control under it keeps the normal size */
     .fsel > span:first-child,
     .num > span:first-child {
+      font-family: var(--f-display);
       font-size: 10px;
       color: var(--muted);
-      font-family: var(--f-display);
       text-transform: uppercase;
       letter-spacing: 0.08em;
     }
@@ -2148,7 +2148,7 @@
     .ed-title:has(.vh) {
       flex-basis: 360px;
     }
-    .ed-title > div {
+    .ed-title > :not(.big-ico) {
       min-width: 0;
     }
     .ed-title .vh {
@@ -2164,9 +2164,9 @@
       display: inline-flex;
       align-items: center;
       padding: 5px 8px;
-      line-height: 1;
       font-family: var(--f-display);
       font-size: 11px;
+      line-height: 1;
       color: var(--accent-ink);
       text-transform: uppercase;
       letter-spacing: 0.06em;
