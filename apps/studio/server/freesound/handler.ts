@@ -392,11 +392,23 @@ function routeOf(url: URL): string[] | null {
     .filter(Boolean);
 }
 
+/** Vercel passes a catch-all route's segments as an extra query parameter named after the file (`...path` for
+    `[...path].ts`). The route is read from the path itself, so those are dropped before the strict parameter checks,
+    which would otherwise refuse every request on Vercel. */
+const ROUTER_PARAMS = ["...path", "path"] as const;
+
+function withoutRouterParams(url: URL): URL {
+  for (const key of ROUTER_PARAMS) {
+    url.searchParams.delete(key);
+  }
+  return url;
+}
+
 export async function handleFreesound(
   request: Request,
   deps: HandlerDeps = {}
 ): Promise<Response> {
-  const url = new URL(request.url);
+  const url = withoutRouterParams(new URL(request.url));
   const route = routeOf(url);
   if (!route) {
     return failure(404, "not-found", "No such Freesound route.");

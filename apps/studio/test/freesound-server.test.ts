@@ -147,6 +147,19 @@ describe("the upstream request", () => {
     );
   });
 
+  it("ignores the route parameter Vercel adds for the catch-all file, on search and on media", async () => {
+    const { calls, get } = setup();
+    // what the deployed function receives for /api/freesound/search?sub=percussion
+    const search = await get("search?sub=percussion&...path=search");
+    expect(search.status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(new URL(calls[0]?.url ?? "").searchParams.has("...path")).toBe(
+      false
+    );
+    const preview = await get("preview/12345?...path=preview%2F12345");
+    expect(preview.status).not.toBe(400);
+  });
+
   it("sends the API key as the token and nothing else from the caller", async () => {
     const { calls, get } = setup();
     const res = await get("search?q=kick&sub=percussion", {
