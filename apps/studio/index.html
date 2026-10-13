@@ -25,6 +25,8 @@
     <style>
     /* ================= tokens ================= */
     :root {
+      /* the height of every control in an editor toolbar */
+      --ctl-h: 36px;
       --bg: #121119;
       --panel: #1a1924;
       --raised: #242332;
@@ -2168,6 +2170,43 @@
       font-size: 13px;
       color: var(--fg);
     }
+    /* ----- editor toolbars (the head of the sfx, instrument, sample and song editors): one control height for every
+       button, field, dropdown, toggle and badge, and everything sits on the same bottom line, so a labeled field's box
+       lines up with the buttons next to it ----- */
+    :is(.ed-head, .song-bar),
+    :is(.ed-head, .song-bar) :is(.ed-sel, .ed-actions) {
+      align-items: flex-end;
+    }
+    :is(.ed-head, .song-bar)
+      :is(
+        .btn,
+        .dd,
+        select,
+        input[type="number"],
+        input[type="text"]:not(.nm-in),
+        .kind-badge,
+        .tgl-row
+      ) {
+      height: var(--ctl-h);
+      min-height: var(--ctl-h);
+    }
+    :is(.ed-head, .song-bar) .btn.icon {
+      width: var(--ctl-h);
+    }
+    :is(.ed-head, .song-bar) .btn.big {
+      padding-block: 0;
+    }
+    :is(.ed-head, .song-bar) .kind-badge {
+      display: inline-flex;
+      align-items: center;
+    }
+    .ed-head .ed-title {
+      align-self: flex-end;
+    }
+    .ed-head .big-ico {
+      width: var(--ctl-h);
+      height: var(--ctl-h);
+    }
     .json {
       padding: 8px;
       margin: 0;
@@ -3490,9 +3529,6 @@
     }
 
     /* ================= instrument editor ================= */
-    .test-row {
-      align-items: flex-end;
-    }
     .kb-wrap {
       flex: none;
       padding: 8px 10px 10px;
