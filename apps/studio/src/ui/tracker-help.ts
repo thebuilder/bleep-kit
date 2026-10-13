@@ -340,6 +340,41 @@ function entrySection(): HTMLElement {
   );
 }
 
+function blockSection(): HTMLElement {
+  return section(
+    "Selecting, copying and pasting",
+    h(
+      "p",
+      { class: "th-p" },
+      "A selection is a block of whole cells (note, instrument, volume and effects): some rows of one or more channels in the open pattern. Paste puts the block with its top left at the cursor (or at the top left of the selection), overwrites what is there and cuts off what does not fit. It works between patterns and songs, and into a channel of another kind. Each paste, cut, clear or transpose is one undo step."
+    ),
+    defList([
+      [
+        keys("Shift", "Arrows"),
+        "Select. Shift with PageUp, PageDown, Home or End goes further. Drag across cells, or Shift click, to select with the mouse.",
+      ],
+      [
+        keys("Ctrl", "A"),
+        "Select this channel in the pattern. Again: the whole pattern.",
+      ],
+      [
+        keys("Ctrl", "C"),
+        "Copy. X cuts. With nothing selected, the cell under the cursor.",
+      ],
+      [
+        keys("Ctrl", "V"),
+        "Paste. The block is also put on the system clipboard as text, one line per row, so it can be pasted into a text file and back.",
+      ],
+      [keys("Delete"), "Clear the selected cells."],
+      [
+        keys("Ctrl", "Up"),
+        "Transpose the selected notes up a semitone. Ctrl Down goes down, and Shift makes it an octave.",
+      ],
+      [keys("Esc"), "Clear the selection. Moving the cursor does too."],
+    ])
+  );
+}
+
 function symbolsSection(): HTMLElement {
   return section(
     "Marks in the note column",
@@ -408,6 +443,7 @@ export function openTrackerHelp(onClose: () => void): () => void {
     { class: "th-body" },
     columnsSection(),
     entrySection(),
+    blockSection(),
     symbolsSection(),
     effectsSection(),
     h("div", { class: "th-foot" }, done)

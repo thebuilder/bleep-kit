@@ -23,6 +23,7 @@ import { type Doc, type DocKind, project } from "./state/docs.ts";
 import { LocalStore } from "./store/local.ts";
 import { probeServer, ServerStore } from "./store/server.ts";
 import type { ProjectStore } from "./store/store.ts";
+import { deleteDocument, duplicateDocument } from "./ui/delete-doc.ts";
 import { installDropdowns } from "./ui/dropdown.ts";
 import { exportMod } from "./ui/export-mod.ts";
 import { openHelp } from "./ui/help.ts";
@@ -584,11 +585,7 @@ export async function boot(root: HTMLElement): Promise<void> {
         run: () => {
           const d = app.currentDoc();
           if (d) {
-            fire(
-              project
-                .duplicate(d)
-                .then((c) => app.navigate(`#/${c.kind}/${c.id}`))
-            );
+            fire(duplicateDocument(d));
           }
         },
         title: "Duplicate the current document",
@@ -601,12 +598,7 @@ export async function boot(root: HTMLElement): Promise<void> {
         run: () => {
           const d = app.currentDoc();
           if (d) {
-            fire(
-              project.remove(d).then(() => {
-                app.navigate("#/pads");
-                app.toast(`Deleted ${d.id}`);
-              })
-            );
+            fire(deleteDocument(d));
           }
         },
         title: "Delete the current document",

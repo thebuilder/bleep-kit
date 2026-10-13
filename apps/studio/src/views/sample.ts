@@ -24,7 +24,7 @@ import {
 import { previewSampleNote, releaseNote, stopEverything } from "../playback.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
-import { deleteButton } from "../ui/delete-doc.ts";
+import { docActions } from "../ui/delete-doc.ts";
 import {
   bindName,
   group,
@@ -572,9 +572,7 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
       loopGroup(),
       formatGroup()
     );
-    inner.append(
-      h("div", { class: "insp-danger" }, deleteButton(doc, "Delete sample"))
-    );
+    inner.append(docActions(doc, "Delete sample"));
   }
   const rebuildInspector = buildInspector;
 

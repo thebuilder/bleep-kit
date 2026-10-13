@@ -14,6 +14,8 @@ import {
   renderedSeconds,
 } from "../render-service.ts";
 import { type Doc, type DocKind, project } from "../state/docs.ts";
+import { type MenuItem, openContextMenu } from "./context-menu.ts";
+import { deleteDocument, duplicateDocument } from "./delete-doc.ts";
 import { icon } from "./icons.ts";
 import { pickSongFile } from "./import-midi.ts";
 import {
@@ -106,6 +108,8 @@ function rowFor(doc: Doc, cur: boolean): HTMLElement {
     "div",
     {
       class: `tree-item${cur ? " cur" : ""}${doc.dirty ? " dirty" : ""}${Date.now() - doc.flashAt < 900 ? " flash" : ""}`,
+      "data-id": doc.id,
+      "data-kind": doc.kind,
       style: `--kc:${color}`,
     },
     a,
@@ -115,6 +119,38 @@ function rowFor(doc: Doc, cur: boolean): HTMLElement {
     pl
   );
   return row;
+}
+
+/** What the context menu of a sidebar row offers: open, duplicate, delete, and for sounds and songs the analysis. */
+function rowMenu(doc: Doc, current: boolean): MenuItem[] {
+  const items: MenuItem[] = [
+    {
+      icon: "right",
+      label: "Open",
+      run: () => app.navigate(`#/${doc.kind}/${encodeURIComponent(doc.id)}`),
+    },
+    {
+      icon: "copy",
+      label: "Duplicate",
+      run: () => fire(duplicateDocument(doc)),
+    },
+  ];
+  if (doc.kind === "sfx" || doc.kind === "song") {
+    items.push({
+      icon: "chart",
+      label: "Open in analysis",
+      run: () => app.navigate(analysisHash(doc)),
+    });
+  }
+  items.push({
+    danger: true,
+    icon: "trash",
+    label: "Delete",
+    // deleting what is open goes back to the pads; deleting another one leaves the editor where it is
+    run: () => fire(deleteDocument(doc, { navigate: current })),
+    separator: true,
+  });
+  return items;
 }
 
 export function createSidebar(host: HTMLElement): {
@@ -149,6 +185,45 @@ export function createSidebar(host: HTMLElement): {
   search.insertAdjacentHTML("afterbegin", icon("search", 14));
   const tree = h("div", { class: "tree" });
   host.replaceChildren(h("div", { class: "side-head" }, nav, search), tree);
+
+  /** The menu of the row `item`, at `x`, `y` (a right click) or under the row (the keyboard). */
+  const openRowMenu = (item: HTMLElement, x?: number, y?: number) => {
+    const doc = project.get(
+      item.dataset.kind as DocKind,
+      item.dataset.id as string
+    );
+    if (!doc) {
+      return;
+    }
+    const link = item.querySelector<HTMLElement>("a.tl");
+    const box = item.getBoundingClientRect();
+    openContextMenu(
+      rowMenu(doc, isCurrent(doc.kind, doc.id)),
+      { x: x ?? box.left + 24, y: y ?? box.bottom },
+      { label: `Actions for ${doc.id}`, restore: link }
+    );
+  };
+  tree.addEventListener("contextmenu", (e) => {
+    const item = (e.target as HTMLElement).closest<HTMLElement>(".tree-item");
+    if (!item) {
+      return;
+    }
+    e.preventDefault();
+    // a menu opened by the keyboard reports no position: it opens under the row
+    const keyboard = e.clientX === 0 && e.clientY === 0;
+    if (keyboard) {
+      openRowMenu(item);
+    } else {
+      openRowMenu(item, e.clientX, e.clientY);
+    }
+  });
+  tree.addEventListener("keydown", (e) => {
+    const item = (e.target as HTMLElement).closest<HTMLElement>(".tree-item");
+    if (item && (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey))) {
+      e.preventDefault();
+      openRowMenu(item);
+    }
+  });
 
   const collapsed = new Set<string>(prefs.get("collapsed", [] as string[]));
   let route: Route = { view: "pads" };

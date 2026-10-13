@@ -401,6 +401,32 @@
       cursor: default;
       opacity: 0.5;
     }
+    /* the sidebar's context menu: the dropdown list with an icon in front of each item */
+    .cm-pop {
+      min-width: 188px;
+    }
+    .cm-ico {
+      display: inline-flex;
+      flex: none;
+      width: 16px;
+      height: 16px;
+      color: var(--muted);
+      image-rendering: pixelated;
+    }
+    .cm-opt.sep {
+      margin-top: 3px;
+      border-top: 1px solid var(--line);
+    }
+    .cm-opt.danger,
+    .cm-opt.danger .cm-ico {
+      color: var(--danger);
+    }
+    .cm-opt.act .cm-ico {
+      color: var(--fg);
+    }
+    .cm-opt.danger.act .cm-ico {
+      color: var(--danger);
+    }
     @media (pointer: coarse) {
       .dd-opt {
         min-height: 40px;
@@ -1133,8 +1159,11 @@
       font-size: 11px;
       color: var(--danger);
     }
-    /* the destructive action at the end of an inspector, inset like the hint and fields above it */
+    /* Duplicate and the destructive action at the end of an inspector, inset like the hint and fields above it */
     .insp-danger {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
       padding: 12px 14px 16px;
     }
     .hint {
@@ -3196,6 +3225,8 @@
     .tr-body {
       width: max-content;
       min-width: 100%;
+      -webkit-user-select: none;
+      user-select: none;
     }
     .rn {
       position: sticky;
@@ -3327,6 +3358,12 @@
     }
     .tc.is-mml .i:not(.e) {
       filter: saturate(0.7);
+    }
+    /* the selected block: a translucent accent fill on whole cells, over the row shading and the playhead row, so the
+       notes under it stay readable */
+    .tc.blk {
+      background-color: rgba(243, 178, 74, 0.26);
+      box-shadow: inset 0 0 0 1px rgba(243, 178, 74, 0.22);
     }
     .tc.pulse {
       animation: cellpulse calc(250ms * var(--motion)) ease-out;

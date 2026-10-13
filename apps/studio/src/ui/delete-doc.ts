@@ -1,5 +1,7 @@
-/* Deleting a sound effect, a song or an instrument (from its editor or the pads): ask first, remove the document and its file through the store,
-   stop what the engine holds of it, and keep a toast with Undo that writes the same document back. */
+/* Duplicating and deleting a sound effect, a song, an instrument or a sample (from its editor, the pads or the sidebar's
+   context menu). Delete asks first, removes the document and its file through the store, stops what the engine holds of
+   it, and keeps a toast with Undo that writes the same document back. Duplicate writes a copy under a free id and name
+   and goes to it. */
 import { app } from "../app.ts";
 import { engine } from "../engine/engine.ts";
 import type { Instrument, Sfx, Song, UserSample } from "../lib/contract.ts";
@@ -99,8 +101,41 @@ export async function deleteDocument(
   return true;
 }
 
+/** Copy `doc` (see `project.duplicate`), say what the copy is called and open it (unless `navigate` is false: the pads
+ *  stay where they are). Resolves to the copy, or null when it could not be written. */
+export async function duplicateDocument(
+  doc: Doc,
+  opts: { navigate?: boolean } = {}
+): Promise<Doc | null> {
+  let copy: Doc;
+  try {
+    copy = await project.duplicate(doc);
+  } catch (err) {
+    app.toast(`Could not duplicate: ${(err as Error).message}`);
+    return null;
+  }
+  if (opts.navigate !== false) {
+    app.navigate(`#/${copy.kind}/${encodeURIComponent(copy.id)}`);
+  }
+  const name = (copy.value as { name?: string }).name || copy.id;
+  app.toast(`Duplicated as ${name}`);
+  return copy;
+}
+
+/** The Duplicate button an editor puts at the bottom of its inspector. */
+function duplicateButton(doc: () => Doc, label = "Duplicate"): HTMLElement {
+  const b = h("button", {
+    class: "btn small",
+    title: "Make a copy of this document and open it",
+    type: "button",
+  });
+  b.innerHTML = `${icon("copy", 12)}<span>${label}</span>`;
+  b.addEventListener("click", () => fire(duplicateDocument(doc())));
+  return b;
+}
+
 /** The Delete button an editor puts at the bottom of its inspector. */
-export function deleteButton(doc: () => Doc, label: string): HTMLElement {
+function deleteButton(doc: () => Doc, label: string): HTMLElement {
   const b = h("button", {
     class: "btn small danger",
     title: "Delete this document and its file",
@@ -109,4 +144,14 @@ export function deleteButton(doc: () => Doc, label: string): HTMLElement {
   b.innerHTML = `${icon("trash", 12)}<span>${label}</span>`;
   b.addEventListener("click", () => fire(deleteDocument(doc())));
   return b;
+}
+
+/** The row at the bottom of every editor's inspector: Duplicate and Delete side by side. */
+export function docActions(doc: () => Doc, deleteLabel: string): HTMLElement {
+  return h(
+    "div",
+    { class: "insp-danger" },
+    duplicateButton(doc),
+    deleteButton(doc, deleteLabel)
+  );
 }

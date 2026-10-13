@@ -26,7 +26,7 @@ import { fitFmOps, toggleSidWave } from "../lib/instrument-edits.ts";
 import { playInstrumentDoc, releaseNote, stopEverything } from "../playback.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
-import { deleteButton } from "../ui/delete-doc.ts";
+import { docActions } from "../ui/delete-doc.ts";
 import {
   bindName,
   type FieldHandle,
@@ -1104,9 +1104,7 @@ export function mountInstrument(ctx: ViewCtx, id: string): ViewHooks {
       fxOff
     );
     inner.append(g4.el);
-    inner.append(
-      h("div", { class: "insp-danger" }, deleteButton(doc, "Delete instrument"))
-    );
+    inner.append(docActions(doc, "Delete instrument"));
   }
 
   function changeKind(kind: ChannelKind): void {

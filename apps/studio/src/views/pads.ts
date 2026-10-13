@@ -24,7 +24,7 @@ import {
 } from "../render-service.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
-import { deleteDocument } from "../ui/delete-doc.ts";
+import { deleteDocument, duplicateDocument } from "../ui/delete-doc.ts";
 import { emptyCard } from "../ui/empty-state.ts";
 import {
   group,
@@ -569,12 +569,7 @@ export function mountPads(ctx: ViewCtx): ViewHooks {
         "button",
         {
           class: "btn small",
-          onclick: () =>
-            fire(
-              project
-                .duplicate(doc)
-                .then((d) => app.toast(`Duplicated as ${d.id}`))
-            ),
+          onclick: () => fire(duplicateDocument(doc, { navigate: false })),
         },
         "Duplicate"
       ),

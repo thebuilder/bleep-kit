@@ -12,6 +12,7 @@ import {
   type EngineEvent,
   type Instrument,
   type NoteValue,
+  type Pattern,
   type Row,
   type Song,
   type SongChannel,
@@ -36,6 +37,23 @@ import {
   withReleaseNote,
 } from "../lib/mml-rows.ts";
 import {
+  type Block,
+  clearRect,
+  clipRect,
+  extractBlock,
+  type Point,
+  pasteBlock,
+  type Rect,
+  rectBetween,
+  transposeRect,
+} from "../lib/tracker-clip.ts";
+import {
+  freshBlock,
+  heldBlock,
+  holdBlock,
+  resolvePaste,
+} from "../lib/tracker-clipboard.ts";
+import {
   auditionSongNote,
   loadSongDoc,
   playSongDoc,
@@ -45,7 +63,7 @@ import {
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
 import { changeSongChip } from "../ui/change-chip.ts";
-import { deleteButton } from "../ui/delete-doc.ts";
+import { docActions } from "../ui/delete-doc.ts";
 import { amigaFields } from "../ui/export-mod.ts";
 import {
   type Group,
@@ -249,7 +267,18 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   const solo = new Set<string>();
   let entry = "";
   let paused = false;
-  let selfRow: number | null = null;
+  /** The rows a block edit (or a typed cell) of this view is changing: the redraw patches just those rows. */
+  let selfSpan: { from: number; to: number; wide: boolean } | null = null;
+  /** The selected block: where it started, where it is now (the cursor moves with the head), and the order entry. */
+  interface Selection {
+    anchor: Point;
+    head: Point;
+    order: number;
+  }
+  let blockSel: Selection | null = null;
+  let selEls: HTMLElement[] = [];
+  /** The cell a mouse drag started on, while the button is down. */
+  let dragFrom: Point | null = null;
   let playRow = -1;
   let playOrder = -1;
   const instList = () => Object.keys(project.instruments()).sort();
@@ -403,19 +432,31 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     playRow = -1;
   }
 
-  function patchRow(rowIdx: number): void {
+  /** Redraw the cells of one row from the document. */
+  function patchCells(rowIdx: number): void {
     const el = rowEls[rowIdx];
     if (!el) {
       return;
     }
-    const s = song();
-    song();
-    s.channels.forEach((c, ci) => {
+    song().channels.forEach((c, ci) => {
       const tc = el.querySelector<HTMLElement>(`.tc[data-ch="${ci}"]`);
       if (tc) {
         tc.innerHTML = cellHtml(c, rowsOf(c.id).get(rowIdx));
       }
     });
+  }
+
+  /** Redraw the rows an edit of this view changed. A wide edit (a paste) may need more effect columns than the grid has. */
+  function patchSpan(span: { from: number; to: number; wide: boolean }): void {
+    if (span.wide && refreshFxNeed()) {
+      buildHead();
+      buildGrid();
+      syncTexts();
+      return;
+    }
+    for (let r = span.from; r <= span.to; r += 1) {
+      patchCells(r);
+    }
     placeCursor();
     syncTexts();
   }
@@ -470,6 +511,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       el.classList.remove("sel");
     }
     head.querySelector(`.tch[data-ch="${cur.ch}"]`)?.classList.add("sel");
+    paintSelection();
     const rowEl = rowEls[cur.row];
     const tc = rowEl?.querySelector<HTMLElement>(`.tc[data-ch="${cur.ch}"]`);
     const c = song().channels[cur.ch];
@@ -720,7 +762,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     if (!(c && pid) || c.mml !== null) {
       return;
     }
-    selfRow = rowIdx;
+    selfSpan = { from: rowIdx, to: rowIdx, wide: false };
     project.edit<Song>(doc(), (d) => {
       const p = d.patterns[pid];
       if (!p) {
@@ -742,6 +784,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         delete p.tracks[c.id];
       }
     });
+    selfSpan = null;
   }
 
   function currentRow(): Row | undefined {
@@ -789,6 +832,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     const s = song();
     const len = pattern()?.length ?? 1;
     entry = "";
+    blockSel = null;
     cur.row = clamp(cur.row + dRow, 0, len - 1);
     if (dCh) {
       cur.ch = (cur.ch + dCh + s.channels.length) % s.channels.length;
@@ -819,6 +863,270 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     move(1);
   }
 
+  /* ----- block selection, copy and paste ----- */
+  /* The pure parts (cut a block out of a pattern, put one in, clear, transpose, the text form) are in lib/tracker-clip.ts
+     and the clipboard in lib/tracker-clipboard.ts; this is the keys and the mouse, one undo step per operation. */
+  const cursorPoint = (): Point => ({ ch: cur.ch, row: cur.row });
+  const channelIds = () => song().channels.map((c) => c.id);
+  /** The channels kept as text: their cells are read only. */
+  const textChannels = () =>
+    new Set(
+      song()
+        .channels.filter((c) => c.mml !== null)
+        .map((c) => c.id)
+    );
+
+  /** The selection as a rectangle inside the open pattern, or null when there is none (or it was for another pattern). */
+  function selRect(): Rect | null {
+    if (blockSel && blockSel.order !== orderIdx) {
+      blockSel = null;
+    }
+    return blockSel
+      ? clipRect(
+          rectBetween(blockSel.anchor, blockSel.head),
+          pattern()?.length ?? 0,
+          song().channels.length
+        )
+      : null;
+  }
+
+  /** What copy, cut, clear and transpose act on: the selection, else the cell under the cursor. */
+  function blockRect(): Rect | null {
+    return (
+      selRect() ??
+      clipRect(
+        rectBetween(cursorPoint(), cursorPoint()),
+        pattern()?.length ?? 0,
+        song().channels.length
+      )
+    );
+  }
+
+  /** Show the selection: every selected cell gets the `blk` class (the grid rebuilds its cells, so this runs on each
+      cursor placement). */
+  function paintSelection(): void {
+    for (const el of selEls) {
+      el.classList.remove("blk");
+    }
+    selEls = [];
+    const r = selRect();
+    if (!r) {
+      return;
+    }
+    for (let row = r.row0; row <= r.row1; row += 1) {
+      for (let ch = r.ch0; ch <= r.ch1; ch += 1) {
+        const tc = rowEls[row]?.querySelector<HTMLElement>(
+          `.tc[data-ch="${ch}"]`
+        );
+        if (tc) {
+          tc.classList.add("blk");
+          selEls.push(tc);
+        }
+      }
+    }
+  }
+
+  function setSelection(anchor: Point, end: Point): void {
+    blockSel = { anchor, head: end, order: orderIdx };
+    paintSelection();
+  }
+
+  function clearSelection(): void {
+    if (blockSel) {
+      blockSel = null;
+      paintSelection();
+    }
+  }
+
+  /** Shift with a cursor key: grow or shrink the selection from its head, and the cursor goes there. */
+  function extendSelection(k: string): boolean {
+    const len = pattern()?.length ?? 1;
+    const from = blockSel?.head ?? cursorPoint();
+    const to: Record<string, Point> = {
+      ArrowDown: { ch: from.ch, row: from.row + 1 },
+      ArrowLeft: { ch: from.ch - 1, row: from.row },
+      ArrowRight: { ch: from.ch + 1, row: from.row },
+      ArrowUp: { ch: from.ch, row: from.row - 1 },
+      End: { ch: from.ch, row: len - 1 },
+      Home: { ch: from.ch, row: 0 },
+      PageDown: { ch: from.ch, row: from.row + 16 },
+      PageUp: { ch: from.ch, row: from.row - 16 },
+    };
+    const target = to[k];
+    if (!target) {
+      return false;
+    }
+    const anchor = blockSel?.anchor ?? cursorPoint();
+    const end = {
+      ch: clamp(target.ch, 0, song().channels.length - 1),
+      row: clamp(target.row, 0, len - 1),
+    };
+    move(end.row - cur.row, end.ch - cur.ch);
+    setSelection(anchor, end);
+    return true;
+  }
+
+  /** Ctrl A: the cursor's channel in this pattern; again (or with the channel already selected), every channel. */
+  function selectAll(): void {
+    const len = pattern()?.length ?? 0;
+    const last = song().channels.length - 1;
+    if (len === 0 || last < 0) {
+      return;
+    }
+    const r = selRect();
+    const full = r?.row0 === 0 && r.row1 === len - 1;
+    const channelDone = full && r.ch0 === cur.ch && r.ch1 === cur.ch;
+    const allDone = full && r.ch0 === 0 && r.ch1 === last;
+    if (channelDone || allDone) {
+      setSelection({ ch: 0, row: 0 }, { ch: last, row: len - 1 });
+    } else {
+      setSelection({ ch: cur.ch, row: 0 }, { ch: cur.ch, row: len - 1 });
+    }
+  }
+
+  /** Change the open pattern in one undo step. `span` is the rows the edit touches (the redraw patches just those). */
+  function editBlock(
+    span: { from: number; to: number },
+    wide: boolean,
+    fn: (p: Pattern) => void
+  ): void {
+    const pid = patternId();
+    if (!pid) {
+      return;
+    }
+    selfSpan = { ...span, wide };
+    project.edit<Song>(doc(), (d) => {
+      const p = d.patterns[pid];
+      if (p) {
+        fn(p);
+      }
+    });
+    selfSpan = null;
+  }
+
+  /** Say, once in a while, that the channels of `rect` kept as text were left alone. */
+  function warnTextChannels(rect: Rect): void {
+    const kept = song()
+      .channels.slice(rect.ch0, rect.ch1 + 1)
+      .find((c) => c.mml !== null);
+    if (kept) {
+      readOnlyHint(kept);
+    }
+  }
+
+  function copyBlock(): Rect | null {
+    const rect = blockRect();
+    if (!rect) {
+      return null;
+    }
+    const maps = song().channels.map((c, i) =>
+      i >= rect.ch0 && i <= rect.ch1 ? rowsOf(c.id) : undefined
+    );
+    holdBlock(extractBlock(maps, rect), instList());
+    return rect;
+  }
+
+  /** Run `fn` over the selection (else the cursor's cell) in one undo step. */
+  function editSelected(
+    fn: (
+      p: Pattern,
+      rect: Rect,
+      ids: string[],
+      locked: ReadonlySet<string>
+    ) => void
+  ): void {
+    const rect = blockRect();
+    if (!rect) {
+      return;
+    }
+    const ids = channelIds();
+    const locked = textChannels();
+    editBlock({ from: rect.row0, to: rect.row1 }, false, (p) =>
+      fn(p, rect, ids, locked)
+    );
+    warnTextChannels(rect);
+  }
+
+  const clearBlock = () =>
+    editSelected((p, rect, ids, locked) => clearRect(p, ids, rect, locked));
+
+  function cutBlock(): void {
+    if (copyBlock()) {
+      clearBlock();
+    }
+  }
+
+  /** Put `block` down with its top left at the selection's (else the cursor's), and select what it covered. */
+  function pasteHeld(block: Block): void {
+    const len = pattern()?.length ?? 0;
+    const picked = selRect();
+    const at = picked ? { ch: picked.ch0, row: picked.row0 } : cursorPoint();
+    const ids = channelIds();
+    const locked = textChannels();
+    const done: { rect: Rect | null } = { rect: null };
+    editBlock(
+      { from: at.row, to: Math.min(len, at.row + block.rows) - 1 },
+      true,
+      (p) => {
+        done.rect = pasteBlock(p, ids, block, at, locked);
+      }
+    );
+    if (done.rect) {
+      setSelection(
+        { ch: done.rect.ch0, row: done.rect.row0 },
+        { ch: done.rect.ch1, row: done.rect.row1 }
+      );
+      warnTextChannels(done.rect);
+    }
+  }
+
+  const transposeBlock = (semitones: number) =>
+    editSelected((p, rect, ids, locked) => {
+      transposeRect(p, ids, rect, semitones, locked);
+    });
+
+  /** The paste event: the browser hands over the system clipboard's text (never a permission prompt). */
+  tracker.addEventListener("paste", (e) => {
+    const block = resolvePaste(
+      e.clipboardData?.getData("text/plain"),
+      instList()
+    );
+    if (block) {
+      e.preventDefault();
+      pasteHeld(block);
+    }
+  });
+
+  /** Ctrl or Cmd with a key: select all, copy, cut, paste, transpose. True when it was one of them (Ctrl V is left to
+      the paste event unless the block copied here is still the newest thing copied). */
+  function blockKey(e: KeyboardEvent): boolean {
+    if (e.altKey || !pattern()) {
+      return false;
+    }
+    const k = e.key.toLowerCase();
+    if (k === "arrowup" || k === "arrowdown") {
+      transposeBlock((k === "arrowup" ? 1 : -1) * (e.shiftKey ? 12 : 1));
+      return true;
+    }
+    const plain: Record<string, () => void> = {
+      a: selectAll,
+      c: () => {
+        copyBlock();
+      },
+      x: cutBlock,
+    };
+    const run = plain[k];
+    if (run && !e.shiftKey) {
+      run();
+      return true;
+    }
+    const fresh = k === "v" && !e.shiftKey ? freshBlock() : null;
+    if (fresh) {
+      pasteHeld(fresh);
+    }
+    return fresh !== null;
+  }
+
   /** Cursor movement and Enter (play from here). */
   function navigationKey(e: KeyboardEvent): boolean {
     const steps = new Map<string, () => void>([
@@ -840,15 +1148,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
 
   /** A key that would edit the cell of a channel kept as text: nothing changes, a short hint says where its notes are. */
   let hintAt = 0;
-  function mmlCellKey(c: SongChannel, k: string): boolean {
-    const edits =
-      k === "Delete" ||
-      k === "Backspace" ||
-      (k.length === 1 && ALNUM_KEY.test(k.toLowerCase())) ||
-      k === "`";
-    if (!edits) {
-      return false;
-    }
+  function readOnlyHint(c: SongChannel): void {
     const now = Date.now();
     if (now - hintAt > MML_HINT_GAP_MS) {
       hintAt = now;
@@ -856,7 +1156,17 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         `${c.id.toUpperCase()} stays as text (the patterns jump, skip or halt, so its notes cannot be rows), so its cells are read only. Edit its text below the grid.`
       );
     }
-    return true;
+  }
+  function mmlCellKey(c: SongChannel, k: string): boolean {
+    const edits =
+      k === "Delete" ||
+      k === "Backspace" ||
+      (k.length === 1 && ALNUM_KEY.test(k.toLowerCase())) ||
+      k === "`";
+    if (edits) {
+      readOnlyHint(c);
+    }
+    return edits;
   }
 
   /** Delete clears the field under the cursor and moves down; Backspace clears it and stays. */
@@ -991,10 +1301,21 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return false;
     }
     const k = e.key;
+    if (k === "Escape" && selRect()) {
+      clearSelection();
+      return true;
+    }
+    if (e.shiftKey && extendSelection(k)) {
+      return true;
+    }
     if (navigationKey(e)) {
       return true;
     }
     if (k === "Delete" || k === "Backspace") {
+      if (selRect()) {
+        clearBlock();
+        return true;
+      }
       if (c.mml !== null) {
         return mmlCellKey(c, k);
       }
@@ -1032,21 +1353,86 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   }
 
   /* ----- grid mouse ----- */
-  body.addEventListener("pointerdown", (e) => {
-    const span = (e.target as HTMLElement).closest<HTMLElement>("[data-f]");
-    const tc = (e.target as HTMLElement).closest<HTMLElement>(".tc");
-    const rowEl = (e.target as HTMLElement).closest<HTMLElement>(".trow");
+  /** The cell under a pointer event, or null. */
+  function cellOf(e: Event): (Point & { field: Field | null }) | null {
+    const target = e.target as HTMLElement;
+    const tc = target.closest<HTMLElement>(".tc");
+    const rowEl = target.closest<HTMLElement>(".trow");
     if (!(tc && rowEl)) {
+      return null;
+    }
+    const span = target.closest<HTMLElement>("[data-f]");
+    return {
+      ch: Number(tc.dataset.ch),
+      field: span ? (Number(span.dataset.f) as Field) : null,
+      row: Number(rowEl.dataset.r),
+    };
+  }
+  body.addEventListener("pointerdown", (e) => {
+    const cell = cellOf(e);
+    if (!cell) {
       return;
     }
+    const primary = e.button === 0;
+    const before = cursorPoint();
     entry = "";
-    cur.row = Number(rowEl.dataset.r);
-    cur.ch = Number(tc.dataset.ch);
-    cur.field = (span ? Number(span.dataset.f) : 0) as Field;
+    cur.row = cell.row;
+    cur.ch = cell.ch;
+    cur.field = cell.field ?? 0;
+    if (primary && e.shiftKey) {
+      // Shift click: the block from where the selection (or the cursor) was to this cell
+      const anchor = blockSel?.anchor ?? before;
+      dragFrom = anchor;
+      blockSel = {
+        anchor,
+        head: { ch: cell.ch, row: cell.row },
+        order: orderIdx,
+      };
+    } else {
+      dragFrom = primary ? { ch: cell.ch, row: cell.row } : null;
+      blockSel = null;
+    }
     placeCursor();
     tracker.focus({ preventScroll: true });
   });
+  // dragging across cells selects them: the head follows the pointer, the cursor with it
+  body.addEventListener("pointermove", (e) => {
+    if (!dragFrom) {
+      return;
+    }
+    if (e.buttons % 2 === 0) {
+      dragFrom = null;
+      return;
+    }
+    const cell = cellOf(e);
+    if (!cell || (cell.row === cur.row && cell.ch === cur.ch)) {
+      return;
+    }
+    entry = "";
+    cur.row = cell.row;
+    cur.ch = cell.ch;
+    blockSel = {
+      anchor: dragFrom,
+      head: { ch: cell.ch, row: cell.row },
+      order: orderIdx,
+    };
+    placeCursor();
+  });
+  const endDrag = () => {
+    dragFrom = null;
+  };
+  document.addEventListener("pointerup", endDrag);
+  document.addEventListener("pointercancel", endDrag);
+  ctx.cleanup(() => {
+    document.removeEventListener("pointerup", endDrag);
+    document.removeEventListener("pointercancel", endDrag);
+  });
   tracker.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && blockKey(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) {
       return;
     }
@@ -1874,12 +2260,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       h(
         "div",
         { class: "hint" },
-        "Keys: Z S X D C V G B H N J M and Q 2 W 3 E R 5 T 6 Y 7 U play notes. 1 is note off, ` is release, Delete clears, - and = change octave, F follows the playhead while the cursor is in the note column. === is a note off, ^^^ a release. Press ? above the grid for the effect codes."
+        "Keys: Z S X D C V G B H N J M and Q 2 W 3 E R 5 T 6 Y 7 U play notes. 1 is note off, ` is release, Delete clears (the selected block, if there is one), Shift with the arrow keys selects a block, Ctrl C, X and V copy, cut and paste it, Ctrl Up and Down transpose it, - and = change octave, F follows the playhead while the cursor is in the note column. === is a note off, ^^^ a release. Press ? above the grid for the effect codes."
       )
     );
-    inner.append(
-      h("div", { class: "insp-danger" }, deleteButton(doc, "Delete song"))
-    );
+    inner.append(docActions(doc, "Delete song"));
   }
 
   /** The Chip control: ask, move the channels to the ones that suit the new chip (one undo step), then redraw. */
@@ -1932,10 +2316,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     showIssues(insp.querySelector(".issue-slot"), doc().issues, (issue) =>
       fixInstrumentButton(doc, issue)
     );
-    if (e.cause === "edit" && selfRow !== null) {
-      const r = selfRow;
-      selfRow = null;
-      patchRow(r);
+    if (e.cause === "edit" && selfSpan !== null) {
+      const span = selfSpan;
+      selfSpan = null;
+      patchSpan(span);
       return;
     }
     if (e.cause === "edit" && selfMml) {
@@ -2286,6 +2670,83 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   loadSongDoc(doc());
   tracker.focus({ preventScroll: true });
 
+  /** Paste from the palette: the block copied here (the system clipboard cannot be read without asking). */
+  function pasteFromPalette(): void {
+    const block = heldBlock();
+    if (block) {
+      pasteHeld(block);
+    } else {
+      app.toast("Nothing copied yet. Select some cells and press Ctrl C.");
+    }
+  }
+
+  const blockCommands = (): Command[] => {
+    const defs: [string, string, string, () => void, string][] = [
+      [
+        "selectall",
+        "Select the channel, then the whole pattern",
+        "eye",
+        selectAll,
+        "Ctrl A",
+      ],
+      [
+        "copy",
+        "Copy the selected cells",
+        "copy",
+        () => {
+          copyBlock();
+        },
+        "Ctrl C",
+      ],
+      ["cut", "Cut the selected cells", "copy", cutBlock, "Ctrl X"],
+      [
+        "paste",
+        "Paste the copied cells at the cursor",
+        "copy",
+        pasteFromPalette,
+        "Ctrl V",
+      ],
+      ["clearsel", "Clear the selected cells", "trash", clearBlock, "Delete"],
+      [
+        "transup",
+        "Transpose the selected notes up a semitone",
+        "up",
+        () => transposeBlock(1),
+        "Ctrl Up",
+      ],
+      [
+        "transdown",
+        "Transpose the selected notes down a semitone",
+        "down",
+        () => transposeBlock(-1),
+        "Ctrl Down",
+      ],
+      [
+        "octup",
+        "Transpose the selected notes up an octave",
+        "up",
+        () => transposeBlock(12),
+        "Ctrl Shift Up",
+      ],
+      [
+        "octdown",
+        "Transpose the selected notes down an octave",
+        "down",
+        () => transposeBlock(-12),
+        "Ctrl Shift Down",
+      ],
+    ];
+    return defs.map(([name, title, ic, run, hint]) => ({
+      enabled: () => !!pattern(),
+      group: "Song",
+      icon: ic,
+      id: `song:${name}`,
+      keys: hint,
+      run,
+      title,
+    }));
+  };
+
   const commands = (): Command[] => [
     {
       group: "Song",
@@ -2311,6 +2772,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       run: () => setFollow(!follow),
       title: "Toggle follow playhead",
     },
+    ...blockCommands(),
     {
       group: "Song",
       icon: "plus",

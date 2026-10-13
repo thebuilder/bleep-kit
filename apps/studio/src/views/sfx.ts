@@ -23,6 +23,7 @@ import { playSfx, stopEverything } from "../playback.ts";
 import { playLength, renderSfxAsync } from "../render-service.ts";
 import type { ViewCtx } from "../shell.ts";
 import { type Doc, project } from "../state/docs.ts";
+import { docActions } from "../ui/delete-doc.ts";
 import {
   bindName,
   type FieldHandle,
@@ -840,6 +841,7 @@ export function mountSfx(ctx: ViewCtx, id: string): ViewHooks {
       inner,
       "Lock a group with its padlock to keep it while you randomize or mutate."
     );
+    inner.append(docActions(doc, "Delete sound effect"));
     applyOff();
   }
 

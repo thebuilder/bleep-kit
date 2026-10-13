@@ -51,6 +51,9 @@ function withPatterns(n: Normalized<AnyDoc>): Normalized<AnyDoc> {
       };
 }
 
+const COPY_SUFFIX = / copy( \d+)?$/;
+const COPY_ID = /-copy(-\d+)?$/;
+
 export type DocKind = "sfx" | "instrument" | "song" | "sample";
 export type AnyDoc = Sfx | Instrument | Song | UserSample;
 
@@ -579,12 +582,24 @@ class ProjectState {
     this.emit({ type: "list" });
   }
 
+  /** A copy under a free id ("coin-copy", "coin-copy-2") and a free name ("Coin copy", "Coin copy 2"), written to its own
+   *  file. Other documents name an instrument by id, so a copy never changes what uses the original. */
   duplicate(doc: Doc): Promise<Doc> {
-    const id = this.uniqueId(doc.kind, `${doc.id}-copy`);
     const copy = JSON.parse(JSON.stringify(doc.value)) as AnyDoc & {
       name: string;
     };
-    copy.name = `${copy.name} copy`;
+    const root = (copy.name || doc.id).replace(COPY_SUFFIX, "");
+    const taken = new Set(
+      this.list(doc.kind).map((d) =>
+        ((d.value as { name?: string }).name ?? "").toLowerCase()
+      )
+    );
+    let name = `${root} copy`;
+    for (let n = 2; taken.has(name.toLowerCase()); n += 1) {
+      name = `${root} copy ${n}`;
+    }
+    copy.name = name;
+    const id = this.uniqueId(doc.kind, `${doc.id.replace(COPY_ID, "")}-copy`);
     return this.create(doc.kind, id, copy);
   }
 
