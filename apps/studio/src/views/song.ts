@@ -475,6 +475,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     if (!rowEls[cur.row]) {
       return;
     }
+    scrollToChannel(cur.ch);
     const top = cur.row * ROW_H;
     const bottom = head.offsetHeight + (cur.row + 1) * ROW_H;
     if (tracker.scrollTop > top) {
@@ -484,6 +485,35 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         Math.ceil((bottom - tracker.clientHeight) / ROW_H) * ROW_H;
     }
   }
+
+  /** Bring a channel's column into view sideways, clear of the sticky row numbers on the left. */
+  function scrollToChannel(ch: number): void {
+    const col = head.querySelector<HTMLElement>(`.tch[data-ch="${ch}"]`);
+    if (!col) {
+      return;
+    }
+    const rowNumbers = head.querySelector<HTMLElement>(".rn")?.offsetWidth ?? 0;
+    const left = col.offsetLeft - rowNumbers;
+    const right = col.offsetLeft + col.offsetWidth;
+    if (tracker.scrollLeft > left) {
+      tracker.scrollLeft = left;
+    } else if (right - tracker.scrollLeft > tracker.clientWidth) {
+      tracker.scrollLeft = right - tracker.clientWidth;
+    }
+  }
+  // over the channel headers a plain mouse wheel scrolls sideways (most mice cannot scroll horizontally)
+  head.addEventListener(
+    "wheel",
+    (e) => {
+      const wide = tracker.scrollWidth > tracker.clientWidth;
+      if (!wide || e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        return;
+      }
+      e.preventDefault();
+      tracker.scrollLeft += e.deltaY;
+    },
+    { passive: false }
+  );
 
   /* ----- order list ----- */
   function buildOrder(): void {

@@ -160,6 +160,20 @@ describe("the upstream request", () => {
     expect(preview.status).not.toBe(400);
   });
 
+  it("serves media on one path segment with the id in the query, which is all Vercel's catch-all file receives", async () => {
+    const { get } = setup();
+    const bySegment = await get("preview/12345");
+    const byQuery = await get("preview?id=12345&...path=preview");
+    expect(byQuery.status).toBe(bySegment.status);
+    expect(byQuery.headers.get("content-type")).toBe(
+      bySegment.headers.get("content-type")
+    );
+    expect((await get("waveform?id=12345")).status).toBe(
+      (await get("waveform/12345")).status
+    );
+    expect((await get("preview?id=abc")).status).toBe(400);
+  });
+
   it("sends the API key as the token and nothing else from the caller", async () => {
     const { calls, get } = setup();
     const res = await get("search?q=kick&sub=percussion", {

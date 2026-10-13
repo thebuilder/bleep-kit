@@ -3096,6 +3096,22 @@
         0 0 0 5px var(--line),
         0 10px 0 5px rgba(0, 0, 0, 0.22);
     }
+    /* a scrollbar people can see and grab: wide songs (genesis has 10 channels) scroll sideways */
+    .tracker {
+      scrollbar-color: var(--muted) #0b0a10;
+      scrollbar-width: auto;
+    }
+    .tracker::-webkit-scrollbar {
+      width: 12px;
+      height: 12px;
+    }
+    .tracker::-webkit-scrollbar-thumb {
+      background: var(--muted);
+      border-color: #0b0a10;
+    }
+    .tracker::-webkit-scrollbar-track {
+      background: #0b0a10;
+    }
     .tracker:focus-visible {
       box-shadow:
         0 0 0 1px var(--accent),

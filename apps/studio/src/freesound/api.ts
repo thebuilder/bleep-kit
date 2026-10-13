@@ -110,16 +110,17 @@ export async function searchSounds(
   return out;
 }
 
-/** Where the HQ preview MP3 of a sound is served from (the studio's own origin). */
+/** Where the HQ preview MP3 of a sound is served from (the studio's own origin). Every route is one path segment with
+    the id in the query: Vercel's catch-all function file only receives single-segment paths. */
 function previewUrl(sound: Pick<FreesoundSound, "id" | "pv">): string {
-  const hint = sound.pv ? `?p=${encodeURIComponent(sound.pv)}` : "";
-  return `${FREESOUND_BASE}/preview/${sound.id}${hint}`;
+  const hint = sound.pv ? `&p=${encodeURIComponent(sound.pv)}` : "";
+  return `${FREESOUND_BASE}/preview?id=${sound.id}${hint}`;
 }
 
 /** The small waveform image of a sound. */
 export function waveformUrl(sound: Pick<FreesoundSound, "id" | "wf">): string {
-  const hint = sound.wf ? `?p=${encodeURIComponent(sound.wf)}` : "";
-  return `${FREESOUND_BASE}/waveform/${sound.id}${hint}`;
+  const hint = sound.wf ? `&p=${encodeURIComponent(sound.wf)}` : "";
+  return `${FREESOUND_BASE}/waveform?id=${sound.id}${hint}`;
 }
 
 /** The preview's bytes. */

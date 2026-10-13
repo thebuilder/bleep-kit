@@ -417,7 +417,12 @@ export async function handleFreesound(
     return failure(400, "bad-request", "These routes take GET.");
   }
   const key = apiKey(deps.env ?? processEnv());
-  const [name, id] = route;
+  // the id comes in the query (`preview?id=123`), since Vercel's catch-all function file only receives single-segment
+  // paths; the two-segment form (`preview/123`) is still read, for the dev and CLI servers and older pages
+  const [name, segmentId] = route;
+  const queryId = url.searchParams.get("id");
+  url.searchParams.delete("id");
+  const id = segmentId ?? queryId ?? undefined;
   if (name === "status") {
     return json({ configured: key !== null }, CACHE.none);
   }
@@ -438,7 +443,7 @@ export async function handleFreesound(
   if (route.length === 1 && name === "search") {
     return await search(ctx, url);
   }
-  if (route.length === 2 && id !== undefined) {
+  if (route.length <= 2 && id !== undefined) {
     if (name === "sound") {
       return await sound(ctx, id);
     }
