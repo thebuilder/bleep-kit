@@ -82,7 +82,7 @@ export function resetDialog(o: ResetOptions): Promise<ResetAnswer | null> {
     const fields = h(
       "div",
       { class: "choice-fields" },
-      h("label", { class: "fsel" }, h("span", {}, "Name"), name),
+      h("label", { class: "fsel" }, h("span", {}, "Project name"), name),
       h("label", { class: "fsel" }, h("span", {}, "Chip"), chip)
     );
     const backupBox = h("input", {

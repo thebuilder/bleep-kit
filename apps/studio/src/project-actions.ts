@@ -219,7 +219,7 @@ async function newProject(): Promise<void> {
     hasChanges: hasUnbackedChanges(),
     kind: "empty",
     message: "Start a new project? What is in this browser now is replaced.",
-    name: "My game",
+    name: "My project",
     okLabel: "Create project",
   });
   if (!answer) {
