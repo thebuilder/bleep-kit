@@ -2139,7 +2139,10 @@
       cursor: pointer;
     }
     .kind-badge {
-      padding: 4px 8px;
+      display: inline-flex;
+      align-items: center;
+      padding: 5px 8px;
+      line-height: 1;
       font-family: var(--f-display);
       font-size: 11px;
       color: var(--accent-ink);
@@ -2184,7 +2187,6 @@
         select,
         input[type="number"],
         input[type="text"]:not(.nm-in),
-        .kind-badge,
         .tgl-row
       ) {
       height: var(--ctl-h);
@@ -2196,9 +2198,10 @@
     :is(.ed-head, .song-bar) .btn.big {
       padding-block: 0;
     }
-    :is(.ed-head, .song-bar) .kind-badge {
-      display: inline-flex;
+    /* the kind badge is a label, not a control: it keeps its own small size, centered on the toolbar's control line */
+    .ed-head .ed-sel:has(> .kind-badge) {
       align-items: center;
+      height: var(--ctl-h);
     }
     .ed-head .ed-title {
       align-self: flex-end;
