@@ -110,6 +110,12 @@ export {
 } from "./presets.ts";
 // random
 export { deriveSeed, hashString, mulberry32 } from "./prng.ts";
+export {
+  CREDITS_FILE,
+  CREDITS_HEADER,
+  creditedSources,
+  creditsText,
+} from "./samples/credits.ts";
 export { generateSample, SAMPLE_GENERATORS } from "./samples/index.ts";
 export {
   base64ByteLength,

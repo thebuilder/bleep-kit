@@ -11,6 +11,8 @@
     "packages/*/vitest.config.ts",
     "apps/*/vitest.config.ts",
     "apps/studio/vite.config.ts",
+    "api",
+    "apps/studio/api",
     "*.config.ts"
   ]
 }

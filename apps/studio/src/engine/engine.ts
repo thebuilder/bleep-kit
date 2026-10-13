@@ -69,6 +69,8 @@ class Engine {
     undefined;
   /** Samples that belong to the loaded song rather than the project (an example), under ids that cannot clash. */
   private extraSamples = new Map<string, UserSample>();
+  /** Sounds that are not in the project at all (a Freesound preview), under ids of their own. */
+  private readonly scratchSamples = new Map<string, UserSample>();
   private songKey = "";
   /** The document id of the song the worklet holds ("" when none, or when it was not loaded from a document). */
   private songId = "";
@@ -360,7 +362,10 @@ class Engine {
 
   /** Make the worklet's copy of sample `id` match the project: send it when new or edited, drop it when gone. */
   private ensureSample(id: string): void {
-    const now = this.extraSamples.get(id) ?? this.sampleSource(id);
+    const now =
+      this.extraSamples.get(id) ??
+      this.scratchSamples.get(id) ??
+      this.sampleSource(id);
     if (now === undefined) {
       if (this.sampleRefs.delete(id)) {
         this.node?.send({ id, type: "unloadSample" });
@@ -378,6 +383,12 @@ class Engine {
     for (const id of [...this.sampleRefs.keys()]) {
       this.ensureSample(id);
     }
+  }
+
+  /** Hand the worklet a sample that is no project document, to be played through an instrument that names `id`. */
+  setScratchSample(id: string, sample: UserSample): void {
+    this.scratchSamples.set(id, sample);
+    this.ensureSample(id);
   }
 
   private setExtraSamples(extra: Record<string, UserSample>): void {

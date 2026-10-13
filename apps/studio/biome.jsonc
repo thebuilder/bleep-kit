@@ -6,8 +6,18 @@
     {
       // Bit twiddling is the point of these two files: CRC-32 and little-endian packing for the zip writer, and the
       // bit-reversal permutation of the FFT. Rewriting them with arithmetic would be slower and harder to check.
-      "includes": ["src/zip.ts", "src/visuals/fft.ts"],
+      "includes": [
+        "src/zip.ts",
+        "src/visuals/fft.ts",
+        "server/freesound/fixtures.ts"
+      ],
       "linter": { "rules": { "suspicious": { "noBitwiseOperators": "off" } } }
+    },
+    {
+      // The limiter tests send their requests one after another on purpose: each request counts against the window
+      // the one before it filled, so running them together would test nothing.
+      "includes": ["test/freesound-server.test.ts"],
+      "linter": { "rules": { "performance": { "noAwaitInLoops": "off" } } }
     },
     {
       // Per-frame drawing code, the keyboard map and the view builders read top to bottom as one pass over a canvas or a

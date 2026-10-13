@@ -20,7 +20,9 @@ packages/sfx       @bleepkit/sfx: sfx generators per category, randomize, mutate
 packages/agent     @bleepkit/agent: the studio assistant's kit (tools over an AgentHost, system prompt, Anthropic and OpenAI adapters, agent loop). Browser safe, also holds the `help formats` text the CLI prints
 packages/player    @bleepkit/player: game runtime (AudioWorklet, files or synth mode, typed manifest)
 packages/cli       bleepkit: the CLI and the studio server
-apps/studio        the Vite studio (vanilla TypeScript, canvas views, Pixelkit backdrop); src/assistant is the bring-your-own-key assistant drawer
+apps/studio        the Vite studio (vanilla TypeScript, canvas views, Pixelkit backdrop); src/assistant is the bring-your-own-key assistant drawer,
+                   src/freesound the Freesound sample browser, server/freesound its server side (api/ holds the Vercel entry points)
+api/               the same Vercel entry points for a project whose Root Directory is the repository root
 examples/demo      a demo project folder: seven songs (one per chip, the Amiga one with its samples) and 22 sfx, exported OGGs in export/
 docs/architecture.md   the contract: formats, engine design, worklet protocol, CLI, studio UX
 ```
@@ -53,11 +55,23 @@ When a person is running the studio on the same folder, files you write appear i
 - The format reference in the system prompt is the CLI's `help formats` text (`packages/agent/src/reference.ts`): change it in one place.
 - Tests use stubbed `fetch` and scripted providers, never the network. One assistant turn is one undo step per document (`group:` coalesce keys in `apps/studio/src/lib/history.ts`).
 
+## The Freesound browser
+
+`apps/studio/src/freesound` (client), `apps/studio/server/freesound` (the function) and `docs/architecture.md` section 13. The studio searches Freesound.org's "Instrument samples" and imports a sound as a user sample that keeps its author and license. Rules when you touch it:
+
+- The API key (`FREESOUND_CLIENT_SECRET`) lives only in the server's environment: `.env.local` for `pnpm dev` and `bleepkit studio`, Environment Variables on Vercel. Never prefix it with `VITE_`, never send it to the browser, never log it or put it in a test. `.env.local` is gitignored; do not create one with a real key in the repository.
+- Every request parameter is whitelisted in `server/freesound/protocol.ts` and `upstream.ts`; nothing from a request is passed on to Freesound as it came. Add a parameter in both, with a test.
+- Licenses: CC0 by default, CC BY behind a switch, never NonCommercial or Sampling+ (the filter excludes them and `licenseOf` refuses them again). A CC BY sample is credited in `CREDITS.txt` of the exports (`creditsText` in core). Keep the "Sounds from Freesound.org" credit in the panel.
+- `server/freesound` is plain web standard code (Request and Response, no Node imports) shared by the Vercel Functions (`apps/studio/api` and `api`, kept identical on purpose: the Root Directory of the Vercel project is a dashboard setting), the Vite dev plugin and the CLI's studio server (which imports `node.ts` by relative path). Do not put shared code under `api/`.
+- Tests and local work use the fixtures (`server/freesound/fixtures.ts`): `FREESOUND_FIXTURES=1 pnpm dev` runs the whole tab with no key and no network. Never call freesound.org from a test.
+- The studio is cross-origin isolated, so previews and waveforms are proxied from our own origin with `Cross-Origin-Resource-Policy: same-origin`. A new kind of media needs the same.
+
 ## Developing
 
 ```
 pnpm install
 pnpm dev                                           # studio on :5173 (proxies /api and /ws to :5174)
+cp apps/studio/.env.example apps/studio/.env.local # then add FREESOUND_CLIENT_SECRET, or run FREESOUND_FIXTURES=1 pnpm dev
 pnpm bleepkit studio examples/demo --api-only      # the CLI server for pnpm dev
 pnpm ci:check        # typecheck, check, fallow, build (what CI runs: no tests)
 pnpm verify          # typecheck, check, test, fallow, build, check:packages (run locally before a release)

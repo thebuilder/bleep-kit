@@ -161,6 +161,55 @@ describe("import sample", () => {
   });
 });
 
+describe("CREDITS.txt in the game export", () => {
+  const source = (license: "CC0" | "CC BY") => ({
+    author: "wavesmith",
+    id: 4321,
+    kind: "freesound",
+    license,
+    name: "Ramp tone",
+    url: "https://freesound.org/people/wavesmith/sounds/4321/",
+  });
+
+  async function exportWith(license: "CC0" | "CC BY") {
+    const { project, repo } = await makeProject("amiga");
+    fs.writeFileSync(path.join(project, "tune.mod"), mod());
+    await run(project, ["import", "tune.mod", "--json"]);
+    const file = path.join(project, "samples/tune-01-ramp.json");
+    const doc = readJson(file) as Record<string, unknown>;
+    fs.writeFileSync(file, JSON.stringify({ ...doc, source: source(license) }));
+    const r = await run(project, ["export", "--json"]);
+    expect(r.code).toBe(0);
+    return {
+      dir: path.join(repo, "public/audio"),
+      project,
+      written: r.json.written as string[],
+    };
+  }
+
+  it("lists a CC BY sample a song plays, with the credit", async () => {
+    const { dir, written } = await exportWith("CC BY");
+    const text = fs.readFileSync(path.join(dir, "CREDITS.txt"), "utf8");
+    expect(text).toContain('"Ramp tone" by wavesmith');
+    expect(text).toContain(
+      "https://freesound.org/people/wavesmith/sounds/4321/"
+    );
+    expect(written.some((w) => w.endsWith("CREDITS.txt"))).toBe(true);
+  });
+
+  it("writes none for CC0, and removes the one it wrote when the license no longer needs it", async () => {
+    const { dir, project } = await exportWith("CC0");
+    const credits = path.join(dir, "CREDITS.txt");
+    expect(fs.existsSync(credits)).toBe(false);
+    fs.writeFileSync(credits, "Sound credits\n- old\n");
+    expect((await run(project, ["export", "--json"])).code).toBe(0);
+    expect(fs.existsSync(credits)).toBe(false);
+    fs.writeFileSync(credits, "My own credits\n");
+    await run(project, ["export", "--json"]);
+    expect(fs.readFileSync(credits, "utf8")).toBe("My own credits\n");
+  });
+});
+
 describe("import a MOD and export it again", () => {
   it("writes the song, the instruments and the samples, and renders", async () => {
     const { project } = await makeProject("amiga");

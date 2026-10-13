@@ -11,6 +11,7 @@ import {
   readDocument,
   writeDocument,
 } from "./documents.ts";
+import { freesoundTools } from "./freesound.ts";
 import { playTool, renderAnalyze, stopTool, viewAnalysis } from "./measure.ts";
 import {
   listSamples,
@@ -43,6 +44,7 @@ export function createTools(
     resampleTool(host),
     readSample(host),
     setInstrumentSample(host),
+    ...freesoundTools(host),
     renderAnalyze(host),
     ...(opts.images === false ? [] : [viewAnalysis(host)]),
     playTool(host),

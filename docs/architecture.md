@@ -555,6 +555,22 @@ export const SAMPLE_BITS = [8, 16] as const;
 /** The most PCM bytes one sample may hold (2 MiB): 2,097,152 frames at 8 bit, 1,048,576 at 16 bit. */
 export const SAMPLE_MAX_BYTES = 2 * 1024 * 1024;
 
+/** Where a sample came from, when it is somebody else's recording (today: the Freesound browser). Kept in the sample
+    document, so the credit travels with the project, the zip and the embedded manifest. */
+export interface SampleSource {
+  kind: "freesound";
+  /** The sound's id on Freesound. */
+  id: number;
+  /** The sound's title on Freesound. */
+  name: string;
+  /** The Freesound username of the uploader. */
+  author: string;
+  /** The sound's page on freesound.org (https). */
+  url: string;
+  /** "CC0" needs no credit; "CC BY" requires the credit that exports list in CREDITS.txt. Other licenses are never imported. */
+  license: "CC0" | "CC BY";
+}
+
 /** samples/<id>.json: one mono recording with the metadata a sample instrument needs. The audio is embedded as base64. */
 export interface UserSample {
   version: number;
@@ -573,6 +589,8 @@ export interface UserSample {
   bits: 8 | 16;                 // default 16
   /** Mono PCM, standard base64: signed 8 bit, or signed 16 bit little endian. At most SAMPLE_MAX_BYTES decoded. */
   data: string;
+  /** Present when the recording came from Freesound: who made it and under which license. */
+  source?: SampleSource;
 }
 
 export interface SidPatch {
@@ -1242,6 +1260,8 @@ The studio asks first (the confirm dialog of delete, listing moves, drops, adjus
 
 An instrument plays a user sample through `sample.userSample = "<id>"`. The generator fields are then ignored; the sample's own base note, loop, finetune and volume apply, and the instrument's transpose, finetune and volume stack on top. Songs name samples only through instruments. A sample no instrument plays is kept (it is a project asset), a missing sample is a warning on the instrument and the note is silent. `usedSamples(instruments, all)` gives the ones a render or an export needs; `RenderOptions.samples`, `loadSong(song, instruments, samples)` and `loadSample` hand them to the engine, and the CLI, the studio and the player load them with the song.
 
+A sample can carry `source` (`SampleSource`, section 2.2): where a recording from the Freesound browser (section 13) came from, with its Freesound id, name, author, page URL and license (`"CC0"` or `"CC BY"`). It is attribution, not audio: nothing in the engine reads it. `normalizeSample` validates it (a bad one is dropped with a warning at `/source`), `creditsText(samples)` (`samples/credits.ts`) turns the CC BY ones into the text of `CREDITS.txt`, and the game exports and the project zip write that file next to the audio (section 13.6). Own recordings and CC0 sounds need no credit and add nothing to it.
+
 Import (`prepareImport(chip, mono, sourceRate)`): the audio is mixed to mono, resampled for the chip (`importRate`, `importBits`: the Amiga gets 8 bit at `AMIGA_IMPORT_RATE` 16574 Hz, ProTracker's C-3; the Genesis DAC 8 bit at its DAC rate; the SNES 16 bit at 32000 Hz; other chips keep up to 32000 Hz), peak normalized, and its pitch is detected for the base note (`--base-note` overrides). A WAV `smpl` loop is kept. The studio also imports MP3 and OGG through the browser's decoder; the CLI reads WAV only.
 
 Resample (`bleepkit resample`, the sfx and instrument editors' Resample button) renders a document, mixes it to mono, trims the silence and stores it as a sample for the chip. `--bits 8` and a low rate crush it on purpose.
@@ -1585,6 +1605,8 @@ HTTP on `127.0.0.1:<port>` (default 5174). Serves `apps/studio/dist` at `/` with
 | `POST /api/play` body `{ ref, visual?: boolean }` | broadcasts a `play` websocket message to every connected studio; `{ ok, clients }` |
 | `GET /api/health` | `{ ok, version, root }` |
 
+`/api/freesound/*` is answered before the table above is consulted, by the same handler the Vercel Function uses (section 13), so the built studio served by `bleepkit studio` has the Freesound tab too. It reads `FREESOUND_CLIENT_SECRET` from the environment, then from `.env.local` in the working directory and next to the built studio; without it the routes answer "not configured".
+
 WebSocket at `/ws` (the server uses Node's `http` plus the `ws` package; the only runtime dependencies of the CLI are `ws` and `wasm-media-encoders`). Server to client messages (JSON):
 
 ```ts
@@ -1806,6 +1828,7 @@ The CLI depends on this package for the help text, `describe*` and the song buil
 | `new_instrument`, `new_song` | build an instrument; build a song from MML per channel: a channel that plays notes gets an instrument of the project that fits it, else one made from the per-chip presets; a channel with no notes gets none; a wrong-chip instrument is refused with the list of ones that fit (section 2.9) |
 | `change_song_chip` | move a song to another chip with `rechipSong` (section 2.9): lead, bass, drums and harmony go to the channels that suit the new chip; the reply lists what moved, what was dropped and the new instruments |
 | `write_document`, `edit_document` | whole document, or JSON pointer changes applied in order; both are normalized as a whole and refused with the issue list when invalid |
+| `search_freesound`, `import_freesound_sample` | only when the host has a Freesound browser (`AgentHost.freesound`; the studio always has one, it fails with the "not set up" text when the server has no key). Search takes the same whitelisted options as the panel (query, subcategory, up to four tags, one-shot, max length, sort, page, license `cc0` by default or `by`) and lists id, name, author, length, detected note, license and tags, twelve to a page. Import takes only an id a search returned in the session, stores the sample with its `source`, optionally makes a sample instrument, and says whether the sound needs credit (section 13.8) |
 | `render_analyze` | render and measure; returns the compact analysis and checks against the targets in section 6.4 |
 | `view_analysis` | the waveform, spectrogram and (songs) scopes as PNG images; left out of the tool list when the model reports no image input |
 | `play`, `stop` | audible in the studio |
@@ -1855,3 +1878,101 @@ Code lives in `apps/studio/src/assistant/`:
 ### 12.8 Tests
 
 `packages/agent/test`: the tools against an in-memory host (valid and invalid writes, issue reporting, the output cap, delete confirmed and declined), the loop with a scripted provider (a round trip, the studio state in the new user message with the past sent back unchanged, thinking blocks left out only after a rewritten message, the refused-thinking retry, a refused edit fed back, the step limit, a stop between steps and before the first request with the unrun calls answered, a provider abort or error, history repair, image pruning), the adapters' request shapes with a recording fetch (URL, headers including the browser-access header, tool schema format, streaming parse, error mapping, model listing and default). `apps/studio/test/assistant-*.test.ts`: where the key is stored, one undo step per turn, a conversation's request prefix (system, tools and earlier messages byte-identical in turn two after the open document changed), the saved model, the host on a real project and store, and the drawer, dialog and a whole conversation in the real shell against a stubbed `fetch`. None touch the network and each test runs in well under a second.
+
+## 13. The Freesound sample browser
+
+A sample search in the studio: the Samples section's import button (and the command "Search Freesound samples") opens a dialog with two tabs, "From file" and "From Freesound". The second searches Freesound.org's category "Instrument samples", plays a sound the moment its row is selected, and turns the chosen one into a user sample (section 2.10) that remembers its author and license. The API key never reaches the browser: the studio calls its own `/api/freesound/*` routes, and those call Freesound.
+
+### 13.1 Where the code lives
+
+```
+apps/studio/server/freesound/   the function, as plain modules that need only web standard Request and Response
+  protocol.ts    what the browser may ask for and what it gets back (types, subcategories, sorts, limits); shared with the client
+  upstream.ts    validation of the request, the Freesound search parameters and filter, mapping the answer to FreesoundSound
+  handler.ts     handleFreesound(request, deps?): routing, caching headers, limits, errors
+  limits.ts      the in-memory rate limiters
+  env.ts         FREESOUND_CLIENT_SECRET
+  node.ts        an adapter from node:http to the handler (dev server and the CLI)
+  fixtures.ts    made-up sounds and a fake of freesound.org, for tests and `FREESOUND_FIXTURES=1`
+apps/studio/api/freesound/[...path].ts, api/freesound/[...path].ts    the Vercel entry points (two lines each)
+apps/studio/src/freesound/      the client: api, taxonomy, preview, import, badge, panel, dialog
+apps/studio/src/assistant/freesound-host.ts   the assistant's tools over the same client (12.3)
+```
+
+The code is in `server/` and not under `api/` so that either place can be the project's Root Directory on Vercel (`apps/studio` or the repository root): both have an `api/freesound/[...path].ts` that imports it, and Vercel builds whichever it is told to. Files and folders that start with an underscore are not used, because Vercel treats them specially. The CLI imports `node.ts` and the handler from `apps/studio/server` by relative path, which its bundle includes like core and sfx.
+
+### 13.2 Routes
+
+All answers are JSON except media; errors are `{ error, message, retryAfter? }` with `error` one of `bad-request`, `not-configured` (503), `rate-limited` (429, with `Retry-After`), `not-found`, `license-not-allowed` and `upstream` (502). Errors are never cached.
+
+| route | does |
+| --- | --- |
+| `GET /api/freesound/status` | `{ configured }`: whether the server has a key (the panel uses the 503 of a search instead, this is for checks) |
+| `GET /api/freesound/search?q&sub&tags&license&oneshot&max&sort&page` | one page (24) of results as `FreesoundSound[]` plus `count`, `hasMore`, `dropped` and `notes` |
+| `GET /api/freesound/sound/:id` | one sound's details, same shape, license checked again |
+| `GET /api/freesound/preview/:id[?p=]` | the HQ preview MP3, fetched from `cdn.freesound.org` and served from the studio's origin |
+| `GET /api/freesound/waveform/:id[?p=]` | the waveform image, same way |
+
+Every parameter is checked in `parseQuery` against `protocol.ts`; an unknown parameter, a subcategory, sort or length that is not in the lists, more than four tags, a query over 80 characters or a page over 40 is a 400. Nothing from the request is passed on as it came: the upstream URL is built from our own constants, and the `p` hint of a media route (the path part of a CDN URL, which saves the API call that would otherwise find it) is accepted only if it has the exact shape of a Freesound preview or waveform path for that id.
+
+Media is proxied because the studio is cross-origin isolated (COEP `require-corp`, needed for `SharedArrayBuffer`): a cross-origin image or audio file without CORP headers would be blocked, so the function serves them with `Cross-Origin-Resource-Policy: same-origin`.
+
+### 13.3 What is asked of Freesound
+
+`GET https://freesound.org/apiv2/search/` with `Authorization: Token <FREESOUND_CLIENT_SECRET>` (the "Client secret / Api key" of the Freesound API application is the token for these read only calls; the client id is for OAuth2 and is not used). Parameters: `query`, `filter`, `sort`, `fields`, `page`, `page_size=24`. The filter is one clause per limit:
+
+```
+category:"Instrument samples" subcategory:"Percussion" license:"Creative Commons 0"
+tag:("808" AND "8-bit") duration:[0 TO 5] single_event:true
+```
+
+With CC BY switched on the license clause is `license:("Creative Commons 0" OR "Attribution")`. The sort ids map to `score`, `duration_asc`, `rating_desc` (with `num_ratings:[3 TO *]` added, so one five star vote does not top the list) and `downloads_desc`. The fields asked for are `id,name,tags,username,license,duration,previews,images,url,subcategory,num_downloads,avg_rating,note_name,note_confidence,single_event,loopable`. The descriptors are the plain names the docs list (`note_name`, `note_confidence`, `single_event`, `loopable`), not `ac_` prefixed ones. The subcategories are Broad Sound Taxonomy names: Percussion, String, Wind, Piano / Keyboard instruments, Synths / Electronic, Other (the studio's chips read Percussion, Strings, Wind, Keys, Synths, Other; "String" is the taxonomy's word for what a person might call plucked or bowed strings).
+
+The answer is cut down to `FreesoundSound`: id, name, author, page URL, tags (at most 12), duration, `license` (`cc0` or `by`), the detected note (shown only when `note_confidence` is at least 0.5), `oneShot` (from `single_event`), `loopable`, rating, downloads, the subcategory, and the two media path hints `pv` and `wf`. A result whose license is anything but those two is dropped and counted in `dropped`, whatever the filter said.
+
+If Freesound refuses the `single_event` clause with a 400, the function searches again without it and filters the page locally by the same descriptor, and says so in `notes`.
+
+### 13.4 License policy
+
+CC0 is the default and needs no credit. A switch ("Also show CC BY") adds CC BY (Attribution), which a game must credit. Attribution NonCommercial, Sampling+ and anything else are never requested, never shown and never importable: the filter excludes them, and `licenseOf` refuses every other license string again on the way back (a test feeds the handler a sloppy upstream that returns an NC sound for a CC0 query). Freesound's terms of use for its API say that free use of the API is for non-commercial purposes, so a commercial deployment needs an agreement with Freesound; this repository does not decide that.
+
+The panel carries "Sounds from Freesound.org" with a link, every row shows its license badge and an author link to the sound's page, and the sample editor's Source group shows the same with the credit note.
+
+### 13.5 Caching and limits
+
+Freesound allows 60 requests a minute and 2000 a day per API key, and every visitor shares one key. Three layers keep that safe:
+
+- CDN caching: every successful answer has a `Cache-Control` for a shared cache: search `public, max-age=60, s-maxage=600, stale-while-revalidate=3600`, sound `max-age=300, s-maxage=3600, stale-while-revalidate=86400`, media `max-age=86400, s-maxage=604800, stale-while-revalidate=86400`. The parameters are put in a canonical order (`queryToParams`) so the same search is the same cache key. The client also keeps the last 60 searches for the visit.
+- Per visitor limits, by IP address (taken from `x-forwarded-for`, which the CLI and dev adapters replace with the socket address): 15 searches, 15 sound lookups and 300 media reads a minute.
+- This instance's own budget of API calls: 50 a minute and 1800 a day, under Freesound's limits. Media routes with a valid `p` hint spend none of it.
+
+The counters are in memory, so they are per function instance and a cold start resets them. They stop one visitor or a runaway loop; the cache is what keeps the real number of API calls low. A Vercel Firewall rate limit rule on `/api/freesound` is the account wide backstop and needs the dashboard.
+
+### 13.6 Hosting and configuration
+
+- Vercel: the entry points are web standard handlers (`export function GET(request: Request)`) in a catch all file. Set `FREESOUND_CLIENT_SECRET` under Environment Variables. Nothing starts with `VITE_`, so none of it is bundled into the page.
+- `pnpm dev`: `vite.config.ts` has a plugin that answers `/api/freesound/*` before the proxy to the CLI server, with the key from `.env.local` (repository root or `apps/studio`, gitignored; `apps/studio/.env.example` lists the names). `FREESOUND_FIXTURES=1` answers from `server/freesound/fixtures.ts` instead: about 40 made-up sounds (including NonCommercial and Sampling+ ones, to prove they stay hidden) with audio synthesized on the fly, no key and no network.
+- `bleepkit studio`: the CLI server answers the routes itself (6.3).
+- Without a key, a search answers 503 `not-configured`, and the tab says so and names the variable. On a static host without any server it says the browser needs the studio's server. Everything else in the studio works either way.
+
+### 13.7 In the studio
+
+The panel (`panel.ts`) is one compact list built for speed: a search box, subcategory chips, suggested tag chips for the subcategory (`taxonomy.ts`), filters (one-shots only, max length, sort, CC BY), and rows with the waveform thumbnail, name and tags, length, detected note, license badge, author and the Use button. Selecting a row plays it at once, so browsing is: arrow down, listen, arrow down. Keys: Up, Down, Home, End, Page Up and Page Down move and play; Space plays the selected sound again; Enter uses it; Shift+Enter uses it and makes a sample instrument for the project's chip; typing waits 320 ms, other filters 120 ms, and the list loads the next page when the selection nears the end. The filters are remembered (`prefs`, key `freesound:filters`).
+
+Previews play through the engine, not an audio element (`preview.ts`): the MP3 is fetched from the studio's own route, decoded with the browser's decoder, mixed to mono and leveled, and played as a scratch sample (`engine.setScratchSample`, `playPreviewSample` in `playback.ts`) through a sample instrument, so it comes out of the studio's output and moves the master scope like every other sound. The decoded previews are kept (14 at most) and the three rows below the selection are loaded ahead; only the newest request is heard when several overlap.
+
+Use (`import.ts`) imports the same decoded audio through the normal sample import (`importDecodedAudio` in `ui/import-audio.ts`: resampled and quantized for the chip, base note from the detected note when there is one, otherwise from pitch detection, loop off) and stores `source`. The audio is Freesound's HQ preview MP3, because the original files need an OAuth2 login the studio does not have; that is plenty for chip sounds, which are crushed to 8 bit anyway.
+
+The sidebar shows a CC0 or CC BY badge on a sample row that has a source, and the sample editor has the badge in its header and a Source group.
+
+### 13.8 Credits in exports
+
+`creditsText(samples)` lists every CC BY sample once (by Freesound id), sorted by name: `- "<name>" by <author>, CC BY (Creative Commons Attribution, the version is named on the page), <url>`. It returns null when there is nothing to credit. The game export writes `CREDITS.txt` into the audio folder for the CC BY samples that the exported songs play, in the browser zip (`export-local.ts`) and in `bleepkit export` (`exporter.ts`; a stale `CREDITS.txt` that the exporter wrote earlier is removed, a file the person wrote themselves is left alone). The project zip carries `CREDITS.txt` for all CC BY samples in the project.
+
+### 13.9 Tests
+
+`apps/studio/test/freesound-server.test.ts` (the function: parameters, upstream URLs and the Authorization header, the license rules including a sloppy upstream, media from our origin, limits), `freesound-panel.test.ts` (the list, keys and playing, the license badges, the unconfigured states), `freesound-import.test.ts` (the stored source, badges, `CREDITS.txt` in both zips), `freesound-assistant.test.ts` (the assistant host); `packages/core/test/sample-source.test.ts`, `packages/cli/test/freesound-server.test.ts` and the CREDITS cases of `import-audio.test.ts`, and `packages/agent/test/freesound.test.ts`. All run on the fixtures; none touch the network.
+
+### 13.10 Not confirmed against the live service
+
+The API documentation (overview, search resource, sound instance, authentication, the Broad Sound Taxonomy) was read for every name above. The studio could not reach freesound.org while this was built, so no live response was seen: the shape of `previews` (`preview-hq-mp3`) and `images` (`waveform_m`), whether `single_event`, `num_ratings` and the subcategory names work as filter clauses exactly as written, and the scale of `note_confidence` are taken from the docs and covered by the fallbacks above, not observed. Which folder is the Vercel project's Root Directory is a dashboard setting that could not be read, hence the two entry points. Check these with a real key once (`pnpm dev` with `.env.local`).

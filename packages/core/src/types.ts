@@ -269,6 +269,22 @@ export const SAMPLE_BITS = [8, 16] as const;
 /** The most PCM bytes one sample may hold (2 MiB): 2,097,152 frames at 8 bit, 1,048,576 at 16 bit. */
 export const SAMPLE_MAX_BYTES = 2 * 1024 * 1024;
 
+/** Where a sample came from, when it is somebody else's recording (today: the Freesound browser). Kept in the sample
+    document, so the credit travels with the project, the zip and the embedded manifest. */
+export interface SampleSource {
+  kind: "freesound";
+  /** The sound's id on Freesound. */
+  id: number;
+  /** The sound's title on Freesound. */
+  name: string;
+  /** The Freesound username of the uploader. */
+  author: string;
+  /** The sound's page on freesound.org (https). */
+  url: string;
+  /** "CC0" needs no credit; "CC BY" requires the credit that exports list in CREDITS.txt. Other licenses are never imported. */
+  license: "CC0" | "CC BY";
+}
+
 /** samples/<id>.json: one mono recording with the metadata a sample instrument needs. The audio is embedded as base64. */
 export interface UserSample {
   version: number;
@@ -287,6 +303,8 @@ export interface UserSample {
   bits: 8 | 16;                 // default 16
   /** Mono PCM, standard base64: signed 8 bit, or signed 16 bit little endian. At most SAMPLE_MAX_BYTES decoded. */
   data: string;
+  /** Present when the recording came from Freesound: who made it and under which license. */
+  source?: SampleSource;
 }
 
 export interface SidPatch {

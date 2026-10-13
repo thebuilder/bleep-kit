@@ -2,7 +2,7 @@
    shape and size without decoding it, so a 2 MiB sample validates in about a millisecond. */
 
 import { base64ByteLength, isBase64, sampleFrames } from "../samples/user.ts";
-import type { Normalized, UserSample } from "../types.ts";
+import type { Normalized, SampleSource, UserSample } from "../types.ts";
 import { FORMAT_VERSION, SAMPLE_BITS, SAMPLE_MAX_BYTES } from "../types.ts";
 import { defaultSample } from "./defaults.ts";
 import type { Rec } from "./issues.ts";
@@ -33,6 +33,7 @@ const SAMPLE_KEYS = [
   "loop",
   "bits",
   "data",
+  "source",
 ];
 
 function mib(bytes: number): string {
@@ -126,6 +127,49 @@ function readLoop(
   return { end, start };
 }
 
+const SOURCE_KEYS = ["kind", "id", "name", "author", "url", "license"];
+const SOURCE_LICENSES = ["CC0", "CC BY"] as const;
+const HTTPS_URL = /^https:\/\/[^\s]{4,300}$/;
+
+/** The optional attribution. A malformed one is dropped with a warning: it is metadata, the audio is still usable. */
+function readSource(
+  ctx: ReturnType<typeof newCtx>,
+  doc: Rec
+): SampleSource | undefined {
+  const v = doc.source;
+  const p = "/source";
+  if (v === undefined || v === null) {
+    return undefined;
+  }
+  if (!isRec(v)) {
+    warn(ctx, p, `must be an object (was ${show(v)}), dropped`);
+    return undefined;
+  }
+  dropUnknown(ctx, v, p, SOURCE_KEYS);
+  const license = SOURCE_LICENSES.find((l) => l === v.license);
+  const url = typeof v.url === "string" && HTTPS_URL.test(v.url) ? v.url : null;
+  const id =
+    typeof v.id === "number" && Number.isInteger(v.id) && v.id > 0
+      ? v.id
+      : null;
+  if (v.kind !== "freesound" || !license || !url || id === null) {
+    warn(
+      ctx,
+      p,
+      'needs kind "freesound", a positive integer id, an https url and the license "CC0" or "CC BY", dropped'
+    );
+    return undefined;
+  }
+  return {
+    author: strField(ctx, v, "author", p, "", { maxLen: 64 }),
+    id,
+    kind: "freesound",
+    license,
+    name: strField(ctx, v, "name", p, "", { maxLen: 128 }),
+    url,
+  };
+}
+
 export function normalizeSample(input: unknown): Normalized<UserSample> {
   const ctx = newCtx();
   if (!isRec(input)) {
@@ -165,6 +209,10 @@ export function normalizeSample(input: unknown): Normalized<UserSample> {
     version: FORMAT_VERSION,
     volume: numField(ctx, doc, "volume", "", { def: 1, max: 1, min: 0 }),
   };
+  const source = readSource(ctx, doc);
+  if (source) {
+    value.source = source;
+  }
   if (id !== undefined) {
     (value as UserSample & { id?: string }).id = id;
   }

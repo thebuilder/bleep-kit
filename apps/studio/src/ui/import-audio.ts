@@ -3,16 +3,22 @@
    (core's `prepareImport`, the same code as `bleepkit import sample`), its pitch is detected for the base note, and
    the result is created as a sample document and opened in the sample editor. */
 import { app } from "../app.ts";
-import { AUDIO_ACCEPT, decodeAudioBytes } from "../lib/audio-decode.ts";
-import type { ChipId, UserSample } from "../lib/contract.ts";
 import {
+  AUDIO_ACCEPT,
+  type DecodedAudio,
+  decodeAudioBytes,
+} from "../lib/audio-decode.ts";
+import type { ChipId, SampleSource, UserSample } from "../lib/contract.ts";
+import {
+  chipProfile,
   detectSamplePitch,
   noteName,
   prepareImport,
   scalePosition,
 } from "../lib/core.ts";
 import { fire, h } from "../lib/dom.ts";
-import { project } from "../state/docs.ts";
+import { instrumentFor } from "../lib/sample-edit.ts";
+import { type Doc, project } from "../state/docs.ts";
 
 const EXT = /\.[A-Za-z0-9]+$/;
 
@@ -20,22 +26,25 @@ const EXT = /\.[A-Za-z0-9]+$/;
 const chipFor = (chip: ChipId): ChipId | null =>
   chip === "custom" ? null : chip;
 
-/** Import one audio file as a sample document. Resolves to the new sample's id, or null (a notice says why). */
-async function importAudioFile(file: File): Promise<string | null> {
-  const name = file.name.replace(EXT, "").trim() || "Sample";
-  let decoded: Awaited<ReturnType<typeof decodeAudioBytes>>;
-  try {
-    decoded = await decodeAudioBytes(
-      new Uint8Array(await file.arrayBuffer()),
-      file.name
-    );
-  } catch (err) {
-    app.toast(`Could not import ${file.name}: ${(err as Error).message}`);
-    return null;
-  }
+export interface ImportOptions {
+  /** A base note known from elsewhere (a Freesound sound's detected note); it replaces the pitch detection. */
+  baseNote?: number | null;
+  /** Open the sample editor on the new sample. Default true. */
+  open?: boolean;
+  /** Who made the recording, when it is not the person's own. */
+  source?: SampleSource;
+}
+
+/** Make a sample document of decoded audio: mono, resampled and quantized for the project's chip, pitch set. */
+export async function importDecodedAudio(
+  decoded: DecodedAudio,
+  name: string,
+  label: string,
+  opts: ImportOptions = {}
+): Promise<string | null> {
   const [first] = decoded.channels;
   if (!first || first.length < 2) {
-    app.toast(`Could not import ${file.name}: it holds no audio`);
+    app.toast(`Could not import ${label}: it holds no audio`);
     return null;
   }
   const imported = prepareImport(
@@ -47,7 +56,15 @@ async function importAudioFile(file: File): Promise<string | null> {
   const sample: UserSample = imported.sample;
   const pitch = detectSamplePitch(first, decoded.sampleRate);
   const notes = [...imported.notes];
-  if (pitch) {
+  if (opts.baseNote !== undefined && opts.baseNote !== null) {
+    sample.baseNote = opts.baseNote;
+    // the detected pitch only fine tunes a note that agrees with it
+    sample.finetune =
+      pitch?.note === opts.baseNote
+        ? Math.max(-100, Math.min(100, -pitch.cents))
+        : 0;
+    notes.push(`note ${noteName(opts.baseNote)}`);
+  } else if (pitch) {
     sample.baseNote = pitch.note;
     sample.finetune = Math.max(-100, Math.min(100, -pitch.cents));
     notes.push(`pitch ${noteName(pitch.note)}`);
@@ -66,6 +83,9 @@ async function importAudioFile(file: File): Promise<string | null> {
       notes.push("kept the loop stored in the file");
     }
   }
+  if (opts.source) {
+    sample.source = opts.source;
+  }
   const doc = await project.create(
     "sample",
     project.uniqueId("sample", name),
@@ -73,12 +93,45 @@ async function importAudioFile(file: File): Promise<string | null> {
   );
   const errors = doc.issues.filter((i) => i.severity === "error");
   if (errors.length > 0) {
-    app.toast(`${file.name}: ${errors[0]?.message ?? "not a valid sample"}`);
+    app.toast(`${label}: ${errors[0]?.message ?? "not a valid sample"}`);
   } else {
     app.toast(`Imported ${doc.id}: ${notes.join(", ")}`);
   }
-  app.navigate(`#/sample/${encodeURIComponent(doc.id)}`);
+  if (opts.open ?? true) {
+    app.navigate(`#/sample/${encodeURIComponent(doc.id)}`);
+  }
   return doc.id;
+}
+
+/** Import one audio file as a sample document. Resolves to the new sample's id, or null (a notice says why). */
+async function importAudioFile(file: File): Promise<string | null> {
+  const name = file.name.replace(EXT, "").trim() || "Sample";
+  let decoded: DecodedAudio;
+  try {
+    decoded = await decodeAudioBytes(
+      new Uint8Array(await file.arrayBuffer()),
+      file.name
+    );
+  } catch (err) {
+    app.toast(`Could not import ${file.name}: ${(err as Error).message}`);
+    return null;
+  }
+  return importDecodedAudio(decoded, name, file.name);
+}
+
+/** A sample instrument that plays sample `sampleId`, made for the project's chip. */
+export async function createSampleInstrument(
+  sampleId: string,
+  sample: UserSample,
+  id?: string
+): Promise<Doc> {
+  const { chip } = project.project;
+  const forChip = chipProfile(chip).kinds.includes("sample") ? chip : null;
+  return await project.create(
+    "instrument",
+    id ?? project.uniqueId("instrument", sample.name || sampleId),
+    instrumentFor(sampleId, sample, forChip)
+  );
 }
 
 /** Import several files; the last one stays open. */

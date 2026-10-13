@@ -1,9 +1,10 @@
 {
-  // Browser only (vite.config.ts runs in Node and is checked by the root config).
+  // Browser code, plus server/ (the Freesound handler, written against web standard Request and Response, so it checks
+  // here too). vite.config.ts runs in Node and is checked by the root config, together with the Vercel entry points in api/.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["es2023", "dom", "dom.iterable"],
     "types": ["vite/client"]
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "server"]
 }

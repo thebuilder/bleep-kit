@@ -3,7 +3,7 @@
 
 import type { ChipId } from "../lib/contract.ts";
 import { defaultProject, normalizeProject } from "../lib/core.ts";
-import { readZip, writeZip } from "../zip.ts";
+import { readZip, writeZip, type ZipEntry } from "../zip.ts";
 import { starterFiles } from "./seed.ts";
 import {
   etagOf,
@@ -256,15 +256,15 @@ export class LocalStore implements ProjectStore {
     this.listeners.clear();
   }
 
-  /** The whole project as a stored zip (documents and renders). */
-  async exportZip(): Promise<Uint8Array> {
+  /** The whole project as a stored zip (documents and renders), plus `extra` files such as CREDITS.txt. */
+  async exportZip(extra: ZipEntry[] = []): Promise<Uint8Array> {
     const entries = (await this.backend.all())
       .filter((r) => kindOfPath(r.path))
       .map((r) => ({
         data: r.bytes ?? new TextEncoder().encode(r.text ?? ""),
         path: r.path,
       }));
-    return writeZip(entries);
+    return writeZip([...entries, ...extra]);
   }
 
   /** Replace or add documents from a zip. Returns how many files were imported. */

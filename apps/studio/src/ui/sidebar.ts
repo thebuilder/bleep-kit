@@ -1,6 +1,8 @@
 /* The left sidebar: view navigation, search, and the project tree (SFX, Songs, Instruments) with a "+ New" per section
    and a play button on every row, so everything is previewable without opening it. */
 import { analysisHash, app, type Route } from "../app.ts";
+import { licenseBadge } from "../freesound/badge.ts";
+import { openSampleImport } from "../freesound/dialog.ts";
 import { categoryColor, KIND_HEX } from "../lib/chips.ts";
 import type { Instrument, Sfx, Song, UserSample } from "../lib/contract.ts";
 import { fire, h, prefs } from "../lib/dom.ts";
@@ -13,7 +15,6 @@ import {
 } from "../render-service.ts";
 import { type Doc, type DocKind, project } from "../state/docs.ts";
 import { icon } from "./icons.ts";
-import { pickAudioFiles } from "./import-audio.ts";
 import { pickSongFile } from "./import-midi.ts";
 import {
   createInstrument,
@@ -53,6 +54,7 @@ function rowFor(doc: Doc, cur: boolean): HTMLElement {
   let ic = "song";
   let color = "#9a95ad";
   let meta = "";
+  let badge: HTMLElement | null = null;
   if (doc.kind === "sfx") {
     const s = doc.value as Sfx;
     ic = s.category;
@@ -68,6 +70,7 @@ function rowFor(doc: Doc, cur: boolean): HTMLElement {
     ic = "sample";
     color = KIND_HEX.sample;
     meta = `${(framesOf(s) / s.rate).toFixed(1)}s`;
+    badge = s.source ? licenseBadge(s.source.license) : null;
   } else {
     const s = doc.value as Song;
     meta = `${s.tempo} bpm`;
@@ -106,6 +109,7 @@ function rowFor(doc: Doc, cur: boolean): HTMLElement {
       style: `--kc:${color}`,
     },
     a,
+    badge,
     h("span", { class: "meta" }, meta),
     h("i", { class: "dot", title: "Unsaved changes" }),
     pl
@@ -165,7 +169,7 @@ export function createSidebar(host: HTMLElement): {
     } else if (kind === "song") {
       fire(createSong());
     } else if (kind === "sample") {
-      pickAudioFiles();
+      openSampleImport();
     } else {
       pickKind((k) => fire(createInstrument(k)));
     }
@@ -210,10 +214,10 @@ export function createSidebar(host: HTMLElement): {
       const imp = h("button", {
         "aria-label": "Import sample",
         class: "btn icon small",
-        title: "Import a WAV, MP3 or OGG file as a sample",
+        title: "Import a sample from a file or from Freesound",
       });
       imp.innerHTML = icon("import", 12);
-      imp.addEventListener("click", pickAudioFiles);
+      imp.addEventListener("click", () => openSampleImport());
       return h("div", { class: "tree-h" }, tw, imp);
     }
     return h("div", { class: "tree-h" }, tw, add);

@@ -1,6 +1,7 @@
 /* Exporting when there is no studio server: render every sound in the browser, encode it, build the manifest and
    zip the lot, laid out like the game project (public/audio/..., src/audio.ts). With a server, the CLI's export does this. */
 import { encodeAudio } from "./encode-service.ts";
+import { referencedInstruments } from "./examples/catalog.ts";
 import { zipLayout } from "./export-paths.ts";
 import {
   type Manifest,
@@ -9,8 +10,14 @@ import {
   type SfxEntry,
   type SongEntry,
 } from "./export-preview.ts";
-import type { Instrument, Project, Sfx, Song } from "./lib/contract.ts";
-import { MP3_ENCODER_DELAY } from "./lib/core.ts";
+import type {
+  Instrument,
+  Project,
+  Sfx,
+  Song,
+  UserSample,
+} from "./lib/contract.ts";
+import { CREDITS_FILE, creditsText, MP3_ENCODER_DELAY } from "./lib/core.ts";
 import { renderSfxAsync, renderSongAsync } from "./render-service.ts";
 import { project } from "./state/docs.ts";
 import { writeZip, type ZipEntry } from "./zip.ts";
@@ -33,6 +40,8 @@ interface ExportCtx {
   manifest: Manifest;
   notes: string[];
   project: Project;
+  /** The user samples the exported songs play, for CREDITS.txt. */
+  samples: Record<string, UserSample>;
 }
 
 const putEntry = (
@@ -115,6 +124,13 @@ async function exportSong(ctx: ExportCtx, d: { id: string; value: unknown }) {
     putEntry(ctx, `${ctx.dir}/${evName}`, JSON.stringify(r.events));
     e.events = evName;
   }
+  const played = Object.fromEntries(
+    referencedInstruments(d.value as Song).flatMap((id) => {
+      const inst = ctx.instruments[id];
+      return inst ? [[id, inst] as const] : [];
+    })
+  );
+  Object.assign(ctx.samples, project.samplesFor(played));
   if (p.export.embed) {
     const samples = project.samplesFor(ctx.instruments);
     e.data = {
@@ -146,6 +162,7 @@ export async function exportInBrowser(
     },
     notes: [],
     project: p,
+    samples: {},
   };
   let done = 0;
   for (const d of sfx) {
@@ -161,6 +178,10 @@ export async function exportInBrowser(
     done += 1;
   }
   onProgress(total, total, "manifest");
+  const credits = creditsText(ctx.samples);
+  if (credits !== null) {
+    putEntry(ctx, `${ctx.dir}/${CREDITS_FILE}`, credits);
+  }
   putEntry(ctx, `${ctx.dir}/manifest.json`, manifestJson(ctx.manifest));
   putEntry(ctx, layout.manifest, manifestTs(ctx.manifest));
   const zip = writeZip(ctx.entries);

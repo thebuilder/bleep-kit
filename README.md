@@ -119,6 +119,22 @@ await player.music("space-cruise", { fadeIn: 1.5 });
 
 The full API (preloading, unlocking audio on the first gesture, polyphony limits, Safari notes) is in [packages/player/README.md](packages/player/README.md).
 
+## Freesound samples
+
+The Samples section's import button opens a dialog with a "From Freesound" tab: a quick browser for Freesound.org's "Instrument samples" with subcategory and tag chips, a one-shot filter, a length limit and sorting. Select a row (or move with the arrow keys) and the sound plays at once; Use imports it as a sample with its author and license remembered. CC0 sounds are shown by default, CC BY ones behind a switch (they need credit: the project zip and the game audio export write a `CREDITS.txt`). Anything NonCommercial is never shown. The sounds come from [Freesound.org](https://freesound.org).
+
+It needs a Freesound API key, kept on the server and never sent to the browser. Get one by applying for an API credential at https://freesound.org/apiv2/apply, then, in the repository:
+
+```sh
+cp apps/studio/.env.example apps/studio/.env.local
+# put the credential's "Client secret / Api key" after FREESOUND_CLIENT_SECRET=
+pnpm dev
+```
+
+`.env.local` is gitignored; `pnpm bleepkit studio` reads it too (from the folder you run it in, or next to the built studio). On Vercel set `FREESOUND_CLIENT_SECRET` under Environment Variables: the function is in `apps/studio/api/freesound` (and the same file in `api/freesound`, for a project whose Root Directory is the repository root). Without a key the tab says it is not set up and everything else works.
+
+To try the tab with no key and no network, run `FREESOUND_FIXTURES=1 pnpm dev`: it answers with made-up sounds. Freesound's terms allow free use of its API for non-commercial purposes only, so check them before running this in a commercial deployment. Design: section 13 of [docs/architecture.md](docs/architecture.md).
+
 ## The studio assistant
 
 The studio has an assistant drawer (the speech bubble in the top bar, or Ctrl+J). It needs an API key from [Anthropic](https://console.anthropic.com) or [OpenAI](https://platform.openai.com/api-keys); open the settings from the drawer, the project menu or the command palette (Ctrl+K), paste the key and pick a model from the list your key can use.
@@ -153,7 +169,8 @@ packages/sfx      the sound effect generators and mutation
 packages/agent    @bleepkit/agent: tools, system prompt, provider adapters and loop for the studio assistant (browser safe)
 packages/player   @bleepkit/player: the Web Audio player and AudioWorklet for games
 packages/cli      the bleepkit command
-apps/studio       the studio (Vite app), talks to the CLI's studio server or runs standalone
+apps/studio       the studio (Vite app), talks to the CLI's studio server or runs standalone; server/ and api/ hold the Freesound function
+api/              the Vercel entry point of that function, for a Root Directory at the repository root
 examples/demo     a finished project: 7 songs, 22 sfx, committed OGG export
 docs/             architecture.md: documents, engine, CLI and manifest in detail
 scripts/          check-packages.ts: packs the packages and runs them in a scratch project

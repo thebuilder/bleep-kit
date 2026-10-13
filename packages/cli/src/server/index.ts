@@ -1,9 +1,14 @@
 // The studio server (architecture.md 6.3): HTTP on 127.0.0.1, the JSON API, the websocket and the file watcher.
 import http from "node:http";
 import { WebSocketServer } from "ws";
+import {
+  isFreesoundPath,
+  serveFreesound,
+} from "../../../../apps/studio/server/freesound/node.ts";
 import { CliError } from "../output.ts";
 import { loadProjectFile } from "../project.ts";
 import { type ApiState, HttpError, handleApi, sendJson } from "./api.ts";
+import { freesoundEnv } from "./freesound.ts";
 import { createHub, type Hub } from "./hub.ts";
 import { ISOLATION_HEADERS, serveStatic } from "./static.ts";
 import { startWatcher } from "./watch.ts";
@@ -66,6 +71,7 @@ export function startServer(options: ServerOptions): Promise<RunningServer> {
     root: options.root,
     version: options.version,
   };
+  const freesound = { env: freesoundEnv(options.studioDist) };
   const wss = new WebSocketServer({ noServer: true });
   const server = http.createServer((req, res) => {
     for (const [k, v] of Object.entries(ISOLATION_HEADERS)) {
@@ -79,6 +85,17 @@ export function startServer(options: ServerOptions): Promise<RunningServer> {
       return;
     }
     const url = new URL(req.url ?? "/", "http://localhost");
+    if (isFreesoundPath(req.url)) {
+      serveFreesound(req, res, freesound).catch((error: unknown) => {
+        if (!res.headersSent) {
+          sendJson(res, 500, {
+            error: "internal",
+            message: (error as Error).message,
+          });
+        }
+      });
+      return;
+    }
     if (url.pathname.startsWith("/api/")) {
       handleApi(state, req, res, url).catch((error: unknown) => {
         const f =

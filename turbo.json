@@ -29,6 +29,7 @@
       "dependsOn": ["^build", "^build:worklet"],
       "inputs": [
         "src/**",
+        "server/**",
         "build.ts",
         "build-worklet.ts",
         "worklet-build-options.ts",
@@ -37,7 +38,8 @@
         "tsconfig*.json",
         "package.json",
         "$TURBO_ROOT$/tsconfig.base.json",
-        "$TURBO_ROOT$/apps/studio/vite.config.ts"
+        "$TURBO_ROOT$/apps/studio/vite.config.ts",
+        "$TURBO_ROOT$/apps/studio/server/**"
       ],
       // the player's build also writes the worklet bundle (`build:worklet` is its last step), so a cache hit restores it
       "outputs": ["dist/**", "worklet/**"]
@@ -46,11 +48,13 @@
       "dependsOn": ["transit", "^build:worklet"],
       "inputs": [
         "src/**",
+        "server/**",
         "test/**",
         "build.ts",
         "tsconfig*.json",
         "package.json",
-        "$TURBO_ROOT$/tsconfig.base.json"
+        "$TURBO_ROOT$/tsconfig.base.json",
+        "$TURBO_ROOT$/apps/studio/server/**"
       ],
       "outputs": []
     },
@@ -58,10 +62,12 @@
       "dependsOn": ["transit", "^build:worklet"],
       "inputs": [
         "src/**",
+        "server/**",
         "test/**",
         "vitest.config.ts",
         "package.json",
-        "$TURBO_ROOT$/tsconfig.base.json"
+        "$TURBO_ROOT$/tsconfig.base.json",
+        "$TURBO_ROOT$/apps/studio/server/**"
       ],
       "outputs": []
     },
@@ -69,6 +75,8 @@
     "check": {
       "inputs": [
         "src/**",
+        "server/**",
+        "api/**",
         "test/**",
         "build.ts",
         "index.html",
@@ -86,6 +94,7 @@
         ".fallowrc.jsonc",
         "*.ts",
         "scripts/**",
+        "api/**",
         ".github/**"
       ],
       "outputs": []
@@ -93,6 +102,9 @@
     "//#typecheck:root": {
       "inputs": [
         "scripts/**",
+        "api/**",
+        "apps/studio/api/**",
+        "apps/studio/server/**",
         "*.ts",
         "tsconfig*.json",
         "packages/*/vitest.config.ts",

@@ -5,15 +5,15 @@
 import type { Command, ViewHooks } from "../app.ts";
 import { app } from "../app.ts";
 import { engine } from "../engine/engine.ts";
+import { licenseBadge } from "../freesound/badge.ts";
 import { KIND_HEX } from "../lib/chips.ts";
 import type { Instrument, UserSample } from "../lib/contract.ts";
-import { chipProfile, noteName } from "../lib/core.ts";
+import { noteName } from "../lib/core.ts";
 import { clamp, fire, h } from "../lib/dom.ts";
 import {
   describeSample,
   floatsOf,
   framesOf,
-  instrumentFor,
   normalized,
   peakLevel,
   peaksOf,
@@ -35,6 +35,7 @@ import {
   toggleField,
 } from "../ui/fields.ts";
 import { icon } from "../ui/icons.ts";
+import { createSampleInstrument } from "../ui/import-audio.ts";
 import { showIssues } from "../ui/issues.ts";
 import { createKeyboard } from "../ui/keyboard.ts";
 import { rgba, surface } from "../visuals/canvas.ts";
@@ -68,7 +69,7 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
           <span class="big-ico" id="sIcon">${icon("sample", 20)}</span>
           <input class="nm-in" id="sName" aria-label="Sample name" maxlength="60" spellcheck="false">
         </div>
-        <div class="ed-sel"><span class="kind-badge" id="sKind">Sample</span></div>
+        <div class="ed-sel"><span class="kind-badge" id="sKind">Sample</span><span id="sLic"></span></div>
         <div class="ed-actions test-row">
           <button class="btn primary big" id="sPlay" title="Play the sample at its base note (Space)">${icon("play", 16)}<span>Play</span></button>
           <button class="btn big" id="sMake" title="Make a sample instrument that plays this sample">${icon("plus", 14)}<span>Make instrument</span></button>
@@ -515,6 +516,41 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
     return g.el;
   }
 
+  /** Who made the sound and under which license, for a sample that came from Freesound. */
+  function sourceGroup(): HTMLElement[] {
+    const src = sample().source;
+    if (!src) {
+      return [];
+    }
+    const g = group("Source", { key: "sample-source" });
+    g.body.append(
+      h(
+        "p",
+        { class: "src-line" },
+        licenseBadge(src.license),
+        " ",
+        h(
+          "a",
+          {
+            class: "linkish",
+            href: src.url,
+            rel: "noopener",
+            target: "_blank",
+          },
+          src.name
+        ),
+        ` by ${src.author}, from Freesound.org`
+      )
+    );
+    note(
+      g.body,
+      src.license === "CC BY"
+        ? "Creative Commons Attribution: a game that uses this sound must credit it. The project zip and the game audio export list it in CREDITS.txt."
+        : "Creative Commons 0: no credit needed."
+    );
+    return [g.el];
+  }
+
   function buildInspector(): void {
     insp.replaceChildren();
     const inner = h("div", { class: "insp-in" });
@@ -528,7 +564,14 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
         }, "name"),
       value: sample().name,
     });
-    inner.append(g1.el, pitchGroup(), levelGroup(), loopGroup(), formatGroup());
+    inner.append(
+      g1.el,
+      ...sourceGroup(),
+      pitchGroup(),
+      levelGroup(),
+      loopGroup(),
+      formatGroup()
+    );
     inner.append(
       h("div", { class: "insp-danger" }, deleteButton(doc, "Delete sample"))
     );
@@ -581,14 +624,7 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
   }
 
   async function makeInstrument(): Promise<void> {
-    const prof = chipProfile(chipOf());
-    const chip = prof.kinds.includes("sample") ? chipOf() : null;
-    const inst = instrumentFor(id, sample(), chip);
-    const created = await project.create(
-      "instrument",
-      project.uniqueId("instrument", sample().name || id),
-      inst
-    );
+    const created = await createSampleInstrument(id, sample());
     app.toast(`Made instrument ${created.id}`, "Open", () =>
       app.navigate(`#/instrument/${encodeURIComponent(created.id)}`)
     );
@@ -601,6 +637,11 @@ export function mountSample(ctx: ViewCtx, id: string): ViewHooks {
       nameIn.value = sample().name;
     }
     q("#sInfo").textContent = describeSample(sample());
+    q("#sLic").replaceChildren(
+      ...(sample().source
+        ? [licenseBadge(sample().source?.license ?? "CC0")]
+        : [])
+    );
     host.style.setProperty("--kc", hex);
     ctx.setChip(chipOf());
   }

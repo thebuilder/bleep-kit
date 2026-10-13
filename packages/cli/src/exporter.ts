@@ -2,13 +2,17 @@
 // typed audio.ts and manifest.json (architecture.md sections 7 and 8). Shared with the studio server's /api/export.
 import fs from "node:fs";
 import path from "node:path";
-import type {
-  AudioManifest,
-  Issue,
-  ManifestSfx,
-  ManifestSong,
-  Sfx,
-  Song,
+import {
+  type AudioManifest,
+  CREDITS_FILE,
+  CREDITS_HEADER,
+  creditsText,
+  type Issue,
+  type ManifestSfx,
+  type ManifestSong,
+  type Sfx,
+  type Song,
+  type UserSample,
 } from "@bleepkit/core";
 import { decodeWav } from "@bleepkit/core/tools";
 import {
@@ -350,6 +354,42 @@ function writeManifests(x: Run, manifestPath: string): void {
   }
 }
 
+/** The user samples the exported songs play, by id. */
+function samplesOfSongs(x: Run): Record<string, UserSample> {
+  const out: Record<string, UserSample> = {};
+  for (const id of listIdsValid(x.pc.root, "song")) {
+    const song = loadDoc(x.pc, "song", id).value as Song;
+    Object.assign(out, samplesFor(x.pc, instrumentsFor(x.pc, song)));
+  }
+  return out;
+}
+
+/**
+ * CREDITS.txt next to the audio: the Creative Commons Attribution (CC BY) samples that songs play, with the credit their
+ * license asks for. No file when nothing needs one; a file this export wrote earlier goes away then (one a person wrote
+ * themselves, without our first line, stays).
+ */
+function writeCredits(x: Run): void {
+  const text = creditsText(samplesOfSongs(x));
+  const dest = path.join(x.dir, CREDITS_FILE);
+  if (text === null) {
+    const old = fs.existsSync(dest) ? fs.readFileSync(dest, "utf8") : "";
+    if (old.startsWith(CREDITS_HEADER)) {
+      if (!x.dryRun) {
+        fs.rmSync(dest, { force: true });
+      }
+      x.written.push(relToRoot(x.pc, dest));
+    }
+    return;
+  }
+  if (!sameContent(dest, text)) {
+    if (!x.dryRun) {
+      writeFileAtomic(dest, text);
+    }
+    x.written.push(relToRoot(x.pc, dest));
+  }
+}
+
 function cleanDir(x: Run): string[] {
   const removed: string[] = [];
   if (!fs.existsSync(x.dir)) {
@@ -410,6 +450,7 @@ export async function runExport(
     );
   }
   writeManifests(x, manifestPath);
+  writeCredits(x);
   const removed = options.clean ? cleanDir(x) : [];
   return {
     dryRun: x.dryRun,

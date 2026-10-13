@@ -10,7 +10,7 @@ import {
   exportInBrowser,
 } from "./export-local.ts";
 import type { ChipId } from "./lib/contract.ts";
-import { hashString } from "./lib/core.ts";
+import { CREDITS_FILE, creditsText, hashString } from "./lib/core.ts";
 import { fire, prefs } from "./lib/dom.ts";
 import { stopEverything } from "./playback.ts";
 import { project } from "./state/docs.ts";
@@ -144,7 +144,15 @@ export async function exportProjectZip(): Promise<void> {
     return;
   }
   await project.saveAll();
-  download(`${slug()}-project.zip`, await ls.exportZip());
+  const credits = creditsText(project.samples());
+  download(
+    `${slug()}-project.zip`,
+    await ls.exportZip(
+      credits === null
+        ? []
+        : [{ data: new TextEncoder().encode(credits), path: CREDITS_FILE }]
+    )
+  );
   markBackedUp();
 }
 

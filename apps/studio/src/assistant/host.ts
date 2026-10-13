@@ -22,6 +22,7 @@ import { type Doc, project } from "../state/docs.ts";
 import { deleteDocument } from "../ui/delete-doc.ts";
 import { resampleDoc } from "../ui/resample.ts";
 import type { AnalysisBundle } from "../workers/render.ts";
+import { createFreesoundHost } from "./freesound-host.ts";
 import { pngBase64 } from "./png.ts";
 
 export interface StudioHost extends AgentHost {
@@ -117,6 +118,7 @@ export function createStudioHost(): StudioHost {
       group = "";
       signal = undefined;
     },
+    freesound: createFreesoundHost(sampleInfo),
     async images(ref, kinds, opts) {
       const bundle = await measure(ref, opts?.note);
       const out: AgentImage[] = [];

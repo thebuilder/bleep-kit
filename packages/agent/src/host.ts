@@ -78,11 +78,65 @@ export interface Measured {
   imageKinds: ImageKind[];
 }
 
+/** One Freesound result as the model sees it. Only CC0 and CC BY sounds are ever offered; the host enforces that. */
+export interface FreesoundHit {
+  author: string;
+  id: number;
+  license: "CC0" | "CC BY";
+  name: string;
+  /** The note Freesound detected, when it is confident. */
+  note: string | null;
+  oneShot: boolean;
+  seconds: number;
+  subcategory: string | null;
+  tags: string[];
+}
+
+/** What `search_freesound` may ask for. The host passes it to the studio's own whitelisted route. */
+export interface FreesoundSearchOptions {
+  /** "cc0" (the default) or "by", which adds CC BY sounds (the person must credit them). */
+  license?: "by" | "cc0";
+  maxSeconds?: number;
+  oneShot?: boolean;
+  page?: number;
+  query?: string;
+  sort?: "downloads" | "rating" | "relevance" | "shortest";
+  subcategory?: "keys" | "other" | "percussion" | "string" | "synth" | "wind";
+  tags?: string[];
+}
+
+export interface FreesoundSearchResult {
+  count: number;
+  hasMore: boolean;
+  hits: FreesoundHit[];
+  /** Things the service did on the way (a filter it had to drop). */
+  notes: string[];
+}
+
+/** The Freesound sample browser, for hosts that have one (the studio, when its server has an API key). */
+export interface FreesoundHost {
+  /**
+   * Import a sound a search returned in this session, as a user sample that remembers its author and license, and
+   * with `instrument` also a sample instrument that plays it. Rejects for an id no search returned.
+   */
+  import: (
+    id: number,
+    opts: { instrument: string | null }
+  ) => Promise<{
+    hit: FreesoundHit;
+    instrument: string | null;
+    sample: SampleInfo;
+  }>;
+  search: (opts: FreesoundSearchOptions) => Promise<FreesoundSearchResult>;
+}
+
 export interface AgentHost {
   /** Render and measure a document. An instrument is measured by playing `note` (default 60) on it. */
   analyze: (ref: DocRef, opts?: { note?: number }) => Promise<Measured>;
   /** The document being looked at right now, if the application has such a thing. */
   current: () => DocRef | null;
+  /** The Freesound sample browser. Absent where there is none; the Freesound tools are then left out. */
+  freesound?: FreesoundHost;
   /** Pictures of the last (or a fresh) measurement of `ref`, as PNG. */
   images: (
     ref: DocRef,

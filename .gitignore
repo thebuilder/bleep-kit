@@ -6,3 +6,5 @@ out/
 *.log
 .vitest/
 .tmp-*/
+.env.local
+.env.*.local

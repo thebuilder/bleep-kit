@@ -157,6 +157,31 @@ export function previewSampleNote(doc: Doc, note: number): number {
   return engine.previewNoteOn(samplePreviewId(doc.id), inst, note);
 }
 
+/** The sample id and the note of the one sound the Freesound browser plays at a time. */
+const PREVIEW_SAMPLE_ID = "freesound-preview";
+
+/**
+ * Play a sound that is not in the project (a Freesound preview) once through the engine, at the pitch it was recorded,
+ * so it comes out of the studio's output and shows on the master scope like everything else. A new preview replaces the
+ * one before it. Returns how long it lasts, in seconds.
+ */
+export function playPreviewSample(sample: UserSample): number {
+  unlockAudio();
+  releaseNote();
+  engine.setScratchSample(PREVIEW_SAMPLE_ID, sample);
+  const inst = instrumentFor(PREVIEW_SAMPLE_ID, sample, null);
+  inst.envelope = { attack: 0, decay: 0, release: 0.04, sustain: 1 };
+  heldChannel = engine.previewNoteOn(
+    samplePreviewId(PREVIEW_SAMPLE_ID),
+    inst,
+    sample.baseNote
+  );
+  const seconds = sampleSeconds(sample);
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(releaseNote, (seconds + 0.05) * 1000);
+  return seconds;
+}
+
 /** The play button of a sample row: its base note, held for the length of the sample (at most four seconds). */
 function playSampleDoc(doc: Doc): void {
   const sample = doc.value as UserSample;

@@ -13,6 +13,7 @@ import { createAssistantPanel } from "./assistant/panel.ts";
 import { openAssistantSettings } from "./assistant/settings-dialog.ts";
 import { type Backdrop, createBackdrop } from "./backdrop/index.ts";
 import { engine } from "./engine/engine.ts";
+import { openSampleImport } from "./freesound/dialog.ts";
 import { chipTheme } from "./lib/chips.ts";
 import type { ChipId, Song, UserSample } from "./lib/contract.ts";
 import { choose, fire, formatTime, h, prefs } from "./lib/dom.ts";
@@ -507,6 +508,13 @@ export async function boot(root: HTMLElement): Promise<void> {
         id: "new-song",
         run: () => fire(createSong()),
         title: "New song",
+      },
+      {
+        group: "File",
+        icon: "import",
+        id: "freesound",
+        run: () => openSampleImport("freesound"),
+        title: "Search Freesound samples",
       },
       {
         group: "File",
