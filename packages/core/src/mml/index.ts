@@ -1,18 +1,14 @@
 import { effectFromByte } from "../normalize/effects.ts";
 import type { Effect, Issue, MmlEvent, MmlOptions, Row } from "../types.ts";
 import { PPQ } from "../types.ts";
+import { mmlPanToByte, type Running, setNote } from "./grid.ts";
 import { MML_PATH, parseMml } from "./parser.ts";
 
 export { formatMml, patternToMml } from "./format.ts";
 
-export { parseMml } from "./parser.ts";
+export { type GridTiming, mmlPanToByte, mmlToRows } from "./grid.ts";
 
-/** MML pan p0..p15 (8 = center) to the X effect byte: 0x00 left, 0x80 center, 0xFF right. */
-export function mmlPanToByte(p: number): number {
-  return p <= 8
-    ? Math.round((p / 8) * 128)
-    : 128 + Math.round(((p - 8) / 7) * 127);
-}
+export { parseMml } from "./parser.ts";
 
 type NoteEvent = Extract<MmlEvent, { type: "note" }>;
 
@@ -54,12 +50,6 @@ function createRowGrid(pulsesPerRow: number, issues: Issue[]): RowGrid {
   };
 }
 
-/** The volume and instrument last written to a row: a note only repeats them when they change. */
-interface Running {
-  inst: string | null;
-  volume: number;
-}
-
 /** The first note event after index `k`, if any. */
 function nextNoteAfter(
   events: readonly MmlEvent[],
@@ -91,15 +81,7 @@ function addNote(
       severity: "warning",
     });
   }
-  r.note = e.note;
-  if (e.volume !== running.volume || r.vol !== null) {
-    r.vol = e.volume;
-  }
-  running.volume = e.volume;
-  if (e.inst !== null && (e.inst !== running.inst || r.inst !== null)) {
-    r.inst = e.inst;
-  }
-  running.inst = e.inst ?? running.inst;
+  setNote(r, e, running);
   r.fx.push(...e.fx);
   // a note off where the next event is not a note starting at the same row
   const offRow = rows.grid(e.pulse + e.gate, "note end");

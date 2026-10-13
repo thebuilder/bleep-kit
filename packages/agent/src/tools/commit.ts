@@ -121,14 +121,15 @@ async function instrumentHint(host: AgentHost, kind: DocKind): Promise<string> {
 }
 
 const KEPT_HELP =
-  "That MML does not fit the tracker grid (triplets, q gates or odd lengths fall between rows). Use lengths that land on rows, or raise the song's rowsPerBeat.";
+  "A channel that stays MML text still plays, but its cells in the grid are read only. Take the jump, skip or halt effects out of the patterns, or keep the tune to 256 bars, to have it as rows.";
 
+/** What the conversion to patterns had to say: channels that stay MML (with how to fix it), then the rest. */
 function keptText(notes: readonly Issue[]): string {
-  const kept = notes.filter((i) => i.severity === "warning");
-  const info = notes.filter((i) => i.severity === "info");
+  const kept = notes.filter((i) => i.message.includes("stays as MML text"));
+  const rest = notes.filter((i) => !kept.includes(i));
   return [
     kept.length > 0 ? `\n${issueLines(kept)}\n${KEPT_HELP}` : "",
-    info.length > 0 ? `\n${issueLines(info)}` : "",
+    rest.length > 0 ? `\n${issueLines(rest)}` : "",
   ].join("");
 }
 

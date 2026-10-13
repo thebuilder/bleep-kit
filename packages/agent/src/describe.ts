@@ -4,12 +4,14 @@ import {
   decodeSampleData,
   type Instrument,
   noteName,
+  orderStartRow,
   PPQ,
   parseMml,
   patternToMml,
   peakOf,
   type Song,
   sampleFrames,
+  songTiming,
   type UserSample,
 } from "@bleepkit/core";
 
@@ -159,11 +161,16 @@ export function songFacts(song: Song): SongFacts {
  */
 export function songText(song: Song, maxChars = 3000): string {
   const lines: string[] = [];
+  const timing = songTiming(song);
   let used = 0;
   for (const id of [...new Set(song.order)]) {
     const pattern = song.patterns[id];
+    const startRow = orderStartRow(song, song.order.indexOf(id));
     for (const [channel, rows] of Object.entries(pattern?.tracks ?? {})) {
-      const text = patternToMml(rows, song.rowsPerBeat, pattern?.length);
+      const text = patternToMml(rows, song.rowsPerBeat, pattern?.length, {
+        ...timing,
+        startRow,
+      });
       if (text === "") {
         continue;
       }

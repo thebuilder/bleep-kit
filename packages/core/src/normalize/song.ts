@@ -1161,7 +1161,11 @@ export function normalizeSong(
   // Structure: patterns and order. An MML-only song gets synthesized patterns (empty, structure only).
   const structure = synthInput
     ? {
-        ...synthesizeStructure(mml.sources, mml.end, rowsPerBeat),
+        ...synthesizeStructure(mml.sources, mml.end, {
+          rowsPerBeat,
+          tempo,
+          tickRate,
+        }),
         synthesized: true,
       }
     : { order: readOrder(ctx, doc, patterns), patterns, synthesized: false };

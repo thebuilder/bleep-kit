@@ -292,17 +292,23 @@ describe("creating", () => {
     expect(read.text).toContain("Verse / pulse1: ");
   });
 
-  it("keeps a channel as MML when its timing is between rows, and tells the model", async () => {
+  it("turns triplets and q gates into delays and cuts instead of keeping MML", async () => {
     const { call, host } = setup();
     const out = await call("new_song", {
       id: "swing",
-      mml: { pulse1: "q7 l12 c d e f", triangle: "o2 l4 c g" },
+      mml: { pulse1: "q7 l6 c d e f", triangle: "o2 l4 c g" },
     });
     expect(out.isError).toBeUndefined();
-    expect(out.text).toContain('channel "pulse1" stays as MML text');
+    expect(out.text).not.toContain("stays as MML text");
     const song = host.docs.get("song/swing") as Song;
-    expect(song.channels.find((c) => c.id === "pulse1")?.mml).not.toBeNull();
-    expect(song.channels.find((c) => c.id === "triangle")?.mml).toBeNull();
+    expect(song.rowsPerBeat).toBe(4);
+    expect(song.channels.every((c) => c.mml === null)).toBe(true);
+    const rows = Object.values(song.patterns).flatMap(
+      (p) => p.tracks.pulse1 ?? []
+    );
+    const types = new Set(rows.flatMap((r) => r.fx.map((e) => e.type)));
+    expect(types.has("delay")).toBe(true);
+    expect(types.has("cut")).toBe(true);
   });
 
   it("creates a song from MML with matching instruments", async () => {

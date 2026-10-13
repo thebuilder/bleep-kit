@@ -1,7 +1,7 @@
 /* One song, two views: a song that arrives with MML opens as tracker patterns (editable everywhere, no extra undo
-   step), the Text view of a channel follows the grid and the grid follows what is typed, and a channel whose timing
-   falls between rows stays MML with its text open. The shell is real, on the fake engine and a browser store; every test
-   drives the real controls. */
+   step), the Text view of a channel follows the grid and the grid follows what is typed, timing between rows is a delay
+   (Gxx) or a cut (Sxx) in the grid, and a channel stays MML with its text open only when the patterns jump, skip or halt.
+   The shell is real, on the fake engine and a browser store; every test drives the real controls. */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import indexHtml from "../index.html?raw";
 import type { Song } from "../src/lib/contract.ts";
@@ -35,6 +35,13 @@ const toastText = () => {
   const el = document.getElementById("toast") as HTMLElement;
   return el.hidden ? "" : (el.querySelector("span")?.textContent ?? "");
 };
+/** The text of one effect cell (0 is the first effect column). */
+const fxAt = (row: number, ch: number, k = 0) =>
+  document
+    .querySelector(
+      `.trow[data-r="${row}"] .tc[data-ch="${ch}"] [data-f="${3 + k}"]`
+    )
+    ?.textContent?.trim();
 /** The note text of one grid cell. */
 const noteAt = (row: number, ch: number) =>
   document
@@ -228,9 +235,118 @@ describe("the Text view", () => {
   });
 });
 
+describe("timing between rows", () => {
+  it("shows a gated note as a cut and a triplet as a delay, with no channel left as MML", async () => {
+    await makeMmlSong("mml-swing", "q7 l8 c d e f");
+    await goSong("mml-swing");
+    const s = songValue("mml-swing");
+    expect(s.channels[0]?.mml).toBeNull();
+    expect(s.rowsPerBeat).toBe(4);
+    expect(document.querySelectorAll(".tr-body .tc.is-mml")).toHaveLength(0);
+    // each eighth note (two rows) is cut 6 ticks into the second row
+    expect(noteAt(0, 0)).toBe("C-4");
+    expect(fxAt(1, 0)).toBe("S06");
+    expect(noteAt(2, 0)).toBe("D-4");
+    await makeMmlSong("mml-trip", "l6 c d e");
+    await goSong("mml-trip");
+    expect(noteAt(2, 0)).toBe("D-4");
+    expect(fxAt(2, 0)).toBe("G05");
+    expect(fxAt(5, 0)).toBe("G03");
+  });
+
+  it("keeps the timing through the Text view, and reads typed timing back", async () => {
+    await makeMmlSong("mml-time", "q7 l8 c d e f");
+    await goSong("mml-time");
+    press(headBtn(0, "text"));
+    const ta = textArea(
+      songValue("mml-time").channels[0]?.id as string
+    ) as HTMLTextAreaElement;
+    // the text says the gate in pulses: the grid it makes is the grid it came from
+    const before = JSON.stringify(songValue("mml-time").patterns.a);
+    ta.focus();
+    ta.value = `${ta.value} `;
+    fire(ta, "input");
+    await settle(250);
+    expect(JSON.stringify(songValue("mml-time").patterns.a)).toBe(before);
+    // typed timing becomes a delay and a cut: a triplet quarter note, then a gated one
+    ta.value = "o4 r16 r32 r48 q4 l16 c";
+    fire(ta, "input");
+    // 44 pulses is 7 ticks into row 1, and the half length note ends 3 ticks into row 2
+    expect(await until(() => noteAt(1, 0) === "C-4")).toBe(true);
+    expect(fxAt(1, 0)).toBe("G07");
+    expect(fxAt(2, 0)).toBe("S03");
+  });
+
+  it("opens as many effect columns as a row needs", async () => {
+    const song = defaultSong(project().project.chip);
+    song.name = "mml-fx";
+    song.patterns = {
+      a: {
+        length: 16,
+        tracks: {
+          [song.channels[0]?.id as string]: [
+            {
+              fx: [
+                { type: "pan", x: 12, y: 0 },
+                { type: "delay", x: 0, y: 3 },
+                { type: "cut", x: 0, y: 6 },
+              ],
+              inst: null,
+              note: 60,
+              row: 0,
+              vol: null,
+            },
+          ],
+        },
+      },
+    };
+    song.order = ["a"];
+    await project().create("song", "mml-fx", song);
+    await goSong("mml-fx");
+    expect(
+      document.querySelector('.tr-body .tc[data-ch="0"]')?.className
+    ).toContain("fx3");
+    expect(fxAt(0, 0, 0)).toBe("XC0");
+    expect(fxAt(0, 0, 1)).toBe("G03");
+    expect(fxAt(0, 0, 2)).toBe("S06");
+    expect(
+      songValue("mml-fx").patterns.a?.tracks[
+        song.channels[0]?.id as string
+      ]?.[0]?.fx
+    ).toHaveLength(3);
+  });
+});
+
 describe("a channel the converter kept as MML", () => {
-  it("is read only, shows its text with a reason, and becomes patterns once the text fits", async () => {
-    await makeMmlSong("mml-kept", "q7 l12 c d e f");
+  /** A song whose patterns jump: its MML channel cannot become rows that play in time order. */
+  async function makeJumpSong(id: string, mml: string) {
+    const song = defaultSong(project().project.chip);
+    song.name = id;
+    song.rowsPerBeat = 4;
+    const other = song.channels[1]?.id as string;
+    song.patterns = {
+      a: {
+        length: 16,
+        tracks: {
+          [other]: [
+            {
+              fx: [{ type: "jump", x: 0, y: 0 }],
+              inst: null,
+              note: 60,
+              row: 0,
+              vol: null,
+            },
+          ],
+        },
+      },
+    };
+    song.order = ["a"];
+    (song.channels[0] as { mml: string | null }).mml = mml;
+    await project().create("song", id, song);
+  }
+
+  it("is read only, shows its text with a reason, and stays text when the text is edited", async () => {
+    await makeJumpSong("mml-kept", "o4 l4 c d e f");
     await goSong("mml-kept");
     const s = songValue("mml-kept");
     expect(s.channels[0]?.mml).not.toBeNull();
@@ -238,10 +354,8 @@ describe("a channel the converter kept as MML", () => {
       document.querySelectorAll('.tr-body .tc.is-mml[data-ch="0"]').length
     ).toBeGreaterThanOrEqual(16);
     const ta = textArea(s.channels[0]?.id as string) as HTMLTextAreaElement;
-    expect(ta.value).toBe("q7 l12 c d e f");
-    expect(document.querySelector(".mml-note")?.textContent).toContain(
-      "falls between the rows"
-    );
+    expect(ta.value).toBe("o4 l4 c d e f");
+    expect(document.querySelector(".mml-note")?.textContent).toContain("jump");
     // a key on its cells changes nothing and says where the notes are
     const before = JSON.stringify(songValue("mml-kept"));
     const tracker = document.getElementById("gTracker") as HTMLElement;
@@ -250,14 +364,15 @@ describe("a channel the converter kept as MML", () => {
     );
     expect(toastText()).toContain("stays as text");
     expect(JSON.stringify(songValue("mml-kept"))).toBe(before);
-    // text that lands on rows turns the channel into patterns
+    // typing in the box edits the MML itself
     ta.focus();
-    ta.value = "o4 l4 c d e f";
+    ta.value = "o4 l4 c d e f g";
     fire(ta, "input");
     expect(
-      await until(() => songValue("mml-kept").channels[0]?.mml === null)
+      await until(
+        () => songValue("mml-kept").channels[0]?.mml === "o4 l4 c d e f g"
+      )
     ).toBe(true);
-    expect(noteAt(4, 0)).toBe("D-4");
   });
 });
 

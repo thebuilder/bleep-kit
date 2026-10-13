@@ -21,15 +21,16 @@ import {
   chipProfile,
   formatEffect,
   noteName,
+  orderStartRow,
   parseEffect,
   parseMml,
   patternToMml,
+  songTiming,
 } from "../lib/core.ts";
 import { choose, clamp, debounce, fire, h, prefs, reflow } from "../lib/dom.ts";
 import {
   compileMmlRows,
   keepEffectRows,
-  orderStartRow,
   rowsInRange,
   textToRows,
   withReleaseNote,
@@ -111,7 +112,10 @@ const SCOPE_SPAN = 900;
 const KEY_LO = 36;
 const KEY_HI = 83;
 
-type Field = 0 | 1 | 2 | 3 | 4;
+type Field = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+const FLOW_FX = new Set<string>(["jump", "skip", "halt"]);
+/** A row holds at most four effects. */
+const MAX_FX_COLS = 4;
 interface Cursor {
   ch: number;
   field: Field;
@@ -324,7 +328,27 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   };
   const engineIndex = (chId: string) =>
     chipChannels(song()).findIndex((c) => c.id === chId);
-  const fxCount = (chId: string) => clamp(fxCols[chId] ?? 1, 1, 2);
+  /* Effect columns: what the person chose (fx button), and never fewer than the most effects a row of the channel has,
+     so an effect a row carries (pan with a delay and a cut, say) is never hidden. */
+  let fxNeed = new Map<string, number>();
+  const fxCount = (chId: string) =>
+    clamp(Math.max(fxCols[chId] ?? 1, fxNeed.get(chId) ?? 1), 1, MAX_FX_COLS);
+  /** Count the effects per row of every channel; true when a channel needs a different number of columns than before. */
+  function refreshFxNeed(): boolean {
+    const next = new Map<string, number>();
+    for (const pat of Object.values(song().patterns)) {
+      for (const [ch, rows] of Object.entries(pat.tracks)) {
+        for (const r of rows) {
+          next.set(ch, Math.max(next.get(ch) ?? 1, r.fx.length));
+        }
+      }
+    }
+    const same =
+      next.size === fxNeed.size &&
+      [...next].every(([ch, n]) => fxNeed.get(ch) === n);
+    fxNeed = next;
+    return !same;
+  }
   const fieldCount = (chId: string): number => 3 + fxCount(chId);
   const kindOf = (c: SongChannel) => c.kind;
 
@@ -829,7 +853,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     if (now - hintAt > MML_HINT_GAP_MS) {
       hintAt = now;
       app.toast(
-        `${c.id.toUpperCase()} stays as text because its timing falls between rows of the grid, so its cells are read only. Edit its text below the grid.`
+        `${c.id.toUpperCase()} stays as text (the patterns jump, skip or halt, so its notes cannot be rows), so its cells are read only. Edit its text below the grid.`
       );
     }
     return true;
@@ -1063,7 +1087,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     } else if (act === "text") {
       toggleText(c);
     } else if (act === "fx") {
-      fxCols = { ...fxCols, [c.id]: fxCount(c.id) === 1 ? 2 : 1 };
+      fxCols = {
+        ...fxCols,
+        [c.id]: fxCount(c.id) >= MAX_FX_COLS ? 1 : fxCount(c.id) + 1,
+      };
       prefs.set("tracker-fx", fxCols);
       rebuildAll();
     } else {
@@ -1137,7 +1164,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
 
   /* ----- Text view ----- */
   /* The grid is the one editor. A channel's text is a view of its rows in the pattern that is selected in the order list:
-     the grid changes the text, typing in the text changes the grid. A channel kept as MML (timing between rows) shows
+     the grid changes the text, typing in the text changes the grid. A channel kept as MML (the patterns jump, skip or halt) shows
      its whole text instead, always open, and the text is what you edit. */
   interface TextBox {
     ch: string;
@@ -1148,6 +1175,8 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     note: HTMLElement | null;
     pid: string;
     pre: HTMLElement;
+    /** The song row the box's pattern starts at (the order entry it was opened on). */
+    start: number;
     ta: HTMLTextAreaElement;
   }
   const textKey = `tracker-text:${id}`;
@@ -1155,17 +1184,33 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   const textBoxes = new Map<string, TextBox>();
   let selfMml = false;
 
+  /** Why the converter left MML channels as text: the patterns jump, skip or halt, or the song is very long. */
+  function keptReason(): string {
+    const flow = Object.values(song().patterns).some((p) =>
+      Object.values(p.tracks).some((rows) =>
+        rows.some((r) => r.fx.some((e) => FLOW_FX.has(e.type)))
+      )
+    );
+    return flow
+      ? "the patterns jump, skip or halt, so rows would not play in time order"
+      : "the song is longer than 256 bars";
+  }
   function isKept(c: SongChannel): boolean {
     return c.mml !== null;
   }
   function showsText(c: SongChannel): boolean {
     return isKept(c) || textOpen.has(c.id);
   }
+  /** The song row where the order entry `at` starts: where its text begins in time. */
+  const startRowOf = (at: number): number => orderStartRow(song(), at);
   /** The channel's rows in the selected pattern as text, with the release marks in a trailing comment. */
   function patternText(c: SongChannel): string {
     const rows = pattern()?.tracks[c.id] ?? [];
     return withReleaseNote(
-      patternToMml(rows, song().rowsPerBeat, pattern()?.length),
+      patternToMml(rows, song().rowsPerBeat, pattern()?.length, {
+        ...songTiming(song()),
+        startRow: startRowOf(orderIdx),
+      }),
       rows
     );
   }
@@ -1211,7 +1256,12 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       message = first?.message ?? null;
       state = res.issues.some((x) => x.severity === "error") ? "bad" : "ok";
     } else {
-      const res = textToRows(text, song().rowsPerBeat, pattern()?.length ?? 0);
+      const res = textToRows(
+        text,
+        songTiming(song()),
+        pattern()?.length ?? 0,
+        startRowOf(orderIdx)
+      );
       ({ errorAt } = res);
       message = res.error ?? res.warning;
       if (res.error) {
@@ -1251,7 +1301,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       );
     } else {
       const length = song().patterns[box.pid]?.length ?? 0;
-      const res = textToRows(text, song().rowsPerBeat, length);
+      const res = textToRows(text, songTiming(song()), length, box.start);
       if (!res.error) {
         project.edit<Song>(
           doc(),
@@ -1295,13 +1345,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     let note: HTMLElement | null = null;
     box.append(top);
     if (isKept(c)) {
-      const reason = doc().issues.find(
-        (i) => i.path === `/channels/${song().channels.indexOf(c)}/mml`
-      );
       note = h(
         "p",
-        { class: "mml-note", title: reason?.message ?? "" },
-        "This channel stays as text: its timing falls between the rows of the grid (triplets or q gates), so its cells are read only. Edit it here."
+        { class: "mml-note" },
+        `This channel stays as text (${keptReason()}), so its cells are read only. Edit it here.`
       );
       box.append(note);
     }
@@ -1315,6 +1362,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       note,
       pid: patternId(),
       pre,
+      start: startRowOf(orderIdx),
       ta,
     };
     ta.addEventListener("input", () => {
@@ -1375,6 +1423,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         continue;
       }
       box.pid = patternId();
+      box.start = startRowOf(orderIdx);
       box.label.textContent = labelOf(c);
       const text = textOf(c);
       if (document.activeElement !== box.ta && box.ta.value !== text) {
@@ -1846,6 +1895,9 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
 
   function refreshAfterMml(): void {
     orderIdx = clamp(orderIdx, 0, Math.max(0, song().order.length - 1));
+    if (refreshFxNeed()) {
+      buildHead();
+    }
     buildOrder();
     buildGrid();
     syncTexts();
@@ -1855,6 +1907,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   /* ----- rebuild ----- */
   function rebuildAll(): void {
     orderIdx = clamp(orderIdx, 0, Math.max(0, song().order.length - 1));
+    refreshFxNeed();
     buildHead();
     buildOrder();
     buildGrid();

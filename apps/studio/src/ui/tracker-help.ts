@@ -176,7 +176,8 @@ const EFFECTS: EffectHelp[] = [
     type: "pitch",
   },
   {
-    about: "Note off after xx ticks.",
+    about:
+      "Note off xx ticks after the row starts (a tick is 1/60 s at the default tick rate, whatever the tempo). Put it on a row with no note to end the note that is playing. MML q gates become cuts.",
     eg: ["S03", "a short staccato note"],
     name: "Cut",
     pattern: "Sxx",
@@ -184,7 +185,8 @@ const EFFECTS: EffectHelp[] = [
     type: "cut",
   },
   {
-    about: "Trigger this row's note xx ticks late.",
+    about:
+      "Trigger this row's note xx ticks late (a tick is 1/60 s at the default tick rate, whatever the tempo). MML notes that start between rows, like triplets, become delays.",
     eg: ["G02", "a note a little behind the beat"],
     name: "Delay",
     pattern: "Gxx",
@@ -305,7 +307,7 @@ function columnsSection(): HTMLElement {
       ],
       [
         sample("th-chip", "TXT"),
-        "Show this channel as text (MML) below the grid: the notes of the selected pattern as one line, handy for pasting or typing a melody fast. Edit the grid and the text follows; type in the text and the grid follows.",
+        "Show this channel as text (MML) below the grid: the notes of the selected pattern as one line, handy for pasting or typing a melody fast. Edit the grid and the text follows; type in the text and the grid follows. Timing between rows is a delay (Gxx) or a cut (Sxx) in the grid.",
       ],
     ])
   );

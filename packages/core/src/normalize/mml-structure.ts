@@ -3,9 +3,9 @@
    MML comments (`; section: Chorus`), else A, B, C... by content. Two bars that hold the same music, in every channel,
    are one pattern that the order list plays twice. See architecture.md section 2.7. */
 
-import { mmlToTrack } from "../mml/index.ts";
+import { type GridTiming, mmlToRows } from "../mml/grid.ts";
 import type { MmlSection } from "../mml/parser.ts";
-import type { Pattern, Row } from "../types.ts";
+import type { Pattern } from "../types.ts";
 import { PPQ } from "../types.ts";
 import { formatRowString } from "./effects.ts";
 
@@ -28,13 +28,13 @@ export interface Structure {
 /** The rows of every MML channel cut into bars: the key of each bar is what the bar holds, relative to its start. */
 function barKeys(
   sources: readonly MmlSource[],
-  rowsPerBeat: number,
+  timing: GridTiming,
   count: number
 ): string[] {
-  const perBar = SYNTH_PATTERN_BEATS * rowsPerBeat;
+  const perBar = SYNTH_PATTERN_BEATS * timing.rowsPerBeat;
   const bars: string[][] = Array.from({ length: count }, () => []);
   for (const [ci, source] of sources.entries()) {
-    const rows: Row[] = mmlToTrack(source.mml, rowsPerBeat).rows;
+    const { rows } = mmlToRows(source.mml, timing);
     for (const row of rows) {
       const bar = Math.floor(row.row / perBar);
       if (bar < count) {
@@ -126,8 +126,9 @@ function sectionOf(
 export function synthesizeStructure(
   sources: readonly MmlSource[],
   mmlEnd: number,
-  rowsPerBeat: number
+  timing: GridTiming
 ): Structure {
+  const { rowsPerBeat } = timing;
   const patterns: Record<string, Pattern> = {};
   const order: string[] = [];
   const barPulses = SYNTH_PATTERN_BEATS * PPQ;
@@ -137,7 +138,7 @@ export function synthesizeStructure(
     MAX_PATTERNS,
     Math.max(1, Math.ceil(total / barPulses - 1e-9))
   );
-  const keys = barKeys(sources, rowsPerBeat, count);
+  const keys = barKeys(sources, timing, count);
   const sections = mergeSections(sources);
   const byKey = new Map<string, string>();
   let letters = 0;

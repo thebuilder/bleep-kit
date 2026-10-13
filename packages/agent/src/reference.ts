@@ -143,8 +143,11 @@ const song = `SONG  songs/<id>.json
   A song with every channel in MML may have "patterns": {} and "order": []. Converting it to rows gives one pattern per
   4 beats, named for the "; section: Name" comments of the MML (else A, B, C by content), bars that hold the same music
   in every channel are one pattern that the order plays again, and the L marker becomes the song's "loop" (a pattern is
-  cut in two where L falls inside one). MML timing that falls between rows (triplets, q gates on odd lengths) is never
-  snapped: the converter tries more rows per beat (up to 16), and a channel that still does not fit stays MML text.
+  cut in two where L falls inside one). MML timing that falls between rows (triplets, q gates, odd lengths) is not
+  snapped and the song keeps its rowsPerBeat: a note that starts between rows goes on the row before it with a delay
+  (G + two hex digits, in engine ticks of 1 / tickRate s), a note that ends between rows gets a cut (S + two hex digits,
+  ticks after its row) on the row where it ends, so one tick (1/60 s) is the rounding. A channel only stays MML text
+  when the patterns jump, skip or halt, or the tune is over 256 bars.
   master (chip specific): amiga songs: "amiga": { "separation": 0..1 (1 hard left/right, 0 mono), "model": "a500"|"a1200" (a500 has
     the fixed 4.4 kHz lowpass), "led": false (the LED filter at the start; Exx switches it) }; genesis songs: "genesis": { "dac": true }
     makes fm6 play sample instruments (8 bit PCM, 8 to 26 kHz) instead of FM.

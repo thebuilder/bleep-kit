@@ -59,7 +59,14 @@ export {
   parseMidi,
   parseMidiMap,
 } from "./midi/index.ts";
-export { formatMml, mmlToTrack, parseMml, patternToMml } from "./mml/index.ts";
+export {
+  formatMml,
+  type GridTiming,
+  mmlToRows,
+  mmlToTrack,
+  parseMml,
+  patternToMml,
+} from "./mml/index.ts";
 export {
   type ModCell,
   type ModExport,
@@ -170,6 +177,7 @@ export {
   type RechipSummary,
   rechipSong,
 } from "./songs/rechip.ts";
+export { orderStartRow, songTiming } from "./songs/timing.ts";
 export type * from "./types.ts";
 export {
   CHANNEL_KINDS,

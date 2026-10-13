@@ -1,12 +1,14 @@
-/* MML and the tracker grid. A channel the converter had to keep as MML (timing between rows) is shown in the grid as
-   read only rows: they are compiled with core's `mmlToTrack` once per change of the text or of the rows per beat, and
-   cached, because drawing the grid, moving the cursor and every playback frame ask for rows. The Text view of any other
-   channel turns typed text into the rows of one pattern with `textToRows`. */
-import type { Row, Song } from "./contract.ts";
-import { mmlToTrack, parseMml } from "./core.ts";
+/* MML and the tracker grid. A channel the converter had to keep as MML (the patterns jump, skip or halt) is shown in
+   the grid as read only rows: they are compiled with core's `mmlToTrack` once per change of the text or of the rows per
+   beat, and cached, because drawing the grid, moving the cursor and every playback frame ask for rows. The Text view of
+   any other channel turns typed text into the rows of one pattern with `textToRows`, which keeps timing between rows
+   as a delay (Gxx) and a cut (Sxx). */
+import type { Row } from "./contract.ts";
+import { type GridTiming, mmlToRows, mmlToTrack, parseMml } from "./core.ts";
 
 const RELEASE_COMMENT = /^;\s*release rows:\s*([\d ]+)$/m;
 const CACHE_SIZE = 32;
+const MAX_FX = 4;
 
 /** The release marks the Text view leaves in a comment: an MML note off cannot say "release", the comment can. */
 export function withReleaseNote(mml: string, rows: readonly Row[]): string {
@@ -77,18 +79,6 @@ export function rowsInRange(
   return out;
 }
 
-/** The song row where an order entry starts: the lengths of the patterns before it. */
-export function orderStartRow(
-  song: Pick<Song, "order" | "patterns">,
-  orderIdx: number
-): number {
-  let row = 0;
-  for (let i = 0; i < orderIdx && i < song.order.length; i += 1) {
-    row += song.patterns[song.order[i] ?? ""]?.length ?? 0;
-  }
-  return row;
-}
-
 const OFFSET_IN_MESSAGE = /offset (\d+)/;
 
 /** What typed text makes of one pattern: its rows, what did not fit and what is wrong with it. */
@@ -105,11 +95,15 @@ export interface TextRows {
   warning: string | null;
 }
 
-/** The rows that MML text makes in a pattern of `length` rows. Parse errors give no rows (the caller keeps the grid). */
+/**
+ * The rows that MML text makes in a pattern of `length` rows that starts at song row `startRow`, with the song's
+ * `timing`. Parse errors give no rows (the caller keeps the grid).
+ */
 export function textToRows(
   text: string,
-  rowsPerBeat: number,
-  length: number
+  timing: GridTiming,
+  length: number,
+  startRow: number
 ): TextRows {
   const parsed = parseMml(text);
   const errors = parsed.issues.filter((i) => i.severity === "error");
@@ -127,9 +121,11 @@ export function textToRows(
       warning: null,
     };
   }
-  const track = mmlToTrack(text, rowsPerBeat);
+  const track = mmlToRows(text, timing, { startRow });
   const all = restoreReleases(track.rows, text);
-  const dropped = all.filter((r) => r.row >= length && r.note !== "off").length;
+  const dropped = all.filter(
+    (r) => r.row >= length && typeof r.note === "number"
+  ).length;
   const [grid] = track.issues.slice(parsed.issues.length);
   return {
     dropped,
@@ -140,13 +136,32 @@ export function textToRows(
   };
 }
 
-/** Text has no row for an effect on a row with no note (a jump, a tempo change): those stay where they were. */
+const TIMED = new Set(["cut", "delay"]);
+
+/**
+ * Text has no row for an effect on a row with no note (a jump, a tempo change): those stay where they were, and on a
+ * row the text gives a note or a cut they join it. Delays and cuts are the text's own (its timing says them), so an old
+ * one is not kept: it would cut or delay a note the edit has moved.
+ */
 export function keepEffectRows(old: readonly Row[], next: Row[]): Row[] {
-  const taken = new Set(next.map((r) => r.row));
-  const kept = old.filter(
-    (r) => r.note === null && r.fx.length > 0 && !taken.has(r.row)
-  );
-  return kept.length === 0
+  const byRow = new Map(next.map((r) => [r.row, r]));
+  const added: Row[] = [];
+  for (const r of old) {
+    const fx = r.fx.filter((e) => !TIMED.has(e.type));
+    if (r.note !== null || fx.length === 0) {
+      continue;
+    }
+    const into = byRow.get(r.row);
+    if (into) {
+      into.fx = [
+        ...into.fx,
+        ...fx.filter((e) => !into.fx.some((x) => x.type === e.type)),
+      ].slice(0, MAX_FX);
+    } else {
+      added.push({ ...r, fx });
+    }
+  }
+  return added.length === 0
     ? next
-    : [...next, ...kept].sort((a, b) => a.row - b.row);
+    : [...next, ...added].sort((a, b) => a.row - b.row);
 }

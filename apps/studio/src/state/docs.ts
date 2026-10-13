@@ -34,8 +34,9 @@ import {
 
 /** A song with its MML channels turned into tracker patterns (section 2.7): the grid is the one editor, so a song that
     arrives with MML (a file from the CLI, the assistant, an older version) is opened as patterns. This runs wherever a
-    song is normalized, so the MML never reaches the document, the history or the editor. A channel whose timing falls
-    between rows stays MML, with a warning that says why. */
+    song is normalized, so the MML never reaches the document, the history or the editor. Timing between rows becomes
+    delays and cuts (Gxx, Sxx); a channel stays MML only when the patterns jump, skip or halt, with a warning that says
+    why. */
 function withPatterns(n: Normalized<AnyDoc>): Normalized<AnyDoc> {
   if (!n.ok) {
     return n;

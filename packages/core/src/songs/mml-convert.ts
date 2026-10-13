@@ -1,7 +1,9 @@
 /* mmlToPatterns: the song with its MML channels turned into tracker patterns, so the grid is the one real editor
-   (architecture.md section 2.7). MML stays a text input: this is where it becomes rows. Pure and deterministic. */
+   (architecture.md section 2.7). MML stays a text input: this is where it becomes rows. Pure and deterministic.
+   Timing between rows is kept the tracker way (`mmlToRows`): a delay Gxx on the row before a note, a cut Sxx on the
+   row where a note ends. The song's rows per beat never change and every channel converts. */
 
-import { mmlToTrack } from "../mml/index.ts";
+import { type GridTiming, mmlToRows } from "../mml/grid.ts";
 import { parseMml } from "../mml/parser.ts";
 import {
   type MmlSource,
@@ -11,68 +13,18 @@ import {
 import { isMmlOnly } from "../normalize/song.ts";
 import type { Issue, Pattern, Row, Song, SongChannel } from "../types.ts";
 import { PPQ } from "../types.ts";
+import { songTiming } from "./timing.ts";
 
-const MAX_RPB = 16;
 const MAX_ORDER = 256;
 const EPS = 1e-6;
-const ROUNDED_TAIL_RE = / and was rounded to row \d+$/;
 const FLOW_EFFECTS = new Set(["jump", "skip", "halt"]);
 
-/** What converting one MML channel at one rows-per-beat gives. */
-interface Fit {
+/** One MML channel turned into rows. */
+interface Converted {
   channel: SongChannel;
   index: number;
-  loopPulse: number | null;
-  /** Why the channel does not fit the grid, or null when it does. */
-  problem: string | null;
+  loopRow: number | null;
   rows: Row[];
-}
-
-/** The song's own rows per beat and its multiples up to the largest the format allows. */
-function candidates(rowsPerBeat: number): number[] {
-  const out: number[] = [];
-  for (let n = rowsPerBeat; n <= MAX_RPB; n += rowsPerBeat) {
-    out.push(n);
-  }
-  return out;
-}
-
-const onGrid = (pulse: number, pulsesPerRow: number): boolean => {
-  const r = pulse / pulsesPerRow;
-  return Math.abs(r - Math.round(r)) <= EPS;
-};
-
-/** The MML of a channel as rows at `rowsPerBeat`, and what stops them from being exact. */
-function fitChannel(
-  channel: SongChannel,
-  index: number,
-  rowsPerBeat: number
-): Fit {
-  const src = channel.mml ?? "";
-  const parsed = parseMml(src);
-  const track = mmlToTrack(src, rowsPerBeat);
-  const pulsesPerRow = PPQ / rowsPerBeat;
-  const off = track.issues.slice(parsed.issues.length);
-  let problem: string | null = null;
-  if (off.length > 0) {
-    const first = (off[0]?.message ?? "").replace(ROUNDED_TAIL_RE, "");
-    const more = off.length > 1 ? `, and ${off.length - 1} more` : "";
-    problem = `its timing does not fit the grid (${first}${more})`;
-  } else if (!onGrid(parsed.endPulse, pulsesPerRow)) {
-    problem = `its timing does not fit the grid (it ends at pulse ${parsed.endPulse}, between rows)`;
-  } else if (
-    parsed.loopPulse !== null &&
-    !onGrid(parsed.loopPulse, pulsesPerRow)
-  ) {
-    problem = `its timing does not fit the grid (the loop point L is at pulse ${parsed.loopPulse}, between rows)`;
-  }
-  return {
-    channel,
-    index,
-    loopPulse: parsed.loopPulse,
-    problem,
-    rows: track.rows,
-  };
 }
 
 /**
@@ -182,71 +134,9 @@ function splitAtLoop(slots: Slot[], loopRow: number): number {
   return k + 1;
 }
 
-function pulsesToRow(pulse: number, pulsesPerRow: number): number {
-  return Math.round(pulse / pulsesPerRow);
-}
-
-/** The loop point the MML playback uses: the first channel's L, else the start; none when the song plays once. */
-function mmlLoopPulse(song: Song, fits: readonly Fit[]): number | null {
-  const first = fits.find((f) => f.loopPulse !== null)?.loopPulse ?? null;
-  if (song.loop === null && first === null) {
-    return null;
-  }
-  return first ?? 0;
-}
-
-function keptIssue(f: Fit, why: string): Issue {
-  return {
-    message: `channel "${f.channel.id}" stays as MML text: ${why}`,
-    path: `/channels/${f.index}/mml`,
-    severity: "warning",
-  };
-}
-
-function withConverted(
-  song: Song,
-  fits: readonly Fit[],
-  extra: Partial<Song>
-): Song {
-  const done = new Set(
-    fits.filter((f) => f.problem === null).map((f) => f.index)
-  );
-  return {
-    ...song,
-    ...extra,
-    channels: song.channels.map((c, i) =>
-      done.has(i) ? { ...c, mml: null } : c
-    ),
-  };
-}
-
 export interface MmlConversion {
   issues: Issue[];
   song: Song;
-}
-
-interface Pick {
-  fits: Fit[];
-  rowsPerBeat: number;
-}
-
-/** The rows per beat (the song's own, else a multiple) where the most channels fit; the smallest wins a tie. */
-function pickRowsPerBeat(
-  channels: readonly MmlChannel[],
-  rowsPerBeat: number
-): Pick | null {
-  let best: (Pick & { ok: number }) | null = null;
-  for (const rpb of candidates(rowsPerBeat)) {
-    const fits = channels.map((c) => fitChannel(c.channel, c.index, rpb));
-    const ok = fits.filter((f) => f.problem === null).length;
-    if (ok > (best?.ok ?? 0)) {
-      best = { fits, ok, rowsPerBeat: rpb };
-    }
-    if (ok === fits.length) {
-      break;
-    }
-  }
-  return best;
 }
 
 interface MmlChannel {
@@ -270,29 +160,64 @@ function keepAll(
   channels: readonly MmlChannel[],
   why: string
 ): MmlConversion {
-  const fits = channels.map((c) =>
-    fitChannel(c.channel, c.index, song.rowsPerBeat)
-  );
   return {
-    issues: fits.map((f) => keptIssue(f, f.problem ?? why)),
+    issues: channels.map((c) => ({
+      message: `channel "${c.channel.id}" stays as MML text: ${why}`,
+      path: `/channels/${c.index}/mml`,
+      severity: "warning",
+    })),
     song,
   };
 }
 
-function keptIssues(fits: readonly Fit[]): Issue[] {
-  return fits
-    .filter((f) => f.problem !== null)
-    .map((f) => keptIssue(f, f.problem ?? ""));
+/** The channels as rows at the song's rows per beat; what the conversion had to say about them becomes issues. */
+function convertChannels(
+  channels: readonly MmlChannel[],
+  timing: GridTiming,
+  endRow: number | null
+): { converted: Converted[]; issues: Issue[] } {
+  const converted: Converted[] = [];
+  const issues: Issue[] = [];
+  for (const c of channels) {
+    const src = c.channel.mml ?? "";
+    const own = parseMml(src).issues.length;
+    const r = mmlToRows(src, timing, endRow === null ? {} : { endRow });
+    for (const i of r.issues.slice(own)) {
+      issues.push({
+        message: `channel "${c.channel.id}": ${i.message}`,
+        path: `/channels/${c.index}/mml`,
+        severity: i.severity,
+      });
+    }
+    converted.push({ ...c, loopRow: r.loopRow, rows: r.rows });
+  }
+  return { converted, issues };
+}
+
+function withConverted(
+  song: Song,
+  converted: readonly Converted[],
+  extra: Partial<Song>
+): Song {
+  const done = new Set(converted.map((f) => f.index));
+  return {
+    ...song,
+    ...extra,
+    channels: song.channels.map((c, i) =>
+      done.has(i) ? { ...c, mml: null } : c
+    ),
+  };
 }
 
 /** The slots of an MML-only song: one per four beats, the last one cut to the end of the music. */
 function barSlots(
   sources: readonly MmlSource[],
   endPulse: number,
-  rowsPerBeat: number
+  timing: GridTiming
 ): Slot[] {
+  const { rowsPerBeat } = timing;
   const perBar = SYNTH_PATTERN_BEATS * rowsPerBeat;
-  const structure = synthesizeStructure(sources, endPulse, rowsPerBeat);
+  const structure = synthesizeStructure(sources, endPulse, timing);
   const totalRows =
     endPulse > 0
       ? Math.ceil(endPulse / (PPQ / rowsPerBeat) - EPS)
@@ -306,11 +231,8 @@ function barSlots(
 }
 
 /** Put each converted channel's rows into the slots that cover them. */
-function fillSlots(slots: Slot[], fits: readonly Fit[]): void {
-  for (const f of fits) {
-    if (f.problem !== null) {
-      continue;
-    }
+function fillSlots(slots: Slot[], converted: readonly Converted[]): void {
+  for (const f of converted) {
     for (const s of slots) {
       const rows = sliceRows(f.rows, s.start, s.length);
       if (rows.length > 0) {
@@ -322,31 +244,38 @@ function fillSlots(slots: Slot[], fits: readonly Fit[]): void {
 
 function convertMmlOnly(song: Song): MmlConversion {
   const channels = mmlChannelList(song);
-  const pick = pickRowsPerBeat(channels, song.rowsPerBeat);
-  if (pick === null) {
-    return keepAll(song, channels, "its timing does not fit the grid");
-  }
-  const { fits, rowsPerBeat } = pick;
-  const ppr = PPQ / rowsPerBeat;
-  const sources: MmlSource[] = channels.map((c) => ({
+  const parsed = channels.map((c) => parseMml(c.channel.mml ?? ""));
+  const sources: MmlSource[] = channels.map((c, i) => ({
     mml: c.channel.mml ?? "",
-    sections: parseMml(c.channel.mml ?? "").sections,
+    sections: parsed[i]?.sections ?? [],
   }));
-  const end = Math.max(
-    0,
-    ...channels.map((c) => parseMml(c.channel.mml ?? "").endPulse)
-  );
+  const end = Math.max(0, ...parsed.map((p) => p.endPulse));
   if (Math.ceil(end / (SYNTH_PATTERN_BEATS * PPQ) - EPS) > MAX_ORDER) {
     return keepAll(song, channels, `it is longer than ${MAX_ORDER} bars`);
   }
-  const loopPulse = mmlLoopPulse(song, fits);
-  const loopRow = loopPulse === null ? null : pulsesToRow(loopPulse, ppr);
+  const ppr = PPQ / song.rowsPerBeat;
+  const totalRows = Math.max(1, Math.ceil(end / ppr - EPS));
+  const firstL = parsed.find((p) => p.loopPulse !== null)?.loopPulse ?? null;
+  const loops = song.loop !== null || firstL !== null;
+  // the tick grid is anchored again at the loop point: a pulse that is not on a row starts on the row before it
+  const timing = songTiming(
+    song,
+    loops ? Math.floor((firstL ?? 0) / ppr + EPS) * ppr : null
+  );
+  const { converted, issues } = convertChannels(
+    channels,
+    timing,
+    loops ? totalRows : null
+  );
+  const firstLoop = converted.find((f) => f.loopRow !== null)?.loopRow ?? null;
+  const loopRow =
+    song.loop === null && firstLoop === null ? null : (firstLoop ?? 0);
   if (loopRow !== null) {
-    for (const f of fits) {
+    for (const f of converted) {
       pinLoopState(f.rows, loopRow);
     }
   }
-  const slots = barSlots(sources, end, rowsPerBeat);
+  const slots = barSlots(sources, end, timing);
   const loop = loopRow === null ? null : splitAtLoop(slots, loopRow);
   if (slots.length > MAX_ORDER) {
     return keepAll(
@@ -355,12 +284,12 @@ function convertMmlOnly(song: Song): MmlConversion {
       `splitting at the loop point makes more than ${MAX_ORDER} order entries`
     );
   }
-  fillSlots(slots, fits);
+  fillSlots(slots, converted);
   const patterns: Record<string, Pattern> = {};
   const order = placeSlots(slots, patterns);
   return {
-    issues: keptIssues(fits),
-    song: withConverted(song, fits, { loop, order, patterns, rowsPerBeat }),
+    issues,
+    song: withConverted(song, converted, { loop, order, patterns }),
   };
 }
 
@@ -428,22 +357,25 @@ function convertMixed(song: Song): MmlConversion {
       "the patterns jump, skip or halt, so the rows do not play in time order"
     );
   }
-  const fits = channels.map((c) =>
-    fitChannel(c.channel, c.index, song.rowsPerBeat)
+  const timing = songTiming(song);
+  const totalRows = song.order.reduce(
+    (sum, id) => sum + (song.patterns[id]?.length ?? 0),
+    0
   );
-  const ok = fits.filter((f) => f.problem === null);
-  if (ok.length === 0) {
-    return { issues: keptIssues(fits), song };
-  }
-  const slots = orderSlots(song, new Set(ok.map((f) => f.channel.id)));
-  fillSlots(slots, fits);
-  const issues = keptIssues(fits);
-  const totalRows = slots.reduce((sum, s) => sum + s.length, 0);
-  for (const f of ok) {
-    const lost = f.rows.filter((r) => r.row >= totalRows && r.note !== "off");
+  const { converted, issues } = convertChannels(
+    channels,
+    timing,
+    song.loop === null ? null : totalRows
+  );
+  const slots = orderSlots(song, new Set(converted.map((f) => f.channel.id)));
+  fillSlots(slots, converted);
+  for (const f of converted) {
+    const lost = f.rows.filter(
+      (r) => r.row >= totalRows && typeof r.note === "number"
+    );
     if (lost.length > 0) {
       issues.push({
-        message: `channel "${f.channel.id}": ${lost.length} MML rows past the end of the song were left out`,
+        message: `channel "${f.channel.id}": ${lost.length} MML notes past the end of the song were left out`,
         path: `/channels/${f.index}/mml`,
         severity: "info",
       });
@@ -456,15 +388,13 @@ function convertMixed(song: Song): MmlConversion {
     }
   }
   const order = placeSlots(slots, patterns);
-  const converted = ok.map((f) => f.channel.id);
+  const names = converted.map((f) => f.channel.id);
   const touched = new Set(
-    order.filter((id) =>
-      converted.some((ch) => ch in (patterns[id]?.tracks ?? {}))
-    )
+    order.filter((id) => names.some((ch) => ch in (patterns[id]?.tracks ?? {})))
   );
   return {
     issues,
-    song: withConverted(song, fits, {
+    song: withConverted(song, converted, {
       order: mergeIdentical(patterns, order, touched),
       patterns,
     }),
@@ -481,8 +411,10 @@ function convertMixed(song: Song): MmlConversion {
  * of the music. A mixed song has each channel's rows cut into the order slots, a pattern that several slots play is
  * cloned where the slices differ, and patterns that end up the same are merged.
  *
- * Timing between rows (triplets, odd lengths) is never snapped: an MML-only song tries multiples of its rows per
- * beat up to 16 and uses the smallest that fits the most channels; what still does not fit stays MML.
+ * Timing between rows (triplets, `q` gates, odd lengths) is kept with a delay `Gxx` on the row before a note and a
+ * cut `Sxx` on the row where a note ends (xx in engine ticks, so a tick of rounding at most). The rows per beat stay
+ * the song's own and every channel converts, except when the patterns jump, skip or halt (the rows then do not play
+ * in time order) or the song is longer than 256 bars: those stay MML and are reported.
  */
 export function mmlToPatterns(song: Song): MmlConversion {
   if (mmlChannelList(song).length === 0) {

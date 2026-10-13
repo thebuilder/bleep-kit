@@ -34,6 +34,7 @@ describe("@bleepkit/core entry point", () => {
       "parseMml",
       "formatMml",
       "mmlToTrack",
+      "mmlToRows",
       "patternToMml",
       "compileSong",
       "chipProfile",
