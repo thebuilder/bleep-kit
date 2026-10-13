@@ -18,6 +18,7 @@ import {
   type ChipId,
   deriveSeed,
   makeInstrument,
+  mmlToPatterns,
   normalizeInstrument,
   normalizeSfx,
   normalizeSong,
@@ -228,8 +229,13 @@ function newSong(
     });
     return writeDoc(pc, "instrument", made, inst.value);
   });
-  const rel = writeDoc(pc, "song", id, n.value);
-  const warnings = n.issues.filter((i) => i.severity === "warning");
+  // MML is the way to type a tune in; the song is stored as tracker patterns
+  const converted = mmlToPatterns(n.value);
+  const { song } = converted;
+  const rel = writeDoc(pc, "song", id, song);
+  const warnings = [...n.issues, ...converted.issues].filter(
+    (i) => i.severity === "warning"
+  );
   return {
     human: [
       `Created song/${id} (${rel})`,
@@ -237,12 +243,12 @@ function newSong(
         (r) =>
           `Created ${r} from the ${chip} presets for a channel no instrument of the project fits`
       ),
-      describeSong(n.value),
+      describeSong(song),
       ...warnings.map((w) => `warning ${w.path}: ${w.message}`),
       `Next: bleepkit render song/${id} --analyze`,
     ].join("\n"),
     json: {
-      doc: n.value,
+      doc: song,
       instruments: madeRels,
       ok: true,
       path: rel,
@@ -256,7 +262,7 @@ export const newCommand: CommandSpec = {
   description:
     "Creates a document. `new sfx` generates one deterministically from --category and a seed derived from the project " +
     "seed and the id (same inputs, same sound); `new instrument` writes a preset instrument; `new song` writes a song " +
-    "with channels for the chip, each pointed at a matching project instrument, optionally with MML per channel. " +
+    "with channels for the chip, each pointed at a matching project instrument, optionally with MML per channel (MML is typed in, the song is saved as tracker patterns). " +
     "Exits 1 when the id exists (use --force). The new document is validated before it is written.",
   examples: [
     "bleepkit new sfx jump --category jump --chip nes",

@@ -3248,7 +3248,7 @@
         transparent 6px 12px
       );
     }
-    /* an MML channel's cells show what its text plays: same columns as the tracker, read only, a cooler tint */
+    /* a channel kept as text shows what its text plays: same columns as the tracker, read only, a cooler tint */
     .tc.is-mml {
       cursor: default;
     }
@@ -3332,37 +3332,6 @@
     .tch-sub {
       overflow: hidden;
     }
-    .tch .conv {
-      display: block;
-      width: 100%;
-      padding: 2px 4px;
-      margin-top: 3px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      font-family: var(--f-body);
-      font-size: 10px;
-      color: var(--k-sid);
-      text-align: left;
-      white-space: nowrap;
-      background: rgba(180, 154, 230, 0.1);
-      border: 1px solid #000;
-      box-shadow: 0 0 0 1px color-mix(in srgb, var(--k-sid) 45%, transparent);
-    }
-    .tch .conv:hover,
-    .tch .conv:focus-visible {
-      color: var(--accent-ink);
-      background: var(--k-sid);
-    }
-    .tch .conv.nudge {
-      animation: convnudge calc(900ms * var(--motion)) ease-out;
-    }
-    @keyframes convnudge {
-      0%,
-      60% {
-        color: var(--accent-ink);
-        background: var(--k-sid);
-      }
-    }
     .tch-sub .lab {
       display: block;
       overflow: hidden;
@@ -3423,6 +3392,15 @@
     }
     .mml-msg.bad {
       color: var(--danger);
+    }
+    .mml-msg.warn {
+      color: var(--k-sid);
+    }
+    .mml-note {
+      margin: 0 0 6px;
+      font-family: var(--f-body);
+      font-size: 11px;
+      color: var(--muted);
     }
     .mml-wrap {
       position: relative;

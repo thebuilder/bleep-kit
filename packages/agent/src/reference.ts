@@ -29,7 +29,7 @@ Show one with: bleepkit help formats <section>
   project.json            settings: chip, sample rate, seed, export paths and formats
   sfx/<id>.json           one-shot sound effect (sfxr style parameters)
   instruments/<id>.json   an instrument: envelope, macros, kind specific patch
-  songs/<id>.json         channels + patterns (tracker rows) and/or MML text per channel
+  songs/<id>.json         channels + patterns (tracker rows); MML text per channel is accepted as input and becomes rows
   samples/<id>.json       a user sample: mono recording (base64 PCM) imported by the person; played by sample instruments
   out/                    renders (wav masters, .events.json, .meta.json, analysis png); never edit
 
@@ -134,12 +134,17 @@ const song = `SONG  songs/<id>.json
     instrument = id used until a row or MML @id switches it; it must exist, match the channel kind, and be made for
     the song's chip (the instrument's "chip" is that chip, or null for any chip): another chip's instrument draws a warning.
     A channel that plays nothing has "instrument": null.
-    mml = a text melody for this channel (see: help formats mml); when set, pattern tracks for it are ignored.
+    mml = a text melody for this channel (see: help formats mml). It is an input shorthand: the studio, the assistant's
+    tools and \`new song --mml\` turn it into pattern rows when a song is written or opened, so a stored song holds
+    patterns and "mml": null. A hand written file that still has mml validates, renders and exports as before; while
+    it is set, pattern tracks for that channel are ignored.
   patterns: length 1..256 rows; tracks are sparse row lists per channel id, sorted by row.
   order: pattern ids in play order. loop: order index to loop back to after the last one, or null to play once.
-  A song with every channel in MML may have "patterns": {} and "order": []: the studio's tracker view then gets one empty
-  pattern per 4 beats, named for the "; section: Name" comments of the MML (else A, B, C by content), and bars that hold
-  the same music in every channel are one pattern that the order plays again.
+  A song with every channel in MML may have "patterns": {} and "order": []. Converting it to rows gives one pattern per
+  4 beats, named for the "; section: Name" comments of the MML (else A, B, C by content), bars that hold the same music
+  in every channel are one pattern that the order plays again, and the L marker becomes the song's "loop" (a pattern is
+  cut in two where L falls inside one). MML timing that falls between rows (triplets, q gates on odd lengths) is never
+  snapped: the converter tries more rows per beat (up to 16), and a channel that still does not fit stays MML text.
   master (chip specific): amiga songs: "amiga": { "separation": 0..1 (1 hard left/right, 0 mono), "model": "a500"|"a1200" (a500 has
     the fixed 4.4 kHz lowpass), "led": false (the LED filter at the start; Exx switches it) }; genesis songs: "genesis": { "dac": true }
     makes fm6 play sample instruments (8 bit PCM, 8 to 26 kHz) instead of FM.
@@ -181,7 +186,7 @@ const effects = `EFFECTS  tracker codes (<letter><two hex digits>); typed form {
   Persistent effects (arp, vibrato, tremolo, volSlide, slides, portamento, retrigger) stay on until the same letter
   appears with 00, and stop at a note off. Effect types: ${EFFECT_TYPES.join(" ")}.`;
 
-const mml = `MML  one string per channel (song.channels[i].mml); whitespace ignored, ; starts a comment
+const mml = `MML  text input for one channel (song.channels[i].mml), turned into pattern rows when the song is saved; whitespace ignored, ; starts a comment
   c d e f g a b   a note; + or # sharp, - flat; optional length 1 2 4 8 16 32 64 and dots (c4. = dotted quarter)
   &               tie into the next note without retrigger (c4&c8)
   n<midi>         note by MIDI number, optional length (n60 l4)
@@ -228,7 +233,7 @@ Use --json on any command for one machine readable object. Exit codes: 0 ok, 1 b
 What the numbers mean: peak above -1 dB or "clipped" means too loud (lower "volume"); pitch.medianNote tells you the
 note you actually made; loop.seamDiffDb below -40 dB is a clean music loop (null means the loop starts too early to compare);
 leading/trailing silence should be near 0 for sfx.
-Songs: write MML first (help formats mml), render, then check duration and loop.start/loop.end against what you meant.
+Songs: write MML first (help formats mml; it becomes pattern rows in the saved song), render, then check duration and loop.start/loop.end against what you meant.
 Have a MIDI file? bleepkit import tune.mid --chip nes   makes songs/tune.json plus midi-<chip>-* instruments, and lists
 what was converted (chords spread over free channels or turned into 0xy arpeggios, --chords auto|spread|arpeggio|top) and what the
 chip could not play (notes dropped, parts left out). Re-run with --map "1=pulse1,2=triangle,10=noise" or --rows-per-beat 8 to steer it,

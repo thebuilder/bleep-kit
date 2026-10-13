@@ -27,6 +27,7 @@ export {
   makeInstrument,
   midiToSong,
   mixToMonoChannels,
+  mmlToPatterns,
   mmlToTrack,
   modToSong,
   normalizeInstrument,

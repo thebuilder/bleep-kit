@@ -1,21 +1,21 @@
-/* MML channels as tracker rows, for the song editor's grid. The MML is compiled with core's `mmlToTrack` (the same
-   function the To tracker button uses), once per change of the text or of the rows per beat, and cached: drawing the
-   grid, moving the cursor and every playback frame ask for rows, none of them compile. The rows are what To tracker
-   would write, so what the grid shows is what converting gives. */
+/* MML and the tracker grid. A channel the converter had to keep as MML (timing between rows) is shown in the grid as
+   read only rows: they are compiled with core's `mmlToTrack` once per change of the text or of the rows per beat, and
+   cached, because drawing the grid, moving the cursor and every playback frame ask for rows. The Text view of any other
+   channel turns typed text into the rows of one pattern with `textToRows`. */
 import type { Row, Song } from "./contract.ts";
-import { mmlToTrack } from "./core.ts";
+import { mmlToTrack, parseMml } from "./core.ts";
 
 const RELEASE_COMMENT = /^;\s*release rows:\s*([\d ]+)$/m;
 const CACHE_SIZE = 32;
 
-/** The release marks a conversion to MML left in a comment: an MML note off cannot say "release", the comment can. */
+/** The release marks the Text view leaves in a comment: an MML note off cannot say "release", the comment can. */
 export function withReleaseNote(mml: string, rows: readonly Row[]): string {
   const at = rows.filter((r) => r.note === "release").map((r) => r.row);
   return at.length > 0 ? `${mml}\n; release rows: ${at.join(" ")}` : mml;
 }
 
-/** Note offs on the rows the release comment lists become releases again. */
-export function restoreReleases(rows: Row[], mml: string): Row[] {
+/** Note offs on the rows the release comment lists become releases again (a row the text edit has moved stays a note off). */
+function restoreReleases(rows: Row[], mml: string): Row[] {
   const listed = RELEASE_COMMENT.exec(mml)?.[1];
   if (!listed) {
     return rows;
@@ -87,4 +87,66 @@ export function orderStartRow(
     row += song.patterns[song.order[i] ?? ""]?.length ?? 0;
   }
   return row;
+}
+
+const OFFSET_IN_MESSAGE = /offset (\d+)/;
+
+/** What typed text makes of one pattern: its rows, what did not fit and what is wrong with it. */
+export interface TextRows {
+  /** Rows past the end of the pattern that were left out (bare note offs do not count). */
+  dropped: number;
+  /** The first parse error: when set, the grid is left alone. */
+  error: string | null;
+  /** Character offsets of parse errors, for the underline. */
+  errorAt: number[];
+  /** Rows inside the pattern. */
+  rows: Row[];
+  /** A note between rows, rounded by the conversion: said, not hidden. */
+  warning: string | null;
+}
+
+/** The rows that MML text makes in a pattern of `length` rows. Parse errors give no rows (the caller keeps the grid). */
+export function textToRows(
+  text: string,
+  rowsPerBeat: number,
+  length: number
+): TextRows {
+  const parsed = parseMml(text);
+  const errors = parsed.issues.filter((i) => i.severity === "error");
+  const errorAt = errors.flatMap((i) => {
+    const m = OFFSET_IN_MESSAGE.exec(i.message);
+    return m ? [Number(m[1])] : [];
+  });
+  const first = errors[0] ?? null;
+  if (first) {
+    return {
+      dropped: 0,
+      error: first.message,
+      errorAt,
+      rows: [],
+      warning: null,
+    };
+  }
+  const track = mmlToTrack(text, rowsPerBeat);
+  const all = restoreReleases(track.rows, text);
+  const dropped = all.filter((r) => r.row >= length && r.note !== "off").length;
+  const [grid] = track.issues.slice(parsed.issues.length);
+  return {
+    dropped,
+    error: null,
+    errorAt,
+    rows: all.filter((r) => r.row < length),
+    warning: grid?.message ?? parsed.issues[0]?.message ?? null,
+  };
+}
+
+/** Text has no row for an effect on a row with no note (a jump, a tempo change): those stay where they were. */
+export function keepEffectRows(old: readonly Row[], next: Row[]): Row[] {
+  const taken = new Set(next.map((r) => r.row));
+  const kept = old.filter(
+    (r) => r.note === null && r.fx.length > 0 && !taken.has(r.row)
+  );
+  return kept.length === 0
+    ? next
+    : [...next, ...kept].sort((a, b) => a.row - b.row);
 }

@@ -6,7 +6,7 @@ import {
   chipSfxWaves,
 } from "@bleepkit/core";
 import { describeSfx } from "@bleepkit/sfx";
-import { describeInstrument, describeSong } from "../describe.ts";
+import { describeInstrument, describeSong, songText } from "../describe.ts";
 import {
   type AgentHost,
   type AnyDoc,
@@ -93,10 +93,27 @@ export function listDocuments(host: AgentHost): AgentTool {
   });
 }
 
+/** What read_document says: the description, a song's notes as text, then the JSON. */
+function readText(
+  ref: DocRef,
+  doc: AnyDoc,
+  path: string | undefined,
+  body: string
+): string {
+  const text =
+    ref.kind === "song" && !path
+      ? songText(doc as Parameters<typeof songText>[0])
+      : "";
+  const notes = text
+    ? `Notes as MML text (read only, one line per pattern and channel; edit the rows in the JSON):\n${text}\n\n`
+    : "";
+  return `${describeDoc(ref, doc)}\n\n${notes}JSON${path ? ` at ${path}` : ""}:\n${body}`;
+}
+
 export function readDocument(host: AgentHost): AgentTool {
   return defineTool<{ path?: string; ref: string }>({
     description:
-      "Read a document: a plain-words description first, then its JSON (long ones are cut; pass `path`, a JSON pointer such as /channels/2/mml or /patterns, to read just that part). Read before you change something you did not write in this conversation.",
+      "Read a document: a plain-words description first (for a song also its notes as short MML text, one line per pattern and channel), then its JSON (long ones are cut; pass `path`, a JSON pointer such as /channels/2 or /patterns/verse, to read just that part). Read before you change something you did not write in this conversation.",
     inputSchema: {
       properties: {
         path: {
@@ -138,7 +155,7 @@ export function readDocument(host: AgentHost): AgentTool {
           : json;
       return done(
         `Read ${name}${input.path ? ` ${input.path}` : ""}`,
-        `${describeDoc(parsed.ref, doc)}\n\nJSON${input.path ? ` at ${input.path}` : ""}:\n${body}`
+        readText(parsed.ref, doc, input.path, body)
       );
     },
   });
@@ -148,7 +165,7 @@ export function writeDocument(host: AgentHost): AgentTool {
   return defineTool<{ json: unknown; ref: string }>({
     coerce: (input) => parseJsonField(input, "json"),
     description:
-      "Create or replace a whole document from JSON. It is normalized first: a document with errors is refused and nothing is saved, and the problems come back so you can fix them. Values out of range are clamped and listed. For small changes to an existing document prefer edit_document. The format is in the system prompt.",
+      'Create or replace a whole document from JSON. It is normalized first: a document with errors is refused and nothing is saved, and the problems come back so you can fix them. Values out of range are clamped and listed. For small changes to an existing document prefer edit_document. The format is in the system prompt. A song may carry MML text in a channel\'s "mml" as a shorthand; it is turned into tracker patterns before it is saved, so a stored song only holds patterns.',
     inputSchema: {
       properties: {
         json: {

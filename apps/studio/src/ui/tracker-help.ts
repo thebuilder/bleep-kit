@@ -303,6 +303,10 @@ function columnsSection(): HTMLElement {
         sample("th-chip f", "047"),
         "Effect: a letter or digit, then two hex digits. The fx button in a channel header adds a second effect column.",
       ],
+      [
+        sample("th-chip", "TXT"),
+        "Show this channel as text (MML) below the grid: the notes of the selected pattern as one line, handy for pasting or typing a melody fast. Edit the grid and the text follows; type in the text and the grid follows.",
+      ],
     ])
   );
 }

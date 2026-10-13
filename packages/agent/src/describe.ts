@@ -6,6 +6,7 @@ import {
   noteName,
   PPQ,
   parseMml,
+  patternToMml,
   peakOf,
   type Song,
   sampleFrames,
@@ -150,6 +151,31 @@ export function songFacts(song: Song): SongFacts {
     rowsPerBeat: song.rowsPerBeat,
     tempo: song.tempo,
   };
+}
+
+/**
+ * The notes of a song as MML text, one line per pattern and channel, for the model to read: the stored rows are
+ * verbose JSON, the text is short. A read only view (rows are what a song holds), cut at `maxChars`.
+ */
+export function songText(song: Song, maxChars = 3000): string {
+  const lines: string[] = [];
+  let used = 0;
+  for (const id of [...new Set(song.order)]) {
+    const pattern = song.patterns[id];
+    for (const [channel, rows] of Object.entries(pattern?.tracks ?? {})) {
+      const text = patternToMml(rows, song.rowsPerBeat, pattern?.length);
+      if (text === "") {
+        continue;
+      }
+      const line = `${id} / ${channel}: ${text}`;
+      used += line.length;
+      if (used > maxChars) {
+        return `${lines.join("\n")}\n... cut, read /patterns/<id> for the rest`;
+      }
+      lines.push(line);
+    }
+  }
+  return lines.join("\n");
 }
 
 export function describeSong(song: Song): string {

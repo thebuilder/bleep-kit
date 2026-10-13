@@ -8,6 +8,7 @@ import {
   type InstrumentMisfit,
   type Issue,
   issuesToText,
+  mmlToPatterns,
   type Normalized,
   normalizeInstrument,
   normalizeSfx,
@@ -119,6 +120,18 @@ async function instrumentHint(host: AgentHost, kind: DocKind): Promise<string> {
     : "";
 }
 
+const KEPT_HELP =
+  "That MML does not fit the tracker grid (triplets, q gates or odd lengths fall between rows). Use lengths that land on rows, or raise the song's rowsPerBeat.";
+
+function keptText(notes: readonly Issue[]): string {
+  const kept = notes.filter((i) => i.severity === "warning");
+  const info = notes.filter((i) => i.severity === "info");
+  return [
+    kept.length > 0 ? `\n${issueLines(kept)}\n${KEPT_HELP}` : "",
+    info.length > 0 ? `\n${issueLines(info)}` : "",
+  ].join("");
+}
+
 export interface CommitOptions {
   /** Refuse when the document exists (a `new_*` tool must not overwrite by accident). */
   create?: boolean;
@@ -159,19 +172,25 @@ export async function commit(
       value: null,
     };
   }
+  let value: AnyDoc = n.value;
+  let notes: Issue[] = [];
   if (ref.kind === "song") {
     const refused = await misfitRefusal(host, ref, n.value as Song, extra);
     if (refused) {
       return { out: refused, value: null };
     }
+    // MML is how the assistant writes, patterns are what a song is stored as (architecture.md section 2.7)
+    const converted = mmlToPatterns(n.value as Song);
+    value = converted.song;
+    notes = converted.issues;
   }
   if (opts.dryRun) {
     return {
-      out: done(`Checked ${name}`, `${name} is valid.`),
-      value: n.value,
+      out: done(`Checked ${name}`, `${name} is valid.${keptText(notes)}`),
+      value,
     };
   }
-  const { created } = await host.write(ref, n.value);
+  const { created } = await host.write(ref, value);
   const warnings = n.issues.filter((i) => i.severity === "warning");
   const verb = opts.verb ?? (created ? "Created" : "Updated");
   const adjusted =
@@ -181,8 +200,8 @@ export async function commit(
   return {
     out: done(
       `${verb} ${name}`,
-      `${verb} ${name}.${adjusted}\nIt is saved in the project and visible in the studio now.`
+      `${verb} ${name}.${adjusted}${keptText(notes)}\nIt is saved in the project and visible in the studio now.`
     ),
-    value: n.value,
+    value,
   };
 }

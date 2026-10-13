@@ -7,7 +7,7 @@ It speaks seven sound chips: NES, Game Boy, C64 SID, Sega Genesis, AdLib OPL2, S
 What you get:
 
 - **Sound effects**: an sfxr-style generator with categories (coin, laser, explosion, powerup, hit, jump, blip, door, alarm, teleport, step, zap), a `mutate` command for variations, and an FM mode.
-- **Music**: tracker patterns or one line of MML per channel, instrument macros (arpeggios, duty sweeps, vibrato), FM patches, SID filter sweeps, SNES echo, loop points that are gapless in OGG.
+- **Music**: tracker patterns, typed in as one line of MML per channel if you like (it becomes pattern rows, and the studio shows any channel as text again), instrument macros (arpeggios, duty sweeps, vibrato), FM patches, SID filter sweeps, SNES echo, loop points that are gapless in OGG.
 - **Your own samples**: import a WAV, MP3 or OGG into the sample editor (trim, loop, tune, bit depth), play it from a sample instrument on the Amiga, SNES, custom chip or the Genesis DAC, and import or export ProTracker `.mod` modules.
 - **A studio**: a browser editor with scopes, spectrogram and piano roll that edits the real files on disk and reloads on every change.
 - **An assistant in the studio** (bring your own key): ask in plain words for a sound, a song or a change, and an Anthropic or OpenAI model builds it with the same documents, measures it and shows you what it saw. The browser calls the provider directly with your key, and it is billed to your account. See [The studio assistant](#the-studio-assistant).
@@ -72,7 +72,7 @@ pnpm bleepkit render sfx/jump --analyze --images --project ~/chip-test
 # 4. want other takes? write variations and compare their descriptions
 pnpm bleepkit mutate sfx/jump --count 3 --project ~/chip-test
 
-# 5. a song: one MML string per channel
+# 5. a song: one MML string per channel (stored as tracker patterns)
 pnpm bleepkit new song title --tempo 140 \
   --mml pulse1="o4 l8 cdefgab>c" --mml triangle="o2 l4 c g c g" --project ~/chip-test
 pnpm bleepkit render song/title --analyze --images --stems --project ~/chip-test
@@ -183,7 +183,7 @@ project.json      chip, sample rate, seed, export settings
 sfx/*.json        sound effects
 instruments/*.json instruments (pulse, wave, SID, FM, sample)
 samples/*.json    your recordings (mono PCM as base64) that sample instruments play
-songs/*.json      songs (tracker patterns or MML per channel)
+songs/*.json      songs (tracker patterns; MML in a channel is accepted and converted)
 out/              renders and analysis (gitignored)
 ```
 

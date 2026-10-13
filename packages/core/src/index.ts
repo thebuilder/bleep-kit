@@ -158,6 +158,10 @@ export {
   PRESET_FOR_ROLE,
 } from "./songs/instrument-fix.ts";
 export {
+  type MmlConversion,
+  mmlToPatterns,
+} from "./songs/mml-convert.ts";
+export {
   describeRechip,
   type RechipChange,
   type RechipDrop,

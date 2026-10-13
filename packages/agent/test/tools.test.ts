@@ -192,9 +192,12 @@ describe("edit_document", () => {
       ref: "song/tune",
     });
     expect(out.isError).toBeUndefined();
+    // the MML is an input: the song is saved as patterns
     const song = host.docs.get("song/tune") as Song;
-    expect(song.channels[1]?.mml).toBe("o1 l8 c c g g");
-    expect(song.channels[0]?.mml).toBeNull();
+    expect(song.channels.every((c) => c.mml === null)).toBe(true);
+    const rows = Object.values(song.patterns)[0]?.tracks.triangle ?? [];
+    expect(rows[0]?.note).toBe(24);
+    expect(rows.filter((r) => typeof r.note === "number")).toHaveLength(4);
   });
 
   it("names the bad change and leaves the document alone", async () => {
@@ -268,6 +271,38 @@ describe("creating", () => {
     const more = await call("mutate_sfx", { ref: "sfx/coin" });
     expect(more.summary).toContain("coin-m3");
     expect((await call("mutate_sfx", { ref: "song/tune" })).isError).toBe(true);
+  });
+
+  it("saves a song written in MML as patterns, and read_document shows the notes as text", async () => {
+    const { call, host } = setup();
+    const out = await call("new_song", {
+      id: "stored",
+      mml: {
+        pulse1: "l8 ; section: Verse\n[c d e f]2 L",
+        triangle: "o2 l4 c g",
+      },
+    });
+    expect(out.isError).toBeUndefined();
+    const song = host.docs.get("song/stored") as Song;
+    expect(song.channels.every((c) => c.mml === null)).toBe(true);
+    expect(song.order).toEqual(["Verse"]);
+    expect(song.loop).toBe(0);
+    const read = await call("read_document", { ref: "song/stored" });
+    expect(read.text).toContain("Notes as MML text");
+    expect(read.text).toContain("Verse / pulse1: ");
+  });
+
+  it("keeps a channel as MML when its timing is between rows, and tells the model", async () => {
+    const { call, host } = setup();
+    const out = await call("new_song", {
+      id: "swing",
+      mml: { pulse1: "q7 l12 c d e f", triangle: "o2 l4 c g" },
+    });
+    expect(out.isError).toBeUndefined();
+    expect(out.text).toContain('channel "pulse1" stays as MML text');
+    const song = host.docs.get("song/swing") as Song;
+    expect(song.channels.find((c) => c.id === "pulse1")?.mml).not.toBeNull();
+    expect(song.channels.find((c) => c.id === "triangle")?.mml).toBeNull();
   });
 
   it("creates a song from MML with matching instruments", async () => {
@@ -605,7 +640,11 @@ describe("change_song_chip", () => {
     expect(out.isError).toBeUndefined();
     const song = host.docs.get("song/tune") as Song;
     expect(song.chip).toBe("genesis");
-    const withMusic = song.channels.filter((c) => c.mml).map((c) => c.id);
+    const withMusic = song.channels
+      .filter((c) =>
+        Object.values(song.patterns).some((p) => p.tracks[c.id]?.length)
+      )
+      .map((c) => c.id);
     expect(withMusic.length).toBe(4);
     expect(withMusic).toContain("psgNoise");
     expect(out.text).toContain("pulse1 to fm");

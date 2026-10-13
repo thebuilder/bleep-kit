@@ -1,6 +1,7 @@
-/* A song written in MML shows its notes in the song editor's grid (read only), a typed key on such a cell says where
-   to edit, the order list stays inside its panel, and the instrument warning has a one-click fix. The shell is real, on
-   the fake engine and a browser store; every test drives the real controls. */
+/* One song, two views: a song that arrives with MML opens as tracker patterns (editable everywhere, no extra undo
+   step), the Text view of a channel follows the grid and the grid follows what is typed, and a channel whose timing
+   falls between rows stays MML with its text open. The shell is real, on the fake engine and a browser store; every test
+   drives the real controls. */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import indexHtml from "../index.html?raw";
 import type { Song } from "../src/lib/contract.ts";
@@ -71,7 +72,23 @@ async function makeMmlSong(id: string, mml: string, order = ["a", "b"]) {
   await project().create("song", id, song);
 }
 
-describe("MML channels in the grid", () => {
+/** The note column of channel 0 in the pattern, as MIDI numbers (row -> note). */
+const notesOf = (id: string, pattern: string, ch = 0) => {
+  const s = songValue(id);
+  return (s.patterns[pattern]?.tracks[s.channels[ch]?.id as string] ?? []).map(
+    (r) => `${r.row}:${r.note}`
+  );
+};
+const fire = (el: Element, type: string) =>
+  el.dispatchEvent(new Event(type, { bubbles: true }));
+const textArea = (ch: string) =>
+  document.querySelector<HTMLTextAreaElement>(
+    `.mml-ta[aria-label$="of ${ch}"]`
+  );
+const headBtn = (ci: number, act: string) =>
+  document.querySelector(`#gHead .tch[data-ch="${ci}"] [data-act="${act}"]`);
+
+describe("a song with MML opens as patterns", () => {
   it("compiles once per text and rows per beat, and cuts rows by pattern", () => {
     const text = "o4 l4 c d e f g a";
     const first = compileMmlRows(text, 4);
@@ -85,75 +102,162 @@ describe("MML channels in the grid", () => {
     expect([...second.keys()].slice(0, 2)).toEqual([0, 4]);
   });
 
-  it("shows the notes at the right rows of the right pattern, read only and tinted", async () => {
+  it("has no MML channel, every cell editable, no convert button, and nothing to undo", async () => {
     await makeMmlSong("mml-grid", "o4 l4 c d e f g a");
+    const doc = project().get("song", "mml-grid");
+    expect(doc?.history.canUndo).toBe(false);
+    expect(songValue("mml-grid").channels.every((c) => c.mml === null)).toBe(
+      true
+    );
     await goSong("mml-grid");
     // quarter notes at 4 rows per beat: c d e f on rows 0, 4, 8, 12
     expect(noteAt(0, 0)).toBe("C-4");
     expect(noteAt(4, 0)).toBe("D-4");
-    expect(noteAt(8, 0)).toBe("E-4");
     expect(noteAt(12, 0)).toBe("F-4");
     expect(noteAt(2, 0)).toBe("---");
-    // no cell says "MML" any more, and the channel is tinted
-    expect(document.querySelector(".tr-body")?.textContent).not.toContain(
-      "MML"
-    );
-    expect(
-      document.querySelectorAll('.tr-body .tc.is-mml[data-ch="0"]').length
-    ).toBeGreaterThanOrEqual(16);
-    expect(
-      document.querySelectorAll('.tr-body .tc.is-mml[data-ch="1"]').length
-    ).toBe(0);
+    expect(document.querySelectorAll(".tr-body .tc.is-mml")).toHaveLength(0);
+    expect(document.querySelector("#gHead .conv")).toBeNull();
+    expect(document.querySelector("#gHead [data-act='mml']")).toBeNull();
+    expect(document.querySelector(".mml-ta")).toBeNull();
     // the next order entry plays on: g and a on its rows 0 and 4
     press(document.querySelector('#gOrder .ochip[data-i="1"]'));
     expect(await until(() => noteAt(0, 0) === "G-4")).toBe(true);
     expect(noteAt(4, 0)).toBe("A-4");
-    // the channel offers the way out
-    const conv = document.querySelector('#gHead .tch[data-ch="0"] .conv');
-    expect(conv?.textContent).toBe("Convert to tracker to edit");
+    // opening it left no step to undo, and a typed note is an ordinary edit on the first channel
+    expect(doc?.history.canUndo).toBe(false);
+    const tracker = document.getElementById("gTracker") as HTMLElement;
+    tracker.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: "Delete" })
+    );
+    expect(toastText()).not.toContain("MML");
   });
 
-  it("follows a change of the MML and of the rows per beat", async () => {
+  it("converts a song that changes underneath it, without an undo step to the MML", async () => {
     await makeMmlSong("mml-live", "o4 l4 c d");
     await goSong("mml-live");
     expect(noteAt(4, 0)).toBe("D-4");
-    project().edit<Song>(project().get("song", "mml-live") as never, (d) => {
-      (d.channels[0] as { mml: string | null }).mml = "o4 l4 c d e";
-    });
-    await until(() => noteAt(8, 0) === "E-4");
-    expect(noteAt(8, 0)).toBe("E-4");
-  });
-
-  it("says where to edit when a key would change an MML cell, and changes nothing", async () => {
-    await makeMmlSong("mml-hint", "o4 l4 c d e f");
-    await goSong("mml-hint");
-    const before = JSON.stringify(songValue("mml-hint"));
-    const tracker = document.getElementById("gTracker") as HTMLElement;
-    for (const k of ["z", "Delete"]) {
-      tracker.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          bubbles: true,
-          cancelable: true,
-          key: k,
-        })
-      );
-    }
-    expect(toastText()).toContain("written in MML");
-    expect(toastText()).toContain("Convert to tracker to edit");
-    expect(JSON.stringify(songValue("mml-hint"))).toBe(before);
-  });
-
-  it("converts to tracker rows from the channel's button, in one undo step", async () => {
-    await makeMmlSong("mml-conv", "o4 l4 c d e f");
-    await goSong("mml-conv");
-    press(document.querySelector('#gHead .tch[data-ch="0"] .conv'));
-    const song = songValue("mml-conv");
-    expect(song.channels[0]?.mml).toBeNull();
-    expect(
-      song.patterns.a?.tracks[song.channels[0]?.id as string]?.length
-    ).toBe(4);
+    const doc = project().get("song", "mml-live") as never;
+    // the CLI or the assistant writes the song with MML text in a channel
+    const raw = JSON.parse(JSON.stringify(songValue("mml-live"))) as Song;
+    (raw.channels[0] as { mml: string | null }).mml = "o4 l4 c d e";
+    project().edit<Song>(doc, () => raw);
+    expect(await until(() => noteAt(8, 0) === "E-4")).toBe(true);
+    expect(songValue("mml-live").channels[0]?.mml).toBeNull();
     appMod.app.undo();
-    expect(songValue("mml-conv").channels[0]?.mml).toBe("o4 l4 c d e f");
+    await settle(30);
+    expect(songValue("mml-live").channels[0]?.mml).toBeNull();
+  });
+});
+
+describe("the Text view", () => {
+  it("is collapsed until the channel's TXT button opens it, and follows the grid", async () => {
+    await makeMmlSong("mml-text", "o4 l4 c d e f g a");
+    await goSong("mml-text");
+    expect(textArea("pulse1")).toBeNull();
+    press(headBtn(0, "text"));
+    const ta = textArea(songValue("mml-text").channels[0]?.id as string);
+    expect(ta).not.toBeNull();
+    expect(ta?.value).toContain("c4");
+    expect(document.querySelector(".mml-top b")?.textContent).toContain(
+      "in pattern a"
+    );
+    // a note typed into the grid shows up in the text (the box is not focused)
+    const tracker = document.getElementById("gTracker") as HTMLElement;
+    const before = ta?.value;
+    tracker.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: "x" })
+    );
+    expect(await until(() => ta?.value !== before)).toBe(true);
+    // the next pattern is another text
+    press(document.querySelector('#gOrder .ochip[data-i="1"]'));
+    expect(await until(() => ta?.value.startsWith("g4") ?? false)).toBe(true);
+    expect(document.querySelector(".mml-top b")?.textContent).toContain(
+      "in pattern b"
+    );
+    press(headBtn(0, "text"));
+    expect(document.querySelector(".mml-ta")).toBeNull();
+  });
+
+  it("changes the grid when text is typed, in one undo step, and leaves the grid alone on a mistake", async () => {
+    await makeMmlSong("mml-type", "o4 l4 c d e f");
+    await goSong("mml-type");
+    press(headBtn(0, "text"));
+    const ta = textArea(
+      songValue("mml-type").channels[0]?.id as string
+    ) as HTMLTextAreaElement;
+    const doc = project().get("song", "mml-type");
+    const before = notesOf("mml-type", "a");
+    ta.focus();
+    ta.value = "o4 l8 g";
+    fire(ta, "input");
+    ta.value = "o4 l8 g a";
+    fire(ta, "input");
+    expect(await until(() => noteAt(2, 0) === "A-4")).toBe(true);
+    expect(noteAt(0, 0)).toBe("G-4");
+    expect(noteAt(4, 0)).toBe("===");
+    expect(document.querySelector(".mml-msg")?.textContent).toBe("ok");
+    // a mistake is reported under the box and the grid keeps what it had
+    ta.value = "o4 l8 g a zz";
+    fire(ta, "input");
+    await settle(250);
+    expect(document.querySelector(".mml-msg")?.classList.contains("bad")).toBe(
+      true
+    );
+    expect(noteAt(0, 0)).toBe("G-4");
+    // the two good inputs were one typing burst: one undo brings the old notes back
+    expect(doc?.history.canUndo).toBe(true);
+    appMod.app.undo();
+    expect(notesOf("mml-type", "a")).toEqual(before);
+  });
+
+  it("leaves out the rows past the end of the pattern and says so", async () => {
+    await makeMmlSong("mml-long", "o4 l4 c");
+    await goSong("mml-long");
+    press(headBtn(0, "text"));
+    const ta = textArea(
+      songValue("mml-long").channels[0]?.id as string
+    ) as HTMLTextAreaElement;
+    ta.focus();
+    ta.value = "o4 l4 c d e f g a b";
+    fire(ta, "input");
+    expect(await until(() => noteAt(12, 0) === "F-4")).toBe(true);
+    expect(document.querySelector(".mml-msg")?.textContent).toContain(
+      "rows past the end of the pattern were left out"
+    );
+    expect(songValue("mml-long").patterns.a?.tracks).not.toHaveProperty("x");
+  });
+});
+
+describe("a channel the converter kept as MML", () => {
+  it("is read only, shows its text with a reason, and becomes patterns once the text fits", async () => {
+    await makeMmlSong("mml-kept", "q7 l12 c d e f");
+    await goSong("mml-kept");
+    const s = songValue("mml-kept");
+    expect(s.channels[0]?.mml).not.toBeNull();
+    expect(
+      document.querySelectorAll('.tr-body .tc.is-mml[data-ch="0"]').length
+    ).toBeGreaterThanOrEqual(16);
+    const ta = textArea(s.channels[0]?.id as string) as HTMLTextAreaElement;
+    expect(ta.value).toBe("q7 l12 c d e f");
+    expect(document.querySelector(".mml-note")?.textContent).toContain(
+      "falls between the rows"
+    );
+    // a key on its cells changes nothing and says where the notes are
+    const before = JSON.stringify(songValue("mml-kept"));
+    const tracker = document.getElementById("gTracker") as HTMLElement;
+    tracker.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, key: "z" })
+    );
+    expect(toastText()).toContain("stays as text");
+    expect(JSON.stringify(songValue("mml-kept"))).toBe(before);
+    // text that lands on rows turns the channel into patterns
+    ta.focus();
+    ta.value = "o4 l4 c d e f";
+    fire(ta, "input");
+    expect(
+      await until(() => songValue("mml-kept").channels[0]?.mml === null)
+    ).toBe(true);
+    expect(noteAt(4, 0)).toBe("D-4");
   });
 });
 

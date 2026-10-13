@@ -1,6 +1,6 @@
 /* The song editor: a Famitracker style tracker grid (one column per channel, colored by kind), an order list, tempo and
-   rows per beat, per-channel scopes, mute and solo, MML channels with live error underlines, and a four octave strip
-   that lights with the notes that play. The right-hand inspector holds the song and the selected channel. */
+   rows per beat, per-channel scopes, mute and solo, an optional Text (MML) view per channel with live error underlines, and a
+   four octave strip that lights with the notes that play. The right-hand inspector holds the song and the selected channel. */
 import type { Command, ViewHooks } from "../app.ts";
 import { app } from "../app.ts";
 import { engine } from "../engine/engine.ts";
@@ -20,7 +20,6 @@ import {
   chipChannels,
   chipProfile,
   formatEffect,
-  mmlToTrack,
   noteName,
   parseEffect,
   parseMml,
@@ -29,9 +28,10 @@ import {
 import { choose, clamp, debounce, fire, h, prefs, reflow } from "../lib/dom.ts";
 import {
   compileMmlRows,
+  keepEffectRows,
   orderStartRow,
-  restoreReleases,
   rowsInRange,
+  textToRows,
   withReleaseNote,
 } from "../lib/mml-rows.ts";
 import {
@@ -98,6 +98,8 @@ const MML_INST_TOKEN = /^@[A-Za-z0-9-]*/;
 const NUM_CHAR = /[0-9.]/;
 const OFFSET_IN_MESSAGE = /offset (\d+)/;
 const MML_HINT_GAP_MS = 2500;
+/** How long typing in a Text box rests before the grid takes the notes. */
+const TEXT_COMMIT_MS = 160;
 
 const hex = (n: number, d = 1) => n.toString(16).toUpperCase().padStart(d, "0");
 /** Height of a tracker row in CSS pixels (.trow). */
@@ -159,9 +161,6 @@ function loopAfterMove(
   return loop;
 }
 
-/* MML has no release (section 2.7), so a release row would come back from MML as a plain note off. The conversion
-   writes the rows that held a release into a trailing comment, which parseMml ignores, and converting back turns the
-   note offs on those rows into releases again. A row the MML edit has since moved simply stays a note off. */
 function noteText(n: NoteValue | null): string {
   if (n === null) {
     return "---";
@@ -269,7 +268,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         <div class="tr-body" id="gBody"></div>
       </div>
       <div class="keystrip"><canvas id="gKeys" aria-label="Piano keys: press one to hear the current channel's instrument"></canvas></div>
-      <div class="mml-panel" id="gMml"></div>
+      <div class="mml-panel" id="gText"></div>
     </div>`;
   const q = <T extends HTMLElement>(sel: string) =>
     host.querySelector(sel) as T;
@@ -277,7 +276,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   const body = q("#gBody");
   const tracker = q("#gTracker");
   const orderEl = q("#gOrder");
-  const mmlPanel = q("#gMml");
+  const textPanel = q("#gText");
   const tempoIn = q<HTMLInputElement>("#gTempo");
   const rpbIn = q<HTMLInputElement>("#gRpb");
   const lenIn = q<HTMLInputElement>("#gLen");
@@ -394,6 +393,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       }
     });
     placeCursor();
+    syncTexts();
   }
 
   function buildHead(): void {
@@ -415,15 +415,11 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
         <div class="tch-top"><span class="kname"></span>
           <button class="tb m${c.muted ? " on" : ""}" data-act="mute" title="Mute (click). Solo: Alt+click" aria-label="Mute ${c.id}">${c.muted ? "M" : "M"}</button>
           <button class="tb s${solo.has(c.id) ? " on" : ""}" data-act="solo" title="Solo" aria-label="Solo ${c.id}">S</button>
-          <button class="tb${c.mml === null ? "" : " on"}" data-act="mml" title="Write this channel in MML" aria-label="MML for ${c.id}">MML</button>
+          <button class="tb${showsText(c) ? " on" : ""}" data-act="text" title="Show this channel as text (MML)" aria-label="Text view of ${c.id}">TXT</button>
           <button class="tb" data-act="fx" title="Show another effect column" aria-label="Effect columns for ${c.id}">fx${fxCount(c.id)}</button>
         </div>
         <canvas class="scope" aria-label="${c.id} scope"></canvas>
-        <div class="tch-sub"><span class="mono lab"></span>${
-          c.mml === null
-            ? ""
-            : `<button class="conv" data-act="convert" title="This channel is written in MML, so its rows are read only. Convert it to tracker rows to edit the notes here (Ctrl+Z undoes it)" aria-label="Convert ${c.id} to tracker to edit">Convert to tracker to edit</button>`
-        }</div>`;
+        <div class="tch-sub"><span class="mono lab"></span></div>`;
       (cell.querySelector(".kname") as HTMLElement).textContent =
         c.id.toUpperCase();
       (cell.querySelector(".lab") as HTMLElement).textContent =
@@ -637,10 +633,12 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   }
 
   function setOrder(i: number): void {
+    flushTexts();
     orderIdx = clamp(i, 0, Math.max(0, song().order.length - 1));
     cur.row = 0;
     buildOrder();
     buildGrid();
+    syncTexts();
     syncBar();
     tracker.scrollTop = 0;
   }
@@ -816,7 +814,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     return step !== undefined;
   }
 
-  /** A key that would edit the cell of an MML channel: nothing changes, a short hint says where the notes are edited. */
+  /** A key that would edit the cell of a channel kept as text: nothing changes, a short hint says where its notes are. */
   let hintAt = 0;
   function mmlCellKey(c: SongChannel, k: string): boolean {
     const edits =
@@ -831,23 +829,10 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     if (now - hintAt > MML_HINT_GAP_MS) {
       hintAt = now;
       app.toast(
-        `${c.id.toUpperCase()} is written in MML, so its cells are read only. Edit the MML below the grid, or press "Convert to tracker to edit" on the channel.`
+        `${c.id.toUpperCase()} stays as text because its timing falls between rows of the grid, so its cells are read only. Edit its text below the grid.`
       );
     }
-    nudgeConvert(c.id);
     return true;
-  }
-
-  /** Makes the channel's convert button blink once, so the way to edit it is easy to find. */
-  function nudgeConvert(chId: string): void {
-    const ci = song().channels.findIndex((x) => x.id === chId);
-    const btn = head.querySelector<HTMLElement>(`.tch[data-ch="${ci}"] .conv`);
-    if (btn) {
-      btn.classList.remove("nudge");
-      // restart the animation
-      btn.getBoundingClientRect();
-      btn.classList.add("nudge");
-    }
   }
 
   /** Delete clears the field under the cursor and moves down; Backspace clears it and stays. */
@@ -1075,11 +1060,8 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       }
     } else if (act === "solo") {
       toggleSolo(c.id, ci);
-    } else if (act === "mml") {
-      toggleMml(ci);
-    } else if (act === "convert") {
-      convertBack(ci);
-      rebuildAll();
+    } else if (act === "text") {
+      toggleText(c);
     } else if (act === "fx") {
       fxCols = { ...fxCols, [c.id]: fxCount(c.id) === 1 ? 2 : 1 };
       prefs.set("tracker-fx", fxCols);
@@ -1115,93 +1097,6 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
   }
 
   /* ----- MML ----- */
-  function flatRows(chId: string): Row[] {
-    const s = song();
-    const out: Row[] = [];
-    let base = 0;
-    for (const pid of s.order) {
-      const p = s.patterns[pid];
-      for (const r of p?.tracks[chId] ?? []) {
-        out.push({ ...r, fx: r.fx.map((x) => ({ ...x })), row: base + r.row });
-      }
-      base += p?.length ?? 0;
-    }
-    return out;
-  }
-
-  function toggleMml(ci: number): void {
-    const c = song().channels[ci];
-    if (!c) {
-      return;
-    }
-    if (c.mml === null) {
-      const rows = flatRows(c.id);
-      const text = withReleaseNote(
-        patternToMml(rows, song().rowsPerBeat) || "o4 l8 r",
-        rows
-      );
-      project.edit<Song>(doc(), (d) => {
-        const ch = d.channels[ci];
-        if (!ch) {
-          return;
-        }
-        ch.mml = text;
-        for (const p of Object.values(d.patterns)) {
-          delete p.tracks[c.id];
-        }
-      });
-      app.toast(`${c.id} is now written in MML. Ctrl+Z undoes it.`);
-    } else {
-      convertBack(ci);
-    }
-    rebuildAll();
-  }
-
-  function convertBack(ci: number): void {
-    const c = song().channels[ci];
-    if (!c || c.mml === null) {
-      return;
-    }
-    const res = mmlToTrack(c.mml, song().rowsPerBeat);
-    const rows = restoreReleases(res.rows, c.mml);
-    project.edit<Song>(doc(), (d) => {
-      const ch = d.channels[ci];
-      if (!ch) {
-        return;
-      }
-      let base = 0;
-      for (const pid of d.order) {
-        const p = d.patterns[pid];
-        if (!p) {
-          continue;
-        }
-        const mine = rows
-          .filter((r) => r.row >= base && r.row < base + p.length)
-          .map((r) => ({ ...r, row: r.row - base }));
-        if (mine.length) {
-          p.tracks[ch.id] = mine;
-        } else {
-          delete p.tracks[ch.id];
-        }
-        base += p.length;
-      }
-      ch.mml = null;
-    });
-    const lost = rows.filter(
-      (r) =>
-        r.row >=
-        song().order.reduce(
-          (n, pid) => n + (song().patterns[pid]?.length ?? 0),
-          0
-        )
-    ).length;
-    app.toast(
-      lost
-        ? `${c.id} is back in the tracker. ${lost} rows past the end were dropped.`
-        : `${c.id} is back in the tracker.`
-    );
-  }
-
   function mmlHighlight(src: string, errs: number[]): string {
     const esc = (s: string) =>
       s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1240,92 +1135,254 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     return `${out}\n`;
   }
 
-  function buildMml(): void {
-    mmlPanel.replaceChildren();
-    const chans = song()
-      .channels.map((c, i) => ({ c, i }))
-      .filter((x) => x.c.mml !== null);
-    mmlPanel.hidden = chans.length === 0;
-    for (const { c, i } of chans) {
-      const box = h("div", {
-        class: "mml-box",
-        style: `--kc:${KIND_COLOR[kindOf(c)]}`,
+  /* ----- Text view ----- */
+  /* The grid is the one editor. A channel's text is a view of its rows in the pattern that is selected in the order list:
+     the grid changes the text, typing in the text changes the grid. A channel kept as MML (timing between rows) shows
+     its whole text instead, always open, and the text is what you edit. */
+  interface TextBox {
+    ch: string;
+    commit: ReturnType<typeof debounce>;
+    kept: boolean;
+    label: HTMLElement;
+    msg: HTMLElement;
+    note: HTMLElement | null;
+    pid: string;
+    pre: HTMLElement;
+    ta: HTMLTextAreaElement;
+  }
+  const textKey = `tracker-text:${id}`;
+  const textOpen = new Set(prefs.get<string[]>(textKey, []));
+  const textBoxes = new Map<string, TextBox>();
+  let selfMml = false;
+
+  function isKept(c: SongChannel): boolean {
+    return c.mml !== null;
+  }
+  function showsText(c: SongChannel): boolean {
+    return isKept(c) || textOpen.has(c.id);
+  }
+  /** The channel's rows in the selected pattern as text, with the release marks in a trailing comment. */
+  function patternText(c: SongChannel): string {
+    const rows = pattern()?.tracks[c.id] ?? [];
+    return withReleaseNote(
+      patternToMml(rows, song().rowsPerBeat, pattern()?.length),
+      rows
+    );
+  }
+  const textOf = (c: SongChannel): string =>
+    isKept(c) ? (c.mml ?? "") : patternText(c);
+  const labelOf = (c: SongChannel): string =>
+    isKept(c) ? `${c.id} MML` : `${c.id} in pattern ${patternId()}`;
+
+  function toggleText(c: SongChannel): void {
+    if (isKept(c)) {
+      app.toast(`${c.id} stays as text, so its text is always shown.`);
+      return;
+    }
+    if (textOpen.has(c.id)) {
+      textOpen.delete(c.id);
+    } else {
+      textOpen.add(c.id);
+    }
+    prefs.set(textKey, [...textOpen]);
+    for (const b of head.querySelectorAll<HTMLElement>(
+      `.tch[data-ch="${song().channels.indexOf(c)}"] [data-act="text"]`
+    )) {
+      b.classList.toggle("on", textOpen.has(c.id));
+    }
+    syncTexts();
+  }
+
+  /** The highlighted text, the one line message under the title, and the underline of parse errors. */
+  function checkText(box: TextBox): void {
+    const c = song().channels.find((x) => x.id === box.ch);
+    const text = box.ta.value;
+    let errorAt: number[];
+    let message: string | null;
+    let state: "ok" | "bad" | "warn" = "ok";
+    if (c && isKept(c)) {
+      const res = parseMml(text);
+      errorAt = res.issues.flatMap((i) => {
+        const m = OFFSET_IN_MESSAGE.exec(i.message);
+        return i.severity === "error" && m ? [Number(m[1])] : [];
       });
-      const top = h("div", { class: "mml-top" });
-      top.innerHTML = `<b class="pxh"></b><span class="mml-msg mono"></span>`;
-      (top.querySelector("b") as HTMLElement).textContent = `${c.id} MML`;
-      const toTracker = h(
-        "button",
-        {
-          class: "btn small",
-          onclick: () => {
-            convertBack(i);
-            rebuildAll();
-          },
-          title: "Convert this channel back to tracker rows",
-        },
-        "To tracker"
-      );
-      top.append(toTracker);
-      const wrap = h("div", { class: "mml-wrap" });
-      const pre = h("pre", { "aria-hidden": "true", class: "mml-hl" });
-      const ta = h("textarea", {
-        "aria-label": `MML for ${c.id}`,
-        autocapitalize: "off",
-        class: "mml-ta",
-        rows: 3,
-        spellcheck: "false",
-      }) as HTMLTextAreaElement;
-      ta.value = c.mml ?? "";
-      const msg = top.querySelector(".mml-msg") as HTMLElement;
-      const check = () => {
-        const res = parseMml(ta.value);
-        const errs: number[] = [];
-        for (const iss of res.issues) {
-          const m = OFFSET_IN_MESSAGE.exec(iss.message);
-          if (m && iss.severity === "error") {
-            errs.push(Number(m[1]));
+      const first =
+        res.issues.find((x) => x.severity === "error") ?? res.issues[0];
+      message = first?.message ?? null;
+      state = res.issues.some((x) => x.severity === "error") ? "bad" : "ok";
+    } else {
+      const res = textToRows(text, song().rowsPerBeat, pattern()?.length ?? 0);
+      ({ errorAt } = res);
+      message = res.error ?? res.warning;
+      if (res.error) {
+        state = "bad";
+      } else if (res.dropped > 0) {
+        state = "warn";
+        message = `${res.dropped} rows past the end of the pattern were left out`;
+      } else if (res.warning) {
+        state = "warn";
+      }
+    }
+    box.pre.innerHTML = mmlHighlight(text, errorAt);
+    box.msg.textContent = message ?? "ok";
+    box.msg.classList.toggle("bad", state === "bad");
+    box.msg.classList.toggle("warn", state === "warn");
+  }
+
+  /** The typed text becomes the notes: a kept channel's MML, or the channel's rows in the pattern the box was showing. */
+  function applyText(box: TextBox): void {
+    const ci = song().channels.findIndex((x) => x.id === box.ch);
+    const c = song().channels[ci];
+    if (!c) {
+      return;
+    }
+    const text = box.ta.value;
+    selfMml = true;
+    if (isKept(c)) {
+      project.edit<Song>(
+        doc(),
+        (d) => {
+          const ch = d.channels[ci];
+          if (ch) {
+            ch.mml = text;
           }
-        }
-        pre.innerHTML = mmlHighlight(ta.value, errs);
-        const first =
-          res.issues.find((x) => x.severity === "error") ?? res.issues[0];
-        msg.textContent = first ? first.message : "ok";
-        msg.classList.toggle(
-          "bad",
-          !!res.issues.find((x) => x.severity === "error")
-        );
-      };
-      const commit = debounce(() => {
-        selfMml = true;
+        },
+        `mml:${c.id}`
+      );
+    } else {
+      const length = song().patterns[box.pid]?.length ?? 0;
+      const res = textToRows(text, song().rowsPerBeat, length);
+      if (!res.error) {
         project.edit<Song>(
           doc(),
           (d) => {
-            const ch = d.channels[i];
-            if (ch) {
-              ch.mml = ta.value;
+            const p = d.patterns[box.pid];
+            if (!p) {
+              return;
+            }
+            const rows = keepEffectRows(p.tracks[c.id] ?? [], res.rows);
+            if (rows.length > 0) {
+              p.tracks[c.id] = rows;
+            } else {
+              delete p.tracks[c.id];
             }
           },
-          `mml:${c.id}`
+          `mml:${c.id}:${box.pid}`
         );
-        selfMml = false;
-      }, 160);
-      ta.addEventListener("input", () => {
-        check();
-        commit();
-      });
-      ta.addEventListener("scroll", () => {
-        pre.scrollTop = ta.scrollTop;
-        pre.scrollLeft = ta.scrollLeft;
-      });
-      ta.addEventListener("keydown", (e) => e.stopPropagation());
-      wrap.append(pre, ta);
-      box.append(top, wrap);
-      mmlPanel.append(box);
-      check();
+      }
+    }
+    selfMml = false;
+  }
+
+  function makeTextBox(c: SongChannel): TextBox {
+    const box = h("div", {
+      class: "mml-box",
+      style: `--kc:${KIND_COLOR[kindOf(c)]}`,
+    });
+    const top = h("div", { class: "mml-top" });
+    top.innerHTML = `<b class="pxh"></b><span class="mml-msg mono"></span>`;
+    const wrap = h("div", { class: "mml-wrap" });
+    const pre = h("pre", { "aria-hidden": "true", class: "mml-hl" });
+    const ta = h("textarea", {
+      "aria-label": `Text (MML) of ${c.id}`,
+      autocapitalize: "off",
+      class: "mml-ta",
+      placeholder: "Type notes here, for example: o4 l8 c d e f g",
+      rows: 3,
+      spellcheck: "false",
+    }) as HTMLTextAreaElement;
+    wrap.append(pre, ta);
+    let note: HTMLElement | null = null;
+    box.append(top);
+    if (isKept(c)) {
+      const reason = doc().issues.find(
+        (i) => i.path === `/channels/${song().channels.indexOf(c)}/mml`
+      );
+      note = h(
+        "p",
+        { class: "mml-note", title: reason?.message ?? "" },
+        "This channel stays as text: its timing falls between the rows of the grid (triplets or q gates), so its cells are read only. Edit it here."
+      );
+      box.append(note);
+    }
+    box.append(wrap);
+    const tb: TextBox = {
+      ch: c.id,
+      commit: debounce(() => applyText(tb), TEXT_COMMIT_MS),
+      kept: isKept(c),
+      label: top.querySelector("b") as HTMLElement,
+      msg: top.querySelector(".mml-msg") as HTMLElement,
+      note,
+      pid: patternId(),
+      pre,
+      ta,
+    };
+    ta.addEventListener("input", () => {
+      checkText(tb);
+      tb.commit();
+    });
+    ta.addEventListener("blur", () => {
+      tb.commit.flush();
+      syncTexts();
+    });
+    ta.addEventListener("scroll", () => {
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    });
+    // typing must not play notes or move the cursor in the grid
+    ta.addEventListener("keydown", (e) => e.stopPropagation());
+    textPanel.append(box);
+    textBoxes.set(c.id, tb);
+    return tb;
+  }
+
+  /** Typing that has not reached the grid yet goes in now, into the pattern it was typed for. */
+  function flushTexts(): void {
+    for (const b of textBoxes.values()) {
+      b.commit.flush();
     }
   }
-  let selfMml = false;
+
+  /** The boxes of the channels whose Text view is open, in channel order; each shows the selected pattern. */
+  function buildTexts(): void {
+    flushTexts();
+    textPanel.replaceChildren();
+    textBoxes.clear();
+    const shown = song().channels.filter(showsText);
+    textPanel.hidden = shown.length === 0;
+    for (const c of shown) {
+      const box = makeTextBox(c);
+      box.label.textContent = labelOf(c);
+      box.ta.value = textOf(c);
+      checkText(box);
+    }
+  }
+
+  /** The grid changed: the boxes show the notes again, except the one being typed in. */
+  function syncTexts(): void {
+    const shown = song().channels.filter(showsText);
+    textPanel.hidden = shown.length === 0;
+    const same =
+      shown.length === textBoxes.size &&
+      shown.every((c) => textBoxes.get(c.id)?.kept === isKept(c));
+    if (!same) {
+      buildTexts();
+      return;
+    }
+    for (const c of shown) {
+      const box = textBoxes.get(c.id);
+      if (!box) {
+        continue;
+      }
+      box.pid = patternId();
+      box.label.textContent = labelOf(c);
+      const text = textOf(c);
+      if (document.activeElement !== box.ta && box.ta.value !== text) {
+        box.ta.value = text;
+      }
+      checkText(box);
+    }
+  }
 
   /* ----- bar ----- */
   function syncBar(): void {
@@ -1791,6 +1848,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     orderIdx = clamp(orderIdx, 0, Math.max(0, song().order.length - 1));
     buildOrder();
     buildGrid();
+    syncTexts();
     syncBar();
   }
 
@@ -1800,7 +1858,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     buildHead();
     buildOrder();
     buildGrid();
-    buildMml();
+    syncTexts();
     syncBar();
     syncSolo();
     buildInspector();
@@ -1828,8 +1886,7 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       return;
     }
     if (e.cause === "edit" && selfMml) {
-      // typing in an MML box: the grid shows the new notes, and an MML only song may have gained or lost bars; the text
-      // box itself stays as it is, so the caret does not jump
+      // typing in a Text box: the grid shows the new notes; the text box itself stays as it is, so the caret does not jump
       refreshAfterMml();
       return;
     }
@@ -1899,9 +1956,11 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     }
     keepOrderInView();
     if (follow && order !== orderIdx && order < song().order.length) {
+      flushTexts();
       orderIdx = order;
       buildOrder();
       buildGrid();
+      syncTexts();
       syncBar();
     }
   }
@@ -2156,6 +2215,9 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
     unsub();
     headWatch.disconnect();
     reloadSong.cancel();
+    for (const b of textBoxes.values()) {
+      b.commit.cancel();
+    }
     for (const e of scopeSurfs) {
       e.s.dispose();
     }
@@ -2211,12 +2273,12 @@ export function mountSong(ctx: ViewCtx, id: string): ViewHooks {
       title: "Duplicate this pattern",
     },
     ...song().channels.map(
-      (c, i): Command => ({
+      (c): Command => ({
         group: "Song",
         icon: "mml",
-        id: `song:mml:${c.id}`,
-        run: () => toggleMml(i),
-        title: `Toggle MML for ${c.id}`,
+        id: `song:text:${c.id}`,
+        run: () => toggleText(c),
+        title: `Show or hide the text (MML) of ${c.id}`,
       })
     ),
   ];

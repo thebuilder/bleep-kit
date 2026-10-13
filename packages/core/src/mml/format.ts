@@ -168,10 +168,14 @@ export function formatMml(
   return out.join(" ");
 }
 
-/** One pattern track (sparse rows) to MML. A note lasts until the next row that has a note or an off. */
+/**
+ * One pattern track (sparse rows) to MML. A note lasts until the next row that has a note or an off; the last note
+ * lasts to the end of the pattern when its `length` is given (as a note with no off does in the engine), else one row.
+ */
 export function patternToMml(
   rows: readonly Row[],
-  rowsPerBeat: number
+  rowsPerBeat: number,
+  length?: number
 ): string {
   const pulsesPerRow = PPQ / rowsPerBeat;
   const events: MmlEvent[] = [];
@@ -189,7 +193,7 @@ export function patternToMml(
         return r.row;
       }
     }
-    return (sorted[index]?.row ?? 0) + 1;
+    return Math.max((sorted[index]?.row ?? 0) + 1, length ?? 0);
   };
   for (let idx = 0; idx < sorted.length; idx += 1) {
     const r = sorted[idx];

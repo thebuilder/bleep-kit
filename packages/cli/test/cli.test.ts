@@ -426,11 +426,14 @@ describe("init, new, list, validate", () => {
     ]);
     expect(song.code).toBe(0);
     expect(song.json.doc.tempo).toBe(140);
+    // the MML is typed in, the song is stored as patterns
     expect(song.json.doc.channels[0]).toMatchObject({
       id: "pulse1",
       instrument: "lead",
-      mml: "o4 l8 cdefgab>c",
+      mml: null,
     });
+    expect(Object.keys(song.json.doc.patterns)).toEqual(["A"]);
+    expect(song.json.doc.patterns.A.tracks.pulse1).toHaveLength(8);
     const wrongChannel = await run(repo, [
       "new",
       "song",
@@ -655,7 +658,7 @@ describe("mutate and describe", () => {
     expect(song.json.facts.channels[0]).toMatchObject({
       id: "pulse1",
       notes: 8,
-      source: "mml",
+      source: "pattern",
     });
     const inst = await run(repo, ["describe", "instrument/lead"]);
     expect(inst.stdout).toContain("pulse instrument");

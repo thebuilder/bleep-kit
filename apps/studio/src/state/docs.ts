@@ -12,6 +12,7 @@ import type {
 } from "../lib/contract.ts";
 import {
   defaultProject,
+  mmlToPatterns,
   normalizeInstrument,
   normalizeProject,
   normalizeSample,
@@ -30,6 +31,24 @@ import {
   type ServerMessage,
   type WriteResult,
 } from "../store/store.ts";
+
+/** A song with its MML channels turned into tracker patterns (section 2.7): the grid is the one editor, so a song that
+    arrives with MML (a file from the CLI, the assistant, an older version) is opened as patterns. This runs wherever a
+    song is normalized, so the MML never reaches the document, the history or the editor. A channel whose timing falls
+    between rows stays MML, with a warning that says why. */
+function withPatterns(n: Normalized<AnyDoc>): Normalized<AnyDoc> {
+  if (!n.ok) {
+    return n;
+  }
+  const converted = mmlToPatterns(n.value as Song);
+  return converted.song === n.value
+    ? n
+    : {
+        ...n,
+        issues: [...n.issues, ...converted.issues],
+        value: converted.song,
+      };
+}
 
 export type DocKind = "sfx" | "instrument" | "song" | "sample";
 export type AnyDoc = Sfx | Instrument | Song | UserSample;
@@ -256,7 +275,7 @@ class ProjectState {
     if (kind === "instrument") {
       return normalizeInstrument(json, samples);
     }
-    return normalizeSong(json, this.instruments(), samples);
+    return withPatterns(normalizeSong(json, this.instruments(), samples));
   }
 
   private ingest(

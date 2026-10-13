@@ -1219,38 +1219,36 @@ describe("the song editor", () => {
     ]);
   });
 
-  it("a channel written as MML comes back as the same rows in the tracker", async () => {
+  /** The Text view box of channel 0 (opens it with the TXT button when it is closed). */
+  const textBox = () => {
+    const head = document.getElementById("gHead") as HTMLElement;
+    if (!document.querySelector(".mml-ta")) {
+      press(head.querySelector('.tch[data-ch="0"] [data-act="text"]'));
+    }
+    return document.querySelector<HTMLTextAreaElement>(
+      ".mml-ta"
+    ) as HTMLTextAreaElement;
+  };
+
+  it("the Text view of a channel shows the same notes as the grid, and follows it", async () => {
     await makeSong("mml-song", {}, 1, 24);
     await goSong("mml-song");
     typeKeys("z", "s", "x", "1");
-    const track = () => {
-      const s = songValue("mml-song");
-      return s.patterns["pattern-1"]?.tracks[s.channels[0]?.id as string] ?? [];
-    };
-    const before = clone(track());
-    expect(before.map((r) => r.note)).toEqual([
-      lowestNote(),
-      lowestNote() + 1,
-      lowestNote() + 2,
-      "off",
-    ]);
-    const head = document.getElementById("gHead") as HTMLElement;
-    press(head.querySelector('.tch[data-ch="0"] [data-act="mml"]'));
-    const [ch0] = songValue("mml-song").channels;
-    expect(ch0?.mml).toEqual(expect.any(String));
-    expect(track()).toEqual([]);
-    expect(toast()).toContain("is now written in MML");
-    expect(document.querySelector<HTMLTextAreaElement>(".mml-ta")?.value).toBe(
-      ch0?.mml
-    );
-    press(document.querySelector(".mml-top .btn"));
+    expect(document.querySelector(".mml-ta")).toBeNull();
+    const ta = textBox();
+    const chId = songValue("mml-song").channels[0]?.id;
+    expect(ta.getAttribute("aria-label")).toBe(`Text (MML) of ${chId}`);
+    expect(ta.value).toMatch(/^o\d c16 c\+16 d16$/);
     expect(songValue("mml-song").channels[0]?.mml).toBeNull();
-    expect(track()).toEqual(before);
+    // a note written in the grid is in the text too
+    const before = ta.value;
+    typeKeys("z");
+    expect(await until(() => ta.value !== before)).toBe(true);
   });
 
-  /* MML has no release, so the conversion notes the release rows in a trailing MML comment and converting back turns the
-     note offs on those rows into releases again. */
-  it("a release row survives a trip through MML", async () => {
+  /* MML has no release, so the Text view notes the release rows in a trailing MML comment and typing turns the note offs
+     on those rows into releases again. */
+  it("a release row survives a trip through the Text view", async () => {
     await makeSong("release-song", {}, 1, 24);
     await goSong("release-song");
     typeKeys("z", "`");
@@ -1258,40 +1256,40 @@ describe("the song editor", () => {
       const s = songValue("release-song");
       return s.patterns["pattern-1"]?.tracks[s.channels[0]?.id as string] ?? [];
     };
-    const head = document.getElementById("gHead") as HTMLElement;
-    press(head.querySelector('.tch[data-ch="0"] [data-act="mml"]'));
-    press(document.querySelector(".mml-top .btn"));
+    const ta = textBox();
+    expect(ta.value).toContain("release rows: 1");
+    ta.focus();
+    ta.value = ta.value.replace(/l\d+ /, "").replace("c", "l16 c");
+    fire(ta, "input");
+    await settle(250);
     expect(track().map((r) => r.note)).toEqual([lowestNote(), "release"]);
   });
 
-  it("typing MML changes the channel's text, and bad MML is reported", async () => {
+  it("typing in the Text view changes the notes of the pattern, and bad MML is reported", async () => {
     await goSong(SONG);
     const head = document.getElementById("gHead") as HTMLElement;
-    press(head.querySelector('.tch[data-ch="1"] [data-act="mml"]'));
+    press(head.querySelector('.tch[data-ch="1"] [data-act="text"]'));
     const ta = document.querySelector<HTMLTextAreaElement>(
       ".mml-ta"
     ) as HTMLTextAreaElement;
+    ta.focus();
     ta.value = "o4 l8 c d e f";
     fire(ta, "input");
     expect(document.querySelector(".mml-msg")?.textContent).toBe("ok");
-    expect(
-      await until(() => songValue(SONG).channels[1]?.mml === "o4 l8 c d e f")
-    ).toBe(true);
-    // the panel may have been rebuilt by the edit
-    const again = document.querySelector<HTMLTextAreaElement>(
-      ".mml-ta"
-    ) as HTMLTextAreaElement;
-    again.value = "o4 l8 c d e f zz";
-    fire(again, "input");
+    expect(await until(() => rowsOf(1).length === 5)).toBe(true);
+    expect(rowsOf(1).map((r) => r.row)).toEqual([0, 2, 4, 6, 8]);
+    ta.value = "o4 l8 c d e f zz";
+    fire(ta, "input");
     expect(document.querySelector(".mml-msg")?.classList.contains("bad")).toBe(
       true
     );
     expect(document.querySelector(".mml-msg")?.textContent).toContain(
       'unknown command "z"'
     );
-    press(document.querySelector(".mml-top .btn"));
+    // the grid keeps the last good notes
+    await settle(250);
+    expect(rowsOf(1)).toHaveLength(5);
     expect(songValue(SONG).channels[1]?.mml).toBeNull();
-    expect(rowsOf(1).length).toBeGreaterThan(0);
   });
 
   it("every control of the song inspector edits the song", async () => {
